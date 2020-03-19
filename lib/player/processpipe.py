@@ -1,4 +1,4 @@
-from Queue import Queue
+from queue import Queue
 from threading import Thread
 import subprocess32 as subprocess
 import os, select, signal, cherrypy, shutil
@@ -113,7 +113,7 @@ class ProcessPipe(object):
     self.stopping = True
     self.started = False
     error = None
-    for idx in xrange(self.next_proc-1, -1, -1):
+    for idx in range(self.next_proc-1, -1, -1):
       proc = self.procs[idx]
       proc.stop()
       self.threads[idx].join()
@@ -197,7 +197,7 @@ class ExternalProcess(Process):
     try:
       args = self._ready() 
       self.msg_ready(args)
-    except ProcessException, e:
+    except ProcessException as e:
       # Ignore errors if process is being killed
       if not self.killing:
         self._set_error(str(e))
@@ -226,7 +226,7 @@ class ExternalProcess(Process):
         # kill - including all children of process
         self.killing = True
         os.killpg(self.proc.pid, signal.SIGKILL)
-      except Exception, e:
+      except Exception as e:
         pass
 
     if os.path.exists(OUT_FILE):

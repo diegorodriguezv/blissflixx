@@ -1,5 +1,5 @@
 import cherrypy, locations, os
-from processpipe import ExternalProcess, ProcessException
+from .processpipe import ExternalProcess, ProcessException
 
 DLSRV_PATH = os.path.join(locations.BIN_PATH, "dlsrv")
 _DLSRV_PORT = "9696"
@@ -16,7 +16,7 @@ class DlsrvProcess(ExternalProcess):
     self.args = args
     cmd = [DLSRV_PATH, args['outfile']]
     if 'pid' in args:
-      cmd.append(unicode(args['pid']))
+      cmd.append(str(args['pid']))
     return cmd
 
   def _ready(self):

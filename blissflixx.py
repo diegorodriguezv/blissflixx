@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#!/usr/bin/python3
 from os import path
 import sys, os
 LIB_PATH = path.join(path.abspath(path.dirname(__file__)), "lib")
@@ -7,8 +7,8 @@ import locations, gitutils, cherrypy
 
 # Do not allow running as root
 if os.geteuid() == 0:
-  print "BlissFlixx should not be run as superuser."
-  print "Please run again but without using sudo."
+  print("BlissFlixx should not be run as superuser.")
+  print("Please run again but without using sudo.")
   sys.exit(1)
 
 # Check if first time run and need to finish install
@@ -101,7 +101,7 @@ class Api(object):
           ret['Msg'] = "Server Restarting & Updating..."
           ret['Restart'] = True
         return ret
-    except Exception, e:
+    except Exception as e:
       return self._error(500, traceback.format_exc())
 
 def cleanup():

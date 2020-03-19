@@ -20,21 +20,22 @@ apt-get update
 apt-get -y -f install
 
 # Remove old version of node
-apt-get -y remove nodejs-legacy
+#apt-get -y remove nodejs-legacy
 
 # Install latest node.js
-here=$PWD
-wget https://nodejs.org/download/release/v10.0.0/node-v10.0.0-linux-armv6l.tar.xz
-cd /usr/local
-tar xJf $here/node-v10.0.0-linux-armv6l.tar.xz --strip=1
-cd $here
-rm node-v10.0.0-linux-armv6l.tar.xz
+# here=$PWD
+# wget https://nodejs.org/download/release/v10.0.0/node-v10.0.0-linux-armv6l.tar.xz
+# cd /usr/local
+# tar xJf $here/node-v10.0.0-linux-armv6l.tar.xz --strip=1
+# cd $here
+# rm node-v10.0.0-linux-armv6l.tar.xz
+apt-get -y install node
 
 # Install npm 
 apt-get -y install npm
 
 # Install latest omxplayer
-apt-get -y install omxplayer
+#apt-get -y install omxplayer
 
 # Install peerflix
 npm install -g peerflix
@@ -58,14 +59,15 @@ apt-get -y install python-pip
 apt-get -y install python-dev
 
 # Install CherryPy
-pip install tempora==1.14.1 jaraco.functools==2.0 more-itertools==5.0.0
-pip install cherrypy==17.4.2
+# pip install tempora==1.14.1 jaraco.functools==2.0 more-itertools==5.0.0
+# pip install cherrypy==17.4.2
+pip3 install cherrypy
 
 # Install subprocess32 module
-pip install subprocess32
+pip3 install subprocess32
 
 # Install requests module
-pip install requests
+pip3 install requests
 
 # Install XML parser
 apt-get -y install libxml2-dev
@@ -77,22 +79,22 @@ apt-get -y install libxslt1-dev
 apt-get install python-crypto
 
 # Install lxml module
-pip install lxml
+pip3 install lxml
 
 # Install cssselect module
-pip install cssselect
+pip3 install cssselect
 
 # Required for setcap
 apt-get -y install libcap2-bin
 
 # So server can run on port 80 without sudo
-setcap 'cap_net_bind_service=+ep' /usr/bin/python2.7
+setcap 'cap_net_bind_service=+ep' /usr/bin/python3
 
 # Install bonjour for raspberrypi.local 
 apt-get -y install libnss-mdns
 
 # Install phantomjs (required by youtube-dl for some extractors)
-apt-get -y install libfontconfig1 libfreetype6
-wget https://github.com/fg2it/phantomjs-on-raspberry/releases/download/v2.1.1-wheezy-jessie-armv6/phantomjs_2.1.1_armhf.deb
-sudo dpkg -i phantomjs_2.1.1_armhf.deb
-rm phantomjs_2.1.1_armhf.deb
+# apt-get -y install libfontconfig1 libfreetype6
+# wget https://github.com/fg2it/phantomjs-on-raspberry/releases/download/v2.1.1-wheezy-jessie-armv6/phantomjs_2.1.1_armhf.deb
+# sudo dpkg -i phantomjs_2.1.1_armhf.deb
+# rm phantomjs_2.1.1_armhf.deb

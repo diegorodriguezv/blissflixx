@@ -1,7 +1,7 @@
 import os
 from playitem import PlayItem, PlayItemList
 try:
-  from config import _FEEDLIST
+  from .config import _FEEDLIST
 except ImportError:
   raise Exception("You need to copy sample.py to config.py in Local Media Plugin")
 

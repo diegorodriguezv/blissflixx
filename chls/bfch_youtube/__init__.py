@@ -51,7 +51,7 @@ def _extract(data):
       img = r['snippet']['thumbnails']['default']['url']
     except KeyError:
       img = '/img/icons/film.svg'
-    if isinstance(r['id'], basestring):
+    if isinstance(r['id'], str):
       vid = r['id']
     elif 'videoId' in r['id']:
       vid = r['id']['videoId']

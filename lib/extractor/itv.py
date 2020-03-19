@@ -1,6 +1,6 @@
 import requests
 import re
-import urllib2
+import urllib.request, urllib.error, urllib.parse
 
 prodid_re = re.compile("productionId=(.+?)[\"\']")
 stream_re  = re.compile("<MediaFiles base=\"(.+?)\"")
@@ -36,7 +36,7 @@ def extract(url):
 	if not matches or len(matches.groups()) == 0:
 		raise Exception("Unable to find production id")
         prodid = matches.group(1)
-	prodid = urllib2.unquote(prodid)
+	prodid = urllib.parse.unquote(prodid)
 
 	playlist = _get_playlist(prodid)
 

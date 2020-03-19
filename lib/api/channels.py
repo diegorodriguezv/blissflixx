@@ -1,8 +1,8 @@
 from os import path
-from common import ApiError
+from .common import ApiError
 from chanutils import get_json
 from threading import Thread
-from Queue import Queue
+from queue import Queue
 import glob, locations, settings, os, subprocess, chanutils
 import shutil
 
@@ -110,7 +110,7 @@ class InstalledChannels:
       except ImportError:
         pass
     # Ignore channels with no image
-    channels = filter(lambda chan: chan.imageExists(), channels)
+    channels = [chan for chan in channels if chan.imageExists()]
     self.channels = sorted(channels, key=lambda chan: chan.getTitle().upper())
     self.settings = settings.load("channels")
 

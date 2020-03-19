@@ -1,4 +1,4 @@
-import chanutils.torrent, urllib
+import chanutils.torrent, urllib.request, urllib.parse, urllib.error
 from chanutils import get_doc, get_json, select_all, select_one, get_attr
 from chanutils import get_text, get_text_content, replace_entity, byte_size
 from chanutils import movie_title_year, series_season_episode
@@ -33,7 +33,7 @@ def feed(idx):
   return _extract(doc)
 
 def search(q):
-  url = _SEARCH_URL % urllib.quote(q.encode('utf8'))
+  url = _SEARCH_URL % urllib.parse.quote(q.encode('utf8'))
   doc = get_doc(url)
   return _extract(doc)
 

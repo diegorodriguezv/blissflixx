@@ -66,9 +66,9 @@ def _extract_html(doc):
   return results
 
 def _subtitle(size, seeds, released):
-  subtitle = 'Size: ' + unicode(size)
-  subtitle = subtitle + ', Seeds: ' + unicode(seeds)
-  subtitle = subtitle + ', Released: ' + unicode(released)
+  subtitle = 'Size: ' + str(size)
+  subtitle = subtitle + ', Seeds: ' + str(seeds)
+  subtitle = subtitle + ', Released: ' + str(released)
   return subtitle
 
 def _extract_list(doc):
