@@ -11,7 +11,7 @@ CHANID_GLOB = 'bfch_*'
 class Channel:
   def __init__(self, cpath, plugin):
     chid = path.basename(cpath)
-    module = __import__(chid, globals(), locals(), [], -1)
+    module = __import__(chid, globals(), locals(), [], 0)
     name = module.name()
     subtitle = module.description()
     image = chid + "/" + module.image()
@@ -53,9 +53,9 @@ class Channel:
       if ('img' not in i) or (i['img'] is None):
         i['img'] = self.image
       if 'actions' in i:
-	for action in i['actions']:
-	  if action['type'] == 'showmore':
-	    action['chid'] = self.chid
+        for action in i['actions']:
+          if action['type'] == 'showmore':
+            action['chid'] = self.chid
     
     return items
 

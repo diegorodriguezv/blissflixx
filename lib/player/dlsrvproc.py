@@ -23,7 +23,7 @@ class DlsrvProcess(ExternalProcess):
     while True:
       line = self._readline()
       if line.startswith("Listening"):
-	self.args['outfile'] = 'http://127.0.0.1:' + _DLSRV_PORT
+        self.args['outfile'] = 'http://127.0.0.1:' + _DLSRV_PORT
         return self.args
       else:
         raise ProcessException(line)

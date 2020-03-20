@@ -1,4 +1,5 @@
-import os, cherrypy, locations, ythelper
+import os, cherrypy, locations
+from . import ythelper
 import subprocess32 as subprocess
 from queue import Queue
 from .processpipe import ProcessPipe, _start_thread, MSG_PLAYER_PIPE_STOPPED

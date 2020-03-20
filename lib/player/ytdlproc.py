@@ -1,4 +1,5 @@
-import cherrypy, locations, os, ythelper, json
+import cherrypy, locations, os, json
+from . import ythelper
 from .processpipe import ExternalProcess, ProcessException, OUT_FILE
 
 YTDL_PATH = os.path.join(locations.YTUBE_PATH, "youtube_dl")

@@ -1,4 +1,4 @@
-import chanutils.torrent, urllib.request, urllib.parse, urllib.error
+import chanutils.torrent, urllib.parse
 from chanutils import get_doc, get_json, select_all, select_one, get_attr
 from chanutils import get_text, get_text_content, replace_entity, byte_size
 from chanutils import movie_title_year, series_season_episode

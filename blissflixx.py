@@ -1,4 +1,5 @@
 #!/usr/bin/python3
+#todo: git reset 97922
 from os import path
 import sys, os
 LIB_PATH = path.join(path.abspath(path.dirname(__file__)), "lib")
@@ -125,7 +126,7 @@ def cleanup():
   kill_process("dlsrv")
 
 def kill_process(name):
-  s = subprocess.check_output("ps -ef | grep " + name, shell=True)
+  s = subprocess.check_output("ps -ef | grep " + name, shell=True, text=True)
   lines = s.split('\n')
   for l in lines:
     items = l.split()

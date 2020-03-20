@@ -31,7 +31,7 @@ langMap = {
 }
 
 def error(msg):
-  print(('{"error":"' + msg + '"}'))
+  print('{"error":"' + msg + '"}')
   sys.exit(1)
 
 class TimeoutTransport(Transport, object):
@@ -221,6 +221,6 @@ if filename is None:
 elif filename.startswith("ERROR:"):
   error(filename[7:])
 elif filename:
-  print(('{"filename":"' + filename + '"}'))
+  print('{"filename":"' + filename + '"}')
 else:
   print("{}")

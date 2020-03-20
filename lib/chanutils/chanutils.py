@@ -1,5 +1,5 @@
 import requests, lxml.html, re
-import html.entities, urllib.request, urllib.parse, urllib.error, random
+import html.entities, urllib.parse, random
 from lxml.cssselect import CSSSelector
 
 _PROXY_LIST = [{"url": "http://blissflixx-proxy1.appspot.com"}]
@@ -139,7 +139,7 @@ def replace_entity(text):
   return re.sub("&#?\w+;", fixup, text)
 
 def number_commas(x):
-    if type(x) not in [type(0), type(0)]:
+    if type(x) <> type(0):
       return '0'
     if x < 0:
         return '-' + number_commas(-x)
