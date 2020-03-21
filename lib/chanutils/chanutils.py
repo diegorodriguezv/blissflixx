@@ -157,7 +157,7 @@ def replace_entity(text):
 
 
 def number_commas(x):
-    if type(x) <> type(0):
+    if type(x) != type(0):
         return "0"
     if x < 0:
         return "-" + number_commas(-x)
