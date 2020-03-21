@@ -1,5 +1,4 @@
 #!/usr/bin/python3
-#todo: git reset 97922
 from os import path
 import sys, os
 LIB_PATH = path.join(path.abspath(path.dirname(__file__)), "lib")
@@ -102,7 +101,7 @@ class Api(object):
           ret['Msg'] = "Server Restarting & Updating..."
           ret['Restart'] = True
         return ret
-    except Exception as e:
+    except Exception:
       return self._error(500, traceback.format_exc())
 
 def cleanup():
