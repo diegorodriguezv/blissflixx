@@ -55,8 +55,11 @@ apt-get -y install python3-pip
 # Install python build tools
 apt-get -y install python3-dev
 
+# Install requirements for cherrypy that run on python 3.4
+pip3 install more-itertools==7.2.0 tempora==1.14.1 jaraco.functools==2.0
+
 # Install CherryPy
-pip3 install cherrypy
+pip3 install CherryPy==17.4.2
 
 # Install subprocess32 module
 pip3 install subprocess32
@@ -74,7 +77,7 @@ apt-get -y install libxslt1-dev
 apt-get install python-crypto
 
 # Install lxml module
-pip3 install lxml
+pip3 install lxml==4.3.5
 
 # Install cssselect module
 pip3 install cssselect
