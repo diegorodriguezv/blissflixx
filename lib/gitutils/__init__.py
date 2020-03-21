@@ -7,7 +7,7 @@ def _cd(dirpath):
 
 
 def _exec(cmd):
-    s = subprocess.check_output(cmd, text=True)
+    s = subprocess.check_output(cmd, universal_newlines=True)
     lines = s.split("\n")
     for l in lines:
         if l.strip() != "":

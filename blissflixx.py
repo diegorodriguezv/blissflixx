@@ -130,7 +130,7 @@ def cleanup():
 
 
 def kill_process(name):
-    s = subprocess.check_output("ps -ef | grep " + name, shell=True, text=True)
+    s = subprocess.check_output("ps -ef | grep " + name, shell=True, universal_newlines=True)
     lines = s.split("\n")
     for l in lines:
         items = l.split()

@@ -38,7 +38,7 @@ def magnet2torrent(link):
 
 def peerflix_metadata(link):
     # stdin=PIPE so peerflix does not enter interactive mode
-    s = subprocess.check_output(["peerflix", link, "-l"], stdin=subprocess.PIPE)
+    s = subprocess.check_output(["peerflix", link, "-l"], stdin=subprocess.PIPE, universal_newlines=True)
     lines = s.split("\n")
     files = []
     for l in lines:
