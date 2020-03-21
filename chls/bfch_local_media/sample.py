@@ -5,6 +5,6 @@
 # Enjoy !
 
 _FEEDLIST = [
-  {'title':'My Movies','folder':'/path/to/movies'},
-  {'title':'My TV','folder':'/path/to/tvshows'},
+    {"title": "My Movies", "folder": "/path/to/movies"},
+    {"title": "My TV", "folder": "/path/to/tvshows"},
 ]

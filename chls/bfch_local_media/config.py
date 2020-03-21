@@ -5,6 +5,5 @@
 # Enjoy !
 
 _FEEDLIST = [
-
-  {'title':'Torrents','folder':'/mnt/My_Book/Usuarios/Diego/Descargas/Torrents'},
+    {"title": "Torrents", "folder": "/mnt/My_Book/Usuarios/Diego/Descargas/Torrents"},
 ]
