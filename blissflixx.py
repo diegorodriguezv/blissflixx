@@ -46,7 +46,7 @@ sys.path.append(locations.PLUGIN_PATH)
 
 import json, shutil, subprocess
 import signal, traceback, argparse
-import api, pwd, grp
+import api
 
 RESTARTING = False
 
