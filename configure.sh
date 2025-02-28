@@ -95,6 +95,7 @@ Description=Blank screen after boot
 Type=simple
 User=$(logname)
 ExecStart=$(pwd)/blank_screen.sh
+ExecStartPre=/bin/sleep 15
 
 [Install]
 WantedBy=default.target
