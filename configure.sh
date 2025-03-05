@@ -104,6 +104,28 @@ _contents
     systemctl enable blankscreen.service
 fi
 
+if [[ $@ == *-rejoin* ]] ; then
+    systemctl stop rejoin.service
+    systemctl disable rejoin.service
+  cat << _contents > /etc/systemd/system/rejoin.service
+[Unit]
+Description=Rejoin, a wifi connection repair service
+After=network-online.target
+
+[Service]
+Type=simple
+Restart=always
+User=$(logname)
+WorkingDirectory=$(pwd)
+ExecStart='$(pwd)/rejoin.sh'
+
+[Install]
+WantedBy=default.target
+_contents
+    systemctl daemon-reload
+    systemctl --now enable rejoin.service
+fi
+
 if [[ $@ == *-uninstall* ]] ; then
     systemctl stop blankscreen.service
     systemctl disable blankscreen.service
