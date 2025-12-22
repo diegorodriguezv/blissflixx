@@ -133,5 +133,8 @@ if [[ $@ == *-uninstall* ]] ; then
     systemctl stop blissflixx.service
     systemctl disable blissflixx.service
     rm /etc/systemd/system/blissflixx.service
+    systemctl stop rejoin.service
+    systemctl disable rejoin.service
+    rm /etc/systemd/system/rejoin.service
     systemctl daemon-reload
 fi
