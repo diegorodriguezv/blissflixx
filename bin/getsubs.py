@@ -136,7 +136,7 @@ def opensub_movie_subs(lang, title, year, imdb):
             continue
         if r["MovieKind"] != "movie":
             continue
-        if year and int(r["MovieYear"]) != year:
+        if year and r["MovieYear"] and int(r["MovieYear"]) != year:
             continue
 
         # Use YIFY above all others
