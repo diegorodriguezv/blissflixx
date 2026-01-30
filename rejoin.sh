@@ -1,6 +1,6 @@
 #!/bin/bash
 check_interval=10
-ping_destination=192.168.1.13
+ping_destination=ip route | grep default | awk '{print $3}'
 ping_count=3
 max_ping_failures=3
 failure_count=0
