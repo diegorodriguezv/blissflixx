@@ -105,7 +105,7 @@ class _Player:
         """
         configured = load("player").get("backend", DEFAULT_BACKEND)
         if configured:
-            return get_backend(configured)()
+            return get_backend(configured)
         return self._legacy_backend(http, dlsrv)
 
     def _legacy_backend(self, http, dlsrv):

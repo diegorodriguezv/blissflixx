@@ -22,37 +22,54 @@ class OmxplayerProcess2(OmxplayerBackend):
     #: This variant implements the whole action set.
     capabilities = ALL_CAPABILITIES
 
-    start_timeout = _START_TIMEOUT
+    # The binary is .bin rather than omxplayer because the wrapper emits dbus
+    # calls that made the process "suddenly die"; see commit 6d21a23. --timeout 0
+    # means never give up waiting for input, which is right here because the
+    # file being read is still growing and has no end.
+    defaults = {
+        "binary": "omxplayer.bin",
+        "extra_args": ["--timeout", "0", "-I"],
+        "start_timeout": _START_TIMEOUT,
+        "fifo": _CMD_FIFO,
+    }
 
-    def __init__(self):
-        super().__init__(shell=True)
+    def __init__(self, config=None):
+        super().__init__(config=config)
+        self.shell = True
+
+    @property
+    def start_timeout(self):
+        return self.opt("start_timeout")
+
+    @property
+    def fifo(self):
+        return self.opt("fifo")
 
     def build_command(self, args):
-        cmd = OMX_CMD
+        cmd = self.opt("binary") + " " + " ".join(self.opt("extra_args"))
         if "subtitles" in args:
-            cmd = cmd + "--align center --subtitles '" + args["subtitles"] + "' "
-        cmd += "'" + args["outfile"] + "'"
-        return "tail -f " + _CMD_FIFO + " | " + cmd
+            cmd += " --align center --subtitles '" + args["subtitles"] + "'"
+        return "tail -f " + self.fifo + " | " + cmd + " '" + args["outfile"] + "'"
 
     def name(self):
         return "omxplayer with keys"
 
     def start(self, args):
-        if not os.path.exists(_CMD_FIFO):
-            os.system("mkfifo " + _CMD_FIFO)
+        if not os.path.exists(self.fifo):
+            os.system("mkfifo " + self.fifo)
         self.control("show_subtitle")
         super().start(args)
 
     def stop(self):
-        if os.path.exists(_CMD_FIFO):
+        if os.path.exists(self.fifo):
             try:
-                os.remove(_CMD_FIFO)
+                os.remove(self.fifo)
             except Exception:
                 pass
         super().stop()
 
     def _send_key(self, key):
-        os.system("echo -n " + key + " >> " + _CMD_FIFO + " &")
+        os.system("echo -n " + key + " >> " + self.fifo + " &")
 
     def control(self, action):
         key = None

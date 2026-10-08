@@ -58,33 +58,60 @@ class MpvProcess(PlayerBackend):
 
     mpv takes argv rather than a shell string, so this backend needs no shell and
     no FIFO. It can read a growing file, an http url, or a pipe, all directly.
+
+    The default flags are the invocation verified working on the Pi: DRM/KMS
+    presentation through the GPU context, no hardware video decoding, and audio
+    routed to the HDMI card. Those last two are the parts that differ between
+    models, so audio_device is configurable rather than baked in.
     """
 
     capabilities = ALL_CAPABILITIES
 
-    start_timeout = _START_TIMEOUT
+    defaults = {
+        "binary": MPV_BIN,
+        # --no-terminal: stdout and stderr are this process's status stream and
+        #   _ready reads it.
+        # --no-config: keep whatever mpv.conf the box happens to have out of
+        #   playback. --profile=fast still applies; it is a builtin profile.
+        # --vo/--gpu-context/--gpu-api: DRM presentation on the Pi.
+        # --hwdec=no: measured faster than hardware decode for this content.
+        "extra_args": [
+            "--no-terminal",
+            "--no-config",
+            "--profile=fast",
+            "--vo=gpu",
+            "--gpu-context=drm",
+            "--gpu-api=opengl",
+            "--hwdec=no",
+        ],
+        "audio_device": "alsa/hdmi:CARD=vc4hdmi,DEV=0",
+        "socket": _SOCKET_PATH,
+        "start_timeout": _START_TIMEOUT,
+    }
 
-    def __init__(self, socket_path=_SOCKET_PATH):
+    def __init__(self, config=None):
         # shell=False: argv with no shell metacharacters.
-        super().__init__(shell=False)
-        self.socket_path = socket_path
+        super().__init__(config=config)
+        self.shell = False
+
+    @property
+    def socket_path(self):
+        return self.opt("socket")
+
+    @property
+    def start_timeout(self):
+        return self.opt("start_timeout")
 
     def build_command(self, args):
-        cmd = [
-            MPV_BIN,
-            # Nothing is written to the terminal: stdout and stderr are read as
-            # the process's status stream, and mpv's normal terminal chatter
-            # would fill it.
-            "--no-terminal",
-            # Keep the user's mpv.conf out of it, so playback does not depend on
-            # what happens to be configured on the box.
-            "--no-config",
-            # Bind the control socket. mpv creates it while starting up, which
-            # is what readiness is detected from.
-            "--input-ipc-server=" + self.socket_path,
-            "--idle=no",
-            "--keep-open=no",
-        ]
+        cmd = [self.opt("binary")]
+        cmd += list(self.opt("extra_args"))
+        # Bind the control socket. mpv creates it while starting up, which is
+        # what readiness is detected from.
+        cmd.append("--input-ipc-server=" + self.socket_path)
+        audio_device = self.opt("audio_device")
+        if audio_device:
+            cmd.append("--audio-device=" + audio_device)
+        cmd += ["--idle=no", "--keep-open=no"]
         if "subtitles" in args:
             cmd.append("--sub-file=" + args["subtitles"])
         outfile = args["outfile"]

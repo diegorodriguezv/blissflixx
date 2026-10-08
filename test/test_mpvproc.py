@@ -67,7 +67,7 @@ ACTIONS = {
 
 
 def mpv(args):
-    return MpvProcess(socket_path=SOCK).build_command(args)
+    return MpvProcess({"socket": SOCK}).build_command(args)
 
 
 class TestMpvCommand:
@@ -88,7 +88,7 @@ class TestMpvCommand:
 
     def test_ipc_server_bound_to_the_socket_path(self):
         """The socket is both the control channel and the readiness signal."""
-        cmd = MpvProcess(socket_path=SOCK).build_command({"outfile": FILE_OUT})
+        cmd = MpvProcess({"socket": SOCK}).build_command({"outfile": FILE_OUT})
         assert "--input-ipc-server=" + SOCK in cmd
 
     def test_terminal_output_disabled(self):
@@ -132,7 +132,7 @@ class TestMpvReady:
     """
 
     def test_socket_appearance_means_ready(self, monkeypatch):
-        proc = MpvProcess(socket_path=SOCK)
+        proc = MpvProcess({"socket": SOCK})
         proc.proc = types.SimpleNamespace(poll=lambda: None)
         states = iter([False, False, True])
 
@@ -144,9 +144,8 @@ class TestMpvReady:
         proc._ready()
 
     def test_socket_never_appears_times_out(self, monkeypatch):
-        proc = MpvProcess(socket_path=SOCK)
+        proc = MpvProcess({"socket": SOCK, "start_timeout": 0.05})
         proc.proc = types.SimpleNamespace(poll=lambda: None)
-        proc.start_timeout = 0.05
         monkeypatch.setattr(os.path, "exists", lambda p: False)
         monkeypatch.setattr("lib.player.mpvproc.time.sleep", lambda s: None)
         with pytest.raises(ProcessException, match="timed out"):
@@ -154,7 +153,7 @@ class TestMpvReady:
 
     def test_early_exit_is_reported(self, monkeypatch):
         """mpv dying before binding must surface, not hang until the timeout."""
-        proc = MpvProcess(socket_path=SOCK)
+        proc = MpvProcess({"socket": SOCK})
         proc.proc = types.SimpleNamespace(poll=lambda: 1)
         proc._readline = lambda timeout=None: ""
         monkeypatch.setattr(os.path, "exists", lambda p: False)
@@ -167,7 +166,7 @@ class TestMpvReady:
         When mpv exits it usually says why. The first recognised error line
         becomes the message the user sees.
         """
-        proc = MpvProcess(socket_path=SOCK)
+        proc = MpvProcess({"socket": SOCK})
         proc.proc = types.SimpleNamespace(poll=lambda: 1)
         monkeypatch.setattr(os.path, "exists", lambda p: False)
         monkeypatch.setattr("lib.player.mpvproc.time.sleep", lambda s: None)
@@ -185,7 +184,7 @@ class TestMpvControl:
     """
 
     def _sent(self, action):
-        proc = MpvProcess(socket_path=SOCK)
+        proc = MpvProcess({"socket": SOCK})
         sent = []
         proc._send_command = lambda command: sent.append(command) or True
         proc.control(action)
@@ -256,7 +255,7 @@ class TestMpvSocketWrite:
     """
 
     def test_command_is_sent_as_json(self):
-        proc = MpvProcess(socket_path=SOCK)
+        proc = MpvProcess({"socket": SOCK})
         sock = m.MagicMock()
         ctx = m.MagicMock()
         ctx.__enter__.return_value = sock
@@ -277,13 +276,13 @@ class TestMpvSocketWrite:
         Not running, or not up yet. Returning False rather than raising keeps
         control() safe to call during startup.
         """
-        proc = MpvProcess(socket_path=SOCK)
+        proc = MpvProcess({"socket": SOCK})
         with m.patch("os.path.exists", return_value=False):
             assert proc._send_command(["quit"]) is False
 
     def test_socket_error_is_not_propagated(self):
         """A race with mpv exiting must not turn into a 500 in the UI."""
-        proc = MpvProcess(socket_path=SOCK)
+        proc = MpvProcess({"socket": SOCK})
         ctx = m.MagicMock()
         ctx.__enter__.side_effect = OSError("gone")
         with (
@@ -303,13 +302,13 @@ class TestMpvLifecycle:
     def test_stop_removes_the_socket(self, tmp_path):
         sock = tmp_path / "mpv.sock"
         sock.write_text("")
-        proc = MpvProcess(socket_path=str(sock))
+        proc = MpvProcess({"socket": str(sock)})
         proc.proc = None
         proc.stop()
         assert not sock.exists()
 
     def test_stop_tolerates_a_missing_socket(self):
-        proc = MpvProcess(socket_path="/nonexistent/mpv.sock")
+        proc = MpvProcess({"socket": "/nonexistent/mpv.sock"})
         proc.proc = None
         proc.stop()
 
@@ -364,10 +363,10 @@ class TestRegistry:
     def test_names_are_sorted(self):
         assert backend_names() == ["mpv", "omxplayer", "omxplayer-keys"]
 
-    def test_get_backend_resolves(self):
-        assert get_backend("mpv") is MpvProcess
-        assert get_backend("omxplayer") is OmxplayerProcess
-        assert get_backend("omxplayer-keys") is OmxplayerProcess2
+    def test_get_backend_returns_a_configured_instance(self):
+        assert isinstance(get_backend("mpv"), MpvProcess)
+        assert isinstance(get_backend("omxplayer"), OmxplayerProcess)
+        assert isinstance(get_backend("omxplayer-keys"), OmxplayerProcess2)
 
     def test_unknown_name_raises(self):
         """

@@ -2,7 +2,7 @@ import os
 import time
 
 from ..locations import BIN_PATH
-from .backend import CAP_PAUSE, CAP_STOP, CAP_SUBTITLES, OmxplayerBackend
+from .backend import CAP_PAUSE, CAP_SUBTITLES, OmxplayerBackend
 from .processpipe import ProcessException
 
 OMX_CMD = "omxplayer --timeout 120 -I --no-keys "
@@ -22,18 +22,34 @@ class OmxplayerProcess(OmxplayerBackend):
     #: dbus can toggle playback and nothing else here.
     capabilities = frozenset({CAP_PAUSE, CAP_SUBTITLES})
 
-    start_timeout = _START_TIMEOUT
+    # --timeout, -I and --no-keys are not a considered default: they accumulated
+    # while fixing specific playback bugs on the Pi. See the git history for
+    # "videos stop abruptly", "videos missing a little at the beginning" and
+    # "first seconds of a video are lost". They are still the values that work,
+    # so they stay, but as overridable data rather than a constant in a string.
+    defaults = {
+        "binary": "omxplayer",
+        "extra_args": ["--timeout", "120", "-I", "--no-keys"],
+        "start_timeout": _START_TIMEOUT,
+        "input_timeout": _INPUT_TIMEOUT,
+        "dbus_path": _DBUS_PATH,
+    }
 
-    def __init__(self):
-        super().__init__(shell=True)
+    def __init__(self, config=None):
+        super().__init__(config=config)
+        self.shell = True
+
+    @property
+    def start_timeout(self):
+        return self.opt("start_timeout")
 
     def build_command(self, args):
-        cmd = OMX_CMD
+        cmd = self.opt("binary") + " " + " ".join(self.opt("extra_args"))
         if "subtitles" in args:
-            cmd = cmd + "--align center --subtitles '" + args["subtitles"] + "' "
+            cmd += " --align center --subtitles '" + args["subtitles"] + "'"
         fname = args["outfile"]
         if fname.startswith("http"):
-            return cmd + "'" + fname + "'"
+            return cmd + " '" + fname + "'"
         # A local file is still being written by the download stage, so playback
         # is piped from tail, starting past the bytes already on disk. The pid
         # tells tail when the producer exits; yt-dlp is what supplies it.
@@ -43,13 +59,13 @@ class OmxplayerProcess(OmxplayerBackend):
                 "omxplayer needs the producing process id to tail a local file"
             )
         tail = "tail -f --pid=" + str(pid) + ' --bytes=+0 "' + fname + '"'
-        return tail + " | " + cmd + "pipe:0"
+        return tail + " | " + cmd + " pipe:0"
 
     def name(self):
         return "omxplayer"
 
     def _wait_input(self, fname):
-        for i in range(_INPUT_TIMEOUT):
+        for _ in range(self.opt("input_timeout")):
             if os.path.isfile(fname):
                 return True
             time.sleep(1)
@@ -72,4 +88,4 @@ class OmxplayerProcess(OmxplayerBackend):
         if action == "pause" or action == "resume":
             dbcmd = "pause"
         if dbcmd is not None:
-            os.system(_DBUS_PATH + " " + dbcmd + " &")
+            os.system(self.opt("dbus_path") + " " + dbcmd + " &")

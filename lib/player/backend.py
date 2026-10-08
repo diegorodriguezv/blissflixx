@@ -20,9 +20,25 @@ OmxplayerBackend holds the readiness parsing that both omxplayer variants shared
 verbatim. It lives here rather than on PlayerBackend because it parses
 omxplayer-specific output; MpV produces no equivalent stream of status lines and
 overrides readiness instead.
+
+Command building is configuration driven. Each backend declares a `defaults`
+dict and the settings file for it, data/settings/player-<name>, merges over the
+top. That is what makes the same checkout usable on a Pi 4 and a Pi 5, or on a
+desktop during development: the hardware strings differ (an ALSA card name, a
+KMS plane id) and they are values rather than branches in code.
+
+    data/settings/player-mpv   {"audio_device": "alsa/hdmi:CARD=vc4hdmi,DEV=0"}
+    data/settings/player-vlc   {"audio_device": "hdmi:CARD=vc4hdmi,DEV=0"}
+
+A config file may be absent or partial; anything it does not set keeps its
+default. Unrecognised keys are logged and ignored rather than raising, because a
+backend must stay usable when a settings file written for a different version
+names something that no longer exists.
 """
 
 from abc import abstractmethod
+
+import cherrypy
 
 from .processpipe import ExternalProcess, ProcessException
 
@@ -46,6 +62,35 @@ class PlayerBackend(ExternalProcess):
 
     #: Overridden per backend. Subset of ALL_CAPABILITIES.
     capabilities = frozenset()
+
+    #: Configuration this backend falls back to. Every key a backend reads must
+    #: appear here, so that resolve_config can tell a typo from a real setting.
+    defaults = {}
+
+    def __init__(self, config=None):
+        super().__init__()
+        self.config = self._merge(config)
+
+    def _merge(self, config):
+        """Overlay a settings dict on the defaults, logging unknown keys."""
+        if not config:
+            return dict(self.defaults)
+        known = set(self.defaults)
+        unknown = sorted(set(config) - known)
+        if unknown:
+            cherrypy.log(
+                "Unknown "
+                + self.__class__.__name__
+                + " setting(s) ignored: "
+                + ", ".join(unknown)
+            )
+        merged = dict(self.defaults)
+        merged.update({k: v for k, v in config.items() if k in known})
+        return merged
+
+    def opt(self, key):
+        """Read a configured value. The key must be in defaults."""
+        return self.config[key]
 
     def declares(self, capability):
         return capability in self.capabilities
