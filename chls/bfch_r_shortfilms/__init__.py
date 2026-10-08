@@ -1,4 +1,4 @@
-import chanutils.reddit
+import lib.chanutils.reddit
 
 _SUBREDDIT = "Shortfilms"
 
@@ -113,8 +113,8 @@ def feedlist():
 
 
 def feed(idx):
-    return chanutils.reddit.get_feed(_FEEDLIST[idx])
+    return lib.chanutils.reddit.get_feed(_FEEDLIST[idx])
 
 
 def search(q):
-    return chanutils.reddit.search(_SUBREDDIT, q)
+    return lib.chanutils.reddit.search(_SUBREDDIT, q)

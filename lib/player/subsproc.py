@@ -1,7 +1,11 @@
-import cherrypy, locations, os, json
+import json
+import os
+
+from lib.locations import BIN_PATH
+
 from .processpipe import ExternalProcess, ProcessException
 
-GETSUBS_PATH = os.path.join(locations.BIN_PATH, "getsubs.py")
+GETSUBS_PATH = os.path.join(BIN_PATH, "getsubs.py")
 
 
 class SubtitlesProcess(ExternalProcess):

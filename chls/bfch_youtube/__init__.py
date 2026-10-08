@@ -1,9 +1,8 @@
-import random
-import chanutils.reddit
 import html
-from datetime import time
-from chanutils import get_json
-from playitem import PlayItem, PlayItemList
+
+import lib.chanutils.reddit
+from lib.chanutils import get_json
+from lib.playitem import PlayItem, PlayItemList
 
 _SEARCH_URL = "https://www.googleapis.com/youtube/v3/search"
 _INFO_URL = "https://www.googleapis.com/youtube/v3/videos"

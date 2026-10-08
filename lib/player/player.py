@@ -1,16 +1,18 @@
-import os, cherrypy, locations, subprocess
 from queue import Queue
-from .processpipe import ProcessPipe, _start_thread, MSG_PLAYER_PIPE_STOPPED
-from .pflixproc import PeerflixProcess
-from .rtmpproc import RtmpProcess
-from .ytdlproc import YoutubeDlProcess
-from .lvstrmrproc import LivestreamerProcess
+
+import cherrypy
+
+from . import ythelper
+from .dlsrvproc import DlsrvProcess
 from .localproc import LocalFileProcess
+from .lvstrmrproc import LivestreamerProcess
 from .omxproc import OmxplayerProcess
 from .omxproc2 import OmxplayerProcess2
-from .dlsrvproc import DlsrvProcess
+from .pflixproc import PeerflixProcess
+from .processpipe import MSG_PLAYER_PIPE_STOPPED, ProcessPipe, _start_thread
+from .rtmpproc import RtmpProcess
 from .subsproc import SubtitlesProcess
-from . import ythelper
+from .ytdlproc import YoutubeDlProcess
 
 ST_NOT_RUNNING = 0
 ST_STARTING = 1

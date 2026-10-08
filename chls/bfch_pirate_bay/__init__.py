@@ -1,9 +1,20 @@
-import chanutils.torrent, urllib.request, urllib.parse, urllib.error
-from chanutils import get_doc, get_json, select_all, select_one, get_attr
-from chanutils import get_text, get_text_content, replace_entity, byte_size
-from chanutils import movie_title_year, series_season_episode
-from playitem import TorrentPlayItem, PlayItemList
-from functools import reduce
+import urllib.parse
+
+from lib.api.torrent import TorrentPlayItem
+from lib.chanutils import (
+    byte_size,
+    get_attr,
+    get_doc,
+    get_json,
+    get_text,
+    get_text_content,
+    movie_title_year,
+    replace_entity,
+    select_all,
+    select_one,
+    series_season_episode,
+)
+from lib.playitem import PlayItemList
 
 _SEARCH_URL = "https://thepiratebay0.org/search/%s/0/99/100,200"
 

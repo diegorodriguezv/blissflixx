@@ -1,7 +1,5 @@
-from chanutils import get_doc, select_all, select_one, get_attr, get_text
-from playitem import PlayItem, PlayItemList
-
-_SEARCH_URL = "https://techcrunch.com/"
+from lib.chanutils import get_attr, get_doc, get_text, select_all, select_one
+from lib.playitem import PlayItem, PlayItemList
 
 _FEEDLIST = [
     {"title": "All Videos", "url": "http://techcrunch.com/video/"},

@@ -1,11 +1,13 @@
-import re, base64, subprocess, chanutils, playitem, urllib.parse
-from torrentparse import TorrentParser
+import base64
+import re
+import urllib.parse
+
+from ..chanutils import get
 
 hash_re = re.compile("xt=urn:btih:([A-Za-z0-9]+)")
 base32_re = re.compile("[A-Z2-7]{32}")
 valid_re = re.compile("[A-F0-9]{40}")
 
-# torr_sites = ("torcache.net", "torrage.com", "zoink.it")
 torr_sites = ("torcache.net", "zoink.it")
 
 
@@ -13,7 +15,7 @@ def torrent_from_hash(hashid):
     path = "/torrent/" + hashid + ".torrent"
     for site in torr_sites:
         try:
-            r = chanutils.get("http://" + site + path)
+            r = get("http://" + site + path)
             return r.content
         except Exception:
             pass
@@ -34,72 +36,6 @@ def magnet2torrent(link):
         raise Exception("Invalid magnet hash")
 
     return torrent_from_hash(hashid)
-
-
-def peerflix_metadata(link):
-    # stdin=PIPE so peerflix does not enter interactive mode
-    s = subprocess.check_output(["peerflix", link, "-l"], stdin=subprocess.PIPE)
-    s = s.decode("utf-8")
-    lines = s.split("\n")
-    files = []
-    for l in lines:
-        delim = l.rfind(":")
-        if delim == -1:
-            break
-        if "Verifying downloaded:" in l:
-            continue
-        files.append((l[20 : delim - 6], l[delim + 7 : -5]))
-    return files
-
-
-def torrent_files(link):
-    return peerflix_metadata(torrent2magnet(link))
-
-
-def showmore(link):
-    files = torrent_files(link)
-    if not files:
-        raise Exception("Unable to retrieve torrent files")
-    results = playitem.PlayItemList()
-    idx = 0
-    for f in files:
-        subtitle = ""
-        if isinstance(f[1], str):
-            subtitle = "Size: " + f[1]
-        else:
-            subtitle = "Size: " + chanutils.byte_size(f[1])
-        url = set_torridx(link, idx)
-        img = "/img/icons/file-o.svg"
-        idx = idx + 1
-        item = playitem.PlayItem(f[0], img, url, subtitle)
-        results.add(item)
-    return results
-
-
-TRACKERS = (
-    "udp://open.demonii.com:1337/announce",
-    "udp://tracker.istole.it:6969/announce",
-    "udp://www.eddie4.nl:6969/announce",
-    "udp://coppersurfer.tk:6969/announce",
-    "udp://tracker.btzoo.eu:80/announce",
-    "http://explodie.org:6969/announce",
-    "udp://9.rarbg.me:2710/announce",
-)
-HASH_RE = re.compile("[A-F0-9]{40}")
-
-
-def torrent2magnet(torrent):
-    if torrent.startswith("magnet"):
-        return torrent
-    matches = HASH_RE.search(torrent.upper())
-    if not matches:
-        return torrent
-    magnet = "magnet:?xt=urn:btih:" + matches.group(0) + "&tr="
-    return magnet + "&tr=".join(TRACKERS)
-
-
-def showmore_action(url, title):
-    return playitem.ShowmoreAction("View Files", url, title)
 
 
 def subtitle(size, seeds, peers):
@@ -127,21 +63,6 @@ def torrent_idx(url):
     if idx is not None:
         idx = int(idx)
     return idx
-
-
-def set_torridx(url, idx=-1):
-    if is_torrent_url(url):
-        return re.sub("bf_torr_idx\=-?\d+", "bf_torr_idx=" + str(idx), url)
-    else:
-        if url.find("?") > -1:
-            url = url + "&"
-        else:
-            url = url + "?"
-        return url + "bf_torr_idx=" + str(idx)
-
-
-def is_torrent_url(url):
-    return "bf_torr_idx=" in url
 
 
 def is_main(url):

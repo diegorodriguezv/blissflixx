@@ -1,4 +1,6 @@
-import chanutils.torrent, shutil
+import shutil
+
+from ..api.torrent import torrent2magnet
 from .processpipe import ExternalProcess, ProcessException
 
 _PEERFLIX_PORT = "9696"
@@ -9,7 +11,7 @@ class PeerflixProcess(ExternalProcess):
         ExternalProcess.__init__(self)
         cmd = ["node", "--max-old-space-size=128", "/usr/local/bin/peerflix"]
         # Avoid problems with downloading torrent files
-        torrent = chanutils.torrent.torrent2magnet(torrent)
+        torrent = torrent2magnet(torrent)
         cmd.append(torrent)
         cmd.append("-q")
         cmd.append("-r")

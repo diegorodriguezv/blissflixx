@@ -1,5 +1,7 @@
+import json
 from os import path
-import json, locations
+
+from ..locations import SETTINGS_PATH
 
 _cache = {}
 
@@ -23,4 +25,4 @@ def save(name, data):
 
 
 def _get_path(name):
-    return path.join(locations.SETTINGS_PATH, name)
+    return path.join(SETTINGS_PATH, name)

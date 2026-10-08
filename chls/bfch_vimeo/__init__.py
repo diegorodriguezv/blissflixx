@@ -1,7 +1,8 @@
-import re, json
-import chanutils.reddit
-from chanutils import get, get_doc, select_all, select_one, get_attr, get_text
-from playitem import PlayItem, PlayItemList
+import json
+
+import lib.chanutils.reddit
+from lib.chanutils import get
+from lib.playitem import PlayItem, PlayItemList
 
 _SEARCH_URL = "https://vimeo.com/search"
 
@@ -45,7 +46,7 @@ def feedlist():
 def feed(idx):
     url = _FEEDLIST[idx]["url"]
     if url.endswith(".json"):
-        return chanutils.reddit.get_feed(_FEEDLIST[idx])
+        return lib.chanutils.reddit.get_feed(_FEEDLIST[idx])
     else:
         r = get(url)
         return _extract(r.text)

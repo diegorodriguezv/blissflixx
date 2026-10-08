@@ -1,6 +1,5 @@
-from chanutils import get_json
-from pprint import pp
-from playitem import PlayItemList, PlayItem
+from lib.chanutils import get_json
+from lib.playitem import PlayItem, PlayItemList
 
 _API = {
     "channels": "https://iptv-org.github.io/api/channels.json",

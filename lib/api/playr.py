@@ -1,12 +1,15 @@
-from player import Player
+import urllib.parse
+
+from ..chanutils.torrent import torrent_idx
+from ..player import Player
+from ..settings import save
 from .common import ApiError
-import re, chanutils.torrent
-import extractor, cherrypy, urllib.parse, settings
+from .torrent import is_torrent_url
 
 
 def _save_subs_prefs(subs):
     if "lang" in subs:
-        settings.save("subtitles", {"lang": subs["lang"]})
+        save("subtitles", {"lang": subs["lang"]})
 
 
 def play(url=None, title=None, subs=None):
@@ -17,8 +20,8 @@ def play(url=None, title=None, subs=None):
     obj = urllib.parse.urlparse(url)
     if obj.scheme == "file":
         Player.playLocalFile(obj.path, title)
-    elif chanutils.torrent.is_torrent_url(url):
-        Player.playTorrent(url, chanutils.torrent.torrent_idx(url), title, subs)
+    elif is_torrent_url(url):
+        Player.playTorrent(url, torrent_idx(url), title, subs)
     else:
         Player.playYtdl(url, title, subs)
 

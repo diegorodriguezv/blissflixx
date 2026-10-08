@@ -1,4 +1,5 @@
-import chanutils.torrent, settings
+from ..chanutils.torrent import is_main
+from ..settings import load
 
 
 class Action:
@@ -72,18 +73,18 @@ class TorrentFilesAction(Action):
         }
 
 
-class TorrentFilesAction(Action):
-    def __init__(self, link, title):
-        self.link = link
-        self.title = title
-
-    def to_dict(self):
-        return {
-            "type": "torrfiles",
-            "label": "View Files...",
-            "link": self.link,
-            "title": self.title,
-        }
+# class TorrentFilesAction(Action):
+#     def __init__(self, link, title):
+#         self.link = link
+#         self.title = title
+#
+#     def to_dict(self):
+#         return {
+#             "type": "torrfiles",
+#             "label": "View Files...",
+#             "link": self.link,
+#             "title": self.title,
+#         }
 
 
 class ActionList:
@@ -123,7 +124,7 @@ class PlayItem:
 
     def _set_subs_lang(self, subs):
         if subs is not None:
-            sub_settings = settings.load("subtitles")
+            sub_settings = load("subtitles")
             if "lang" in sub_settings:
                 subs["lang"] = sub_settings["lang"]
             else:
@@ -134,7 +135,7 @@ class PlayItem:
         if self.subs is not None:
             self.add_action(PlayWithSubsAction())
         self.add_action(AddPlaylistAction())
-        if chanutils.torrent.is_main(self.url):
+        if is_main(self.url):
             self.add_action(TorrentFilesAction(self.url, self.title))
 
     def add_action(self, action):
@@ -151,12 +152,6 @@ class PlayItem:
         if not self.actions.empty():
             d["actions"] = self.actions.to_dict()
         return d
-
-
-class TorrentPlayItem(PlayItem):
-    def __init__(self, title, img, url, subtitle=None, synopsis=None, subs=None):
-        url = chanutils.torrent.set_torridx(url)
-        PlayItem.__init__(self, title, img, url, subtitle, synopsis, subs)
 
 
 class LiveStreamPlayItem(PlayItem):

@@ -1,8 +1,13 @@
-import chanutils.torrent
-from chanutils import select_all, select_one, get_attr, post_doc
-from chanutils import get_doc, get_json, series_season_episode
-from chanutils import get_text, get_text_content, replace_entity, byte_size
-from playitem import TorrentPlayItem, ShowMoreItem, PlayItemList
+from lib.api.torrent import TorrentPlayItem
+from lib.chanutils import (
+    get_attr,
+    get_doc,
+    get_text,
+    select_all,
+    select_one,
+    series_season_episode,
+)
+from lib.playitem import PlayItemList, ShowMoreItem
 
 _BASE_URL = "https://eztv.re"
 _SEARCH_URL = _BASE_URL + "/search/"

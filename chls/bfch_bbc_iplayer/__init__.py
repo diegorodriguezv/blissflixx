@@ -1,12 +1,12 @@
-from chanutils import (
-    get_doc,
-    select_all,
-    select_one,
+from lib.chanutils import (
     get_attr,
+    get_doc,
     get_text,
     get_text_content,
+    select_all,
+    select_one,
 )
-from playitem import PlayItem, PlayItemList, MoreEpisodesAction
+from lib.playitem import MoreEpisodesAction, PlayItem, PlayItemList
 
 _SEARCH_URL = "http://www.bbc.co.uk/iplayer/search"
 

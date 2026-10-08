@@ -1,4 +1,14 @@
-import os, json, locations, playitem, glob, requests, time, calendar
+import calendar
+import glob
+import json
+import os
+import time
+
+import requests
+
+from lib.locations import PLIST_PATH
+from lib.playitem import PlayItemList, PlaylistItem
+
 from .common import ApiError
 
 REMOTE_REFRESH_INT = 3600
@@ -126,10 +136,10 @@ def get(plid=None):
         remote = True
         playlist = _refresh_remote(playlist, plid)
     playlist["plid"] = plid
-    results = playitem.PlayItemList()
+    results = PlayItemList()
     itemnum = 0
     for item in playlist["items"]:
-        results.add(playitem.PlaylistItem(item, plid, itemnum, remote))
+        results.add(PlaylistItem(item, plid, itemnum, remote))
         itemnum = itemnum + 1
     playlist["items"] = results.to_dict()
     return playlist
@@ -154,11 +164,11 @@ def _empty_playlist(title=""):
 
 
 def _get_path(plid):
-    return locations.PLIST_PATH + "/" + plid + ".bfpl"
+    return PLIST_PATH + "/" + plid + ".bfpl"
 
 
 def _get_playlists():
-    paths = glob.glob(os.path.join(locations.PLIST_PATH, "*.bfpl"))
+    paths = glob.glob(os.path.join(PLIST_PATH, "*.bfpl"))
     playlists = []
     for p in paths:
         playlists.append(os.path.basename(p)[:-5])

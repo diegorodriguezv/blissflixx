@@ -1,4 +1,5 @@
-import chanutils.reddit
+from lib.chanutils.reddit import get_feed
+from lib.chanutils.reddit import search as reddit_search
 
 _SUBREDDIT = "fullmoviesonyoutube"
 
@@ -112,8 +113,8 @@ def feedlist():
 
 
 def feed(idx):
-    return chanutils.reddit.get_feed(_FEEDLIST[idx], moviesubs=True)
+    return get_feed(_FEEDLIST[idx], moviesubs=True)
 
 
 def search(q):
-    return chanutils.reddit.search(_SUBREDDIT, q, moviesubs=True)
+    return reddit_search(_SUBREDDIT, q, moviesubs=True)

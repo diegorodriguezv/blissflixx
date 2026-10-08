@@ -6,6 +6,10 @@ import datetime
 
 _PROXY_LIST = [{"url": "http://blissflixx-proxy1.appspot.com"}]
 
+# Default network timeout in seconds. Without this a stalled remote host blocks
+# a CherryPy request thread indefinitely.
+_TIMEOUT = 20
+
 
 _HEADERS = {
     "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
@@ -30,7 +34,7 @@ def _get_proxy_headers(headers):
     return headers
 
 
-def get(url, params=None, proxy=False, session=None, headers=None):
+def get(url, params=None, proxy=False, session=None, headers=None, timeout=None):
     if not headers:
         headers = _HEADERS
     else:
@@ -48,7 +52,7 @@ def get(url, params=None, proxy=False, session=None, headers=None):
 
     if session is None:
         session = new_session()
-    r = session.get(url, params=params, headers=headers)
+    r = session.get(url, params=params, headers=headers, timeout=timeout or _TIMEOUT)
     if r.status_code >= 300:
         raise Exception(
             "Request : '"
@@ -63,7 +67,7 @@ def get(url, params=None, proxy=False, session=None, headers=None):
     return r
 
 
-def post(url, payload, proxy=False, session=None):
+def post(url, payload, proxy=False, session=None, timeout=None):
     headers = _HEADERS
 
     if proxy:
@@ -73,7 +77,7 @@ def post(url, payload, proxy=False, session=None):
 
     if session is None:
         session = new_session()
-    r = session.post(url, data=payload, headers=headers)
+    r = session.post(url, data=payload, headers=headers, timeout=timeout or _TIMEOUT)
     if r.status_code >= 300:
         raise Exception("Request : '" + url + "' returned: " + str(r.status_code))
 
@@ -167,7 +171,7 @@ def replace_entity(text):
                 pass
             return text  # leave as is
 
-    return re.sub("&#?\w+;", fixup, text)
+    return re.sub(r"&#?\w+;", fixup, text)
 
 
 def number_commas(x):

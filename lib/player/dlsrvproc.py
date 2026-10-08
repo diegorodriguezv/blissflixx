@@ -1,7 +1,9 @@
-import cherrypy, locations, os
+import os
+
+from ..locations import BIN_PATH
 from .processpipe import ExternalProcess, ProcessException
 
-DLSRV_PATH = os.path.join(locations.BIN_PATH, "dlsrv")
+DLSRV_PATH = os.path.join(BIN_PATH, "dlsrv")
 _DLSRV_PORT = "9696"
 
 

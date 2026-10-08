@@ -1,6 +1,7 @@
-import chanutils.torrent
-from chanutils import get_json, movie_title_year
-from playitem import TorrentPlayItem, PlayItemList
+from lib.api.torrent import TorrentPlayItem
+from lib.chanutils import get_json, movie_title_year
+from lib.chanutils.torrent import subtitle
+from lib.playitem import PlayItemList
 
 _SEARCH_URL = "https://yts.lt/api/v2/list_movies.json"
 
@@ -147,7 +148,7 @@ def _extract(data):
         size = torrent["size"]
         seeds = torrent["seeds"]
         peers = torrent["peers"]
-        subtitle = chanutils.torrent.subtitle(size, seeds, peers)
+        st = subtitle(size, seeds, peers)
         rating = str(r["rating"])
         if rating[-1] == "0":
             rating = rating[:-1]
@@ -161,13 +162,13 @@ def _extract(data):
         synopsis = imdb
         subs = movie_title_year(title)
         subs["imdb"] = r["imdb_code"]
-        result = (int(seeds), title, img, url, subtitle, synopsis, subs)
+        result = (int(seeds), title, img, url, st, synopsis, subs)
         results.append(result)
     results.sort(key=lambda x: x[0], reverse=True)
     pil = PlayItemList()
     for result in results:
-        (seeds, title, img, url, subtitle, synopsis, subs) = result
-        pil.add(TorrentPlayItem(title, img, url, subtitle, synopsis, subs))
+        (seeds, title, img, url, st, synopsis, subs) = result
+        pil.add(TorrentPlayItem(title, img, url, st, synopsis, subs))
     return pil
 
 

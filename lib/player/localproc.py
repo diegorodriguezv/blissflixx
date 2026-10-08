@@ -1,5 +1,4 @@
-import cherrypy, locations, os
-from .processpipe import Process, ProcessException
+from .processpipe import Process
 
 
 class LocalFileProcess(Process):

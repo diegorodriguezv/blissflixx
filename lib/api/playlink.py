@@ -1,5 +1,8 @@
-import playitem, chanutils.torrent
-import chanutils
+from lib.api.torrent import set_torridx
+from lib.chanutils import UrlInfo
+from lib.chanutils.torrent import is_torrent
+from lib.playitem import PlayItem, PlayItemList
+
 from .common import ApiError
 
 MAX_TITLE_LEN = 100
@@ -8,9 +11,9 @@ MAX_TITLE_LEN = 100
 def item(link=None):
     if not link:
         raise ApiError("Item URL must be defined")
-    results = playitem.PlayItemList()
+    results = PlayItemList()
     if link.lower().startswith("http"):
-        info = chanutils.UrlInfo(link)
+        info = UrlInfo(link)
         title = info.get_html_title()
     else:
         title = link
@@ -30,11 +33,9 @@ def item(link=None):
         )
         img = info.get_youtube_video_thumbnail()
         synopsis = info.get_youtube_video_description()
-    if chanutils.torrent.is_torrent(link):
-        link = chanutils.torrent.set_torridx(link)
+    if is_torrent(link):
+        link = set_torridx(link)
     results.add(
-        playitem.PlayItem(
-            title, img, link, subtitle=subtitle, synopsis=synopsis, subs={}
-        )
+        PlayItem(title, img, link, subtitle=subtitle, synopsis=synopsis, subs={})
     )
     return results.to_dict()

@@ -1,16 +1,26 @@
-from os import path
-from .common import ApiError
-from chanutils import get_json
-from threading import Thread
-from queue import Queue
-import glob, locations, settings, os, subprocess, chanutils
+import glob
+import os
 import shutil
+from os import path
+from queue import Queue
+from threading import Thread
+
+from ..locations import CHAN_PATH, PLUGIN_PATH, ROOT_PATH
+from ..settings import load, save
+from .common import ApiError
 
 CHANID_GLOB = "bfch_*"
+import sys
+
+sys.path.append(CHAN_PATH)
+sys.path.append(PLUGIN_PATH)
 
 
 class Channel:
     def __init__(self, cpath, plugin):
+        # import pdb
+        #
+        # pdb.set_trace()
         chid = path.basename(cpath)
         module = __import__(chid, globals(), locals(), [])
         name = module.name()
@@ -99,9 +109,9 @@ class InstalledChannels:
             "bfch_pirate_bay",
             "bfch_yts_torrents",
         ]
-        backup_folder = path.join(locations.ROOT_PATH, folder)
+        backup_folder = path.join(ROOT_PATH, folder)
         for p in plugins:
-            plugin = path.join(locations.PLUGIN_PATH, p)
+            plugin = path.join(PLUGIN_PATH, p)
             if path.exists(plugin):
                 if not path.exists(backup_folder):
                     os.mkdir(backup_folder)
@@ -109,22 +119,24 @@ class InstalledChannels:
 
     def _refresh(self):
         channels = []
-        cpaths = glob.glob(path.join(locations.CHAN_PATH, CHANID_GLOB))
+        cpaths = glob.glob(path.join(CHAN_PATH, CHANID_GLOB))
         for p in cpaths:
             try:
                 channels.append(Channel(p, False))
-            except ImportError:
-                pass
-        cpaths = glob.glob(path.join(locations.PLUGIN_PATH, CHANID_GLOB))
+            except ImportError as exc:
+                print(f"Failed to import channel {p}")
+                print(exc)
+        cpaths = glob.glob(path.join(PLUGIN_PATH, CHANID_GLOB))
         for p in cpaths:
             try:
                 channels.append(Channel(p, True))
-            except ImportError:
-                pass
+            except ImportError as exc:
+                print(f"Failed to import plugin {p}")
+                print(exc)
         # Ignore channels with no image
         channels = [chan for chan in channels if chan.imageExists()]
         self.channels = sorted(channels, key=lambda chan: chan.getTitle().upper())
-        self.settings = settings.load("channels")
+        self.settings = load("channels")
 
     def _set_config(self, chid, key, value):
         settings = self.getChannelSettings(chid)
@@ -133,7 +145,7 @@ class InstalledChannels:
         self._save_config()
 
     def _save_config(self):
-        settings.save("channels", self.settings)
+        save("channels", self.settings)
 
     def enableChannel(self, chid):
         self._set_config(chid, "disabled", False)
@@ -171,11 +183,26 @@ class InstalledChannels:
         return settings
 
 
-installed = InstalledChannels()
+_installed = None
+
+
+def get_installed():
+    """
+    Return the InstalledChannels singleton, creating it on first use.
+
+    Instantiating it does network I/O (every installed channel's feedlist()) and
+    imports each installed channel, so it must not happen at module import time:
+    that blocked server startup and made this module impossible to import in a
+    test or a utility script.
+    """
+    global _installed
+    if _installed is None:
+        _installed = InstalledChannels()
+    return _installed
 
 
 def list_all():
-    channels = installed.getAll()
+    channels = get_installed().getAll()
     infolist = []
     for chan in channels:
         infolist.append(info(chan.getId()))
@@ -185,19 +212,19 @@ def list_all():
 def disable(chid=None):
     if chid is None:
         raise ApiError("Channel ID is missing")
-    installed.disableChannel(chid)
+    get_installed().disableChannel(chid)
     return list_all()
 
 
 def enable(chid=None):
     if chid is None:
         raise ApiError("Channel ID is missing")
-    installed.enableChannel(chid)
+    get_installed().enableChannel(chid)
     return list_all()
 
 
 def list_enabled():
-    enabled = installed.getEnabled()
+    enabled = get_installed().getEnabled()
     info = []
     for c in enabled:
         info.append(c.getInfo())
@@ -207,6 +234,7 @@ def list_enabled():
 def info(chid=None):
     if chid is None:
         raise ApiError("Channel ID is missing")
+    installed = get_installed()
     info = installed.getChannel(chid).getInfo()
     if installed.isEnabled(chid):
         info["actions"] = [{"label": "Disable", "type": "disablechannel"}]
@@ -219,31 +247,31 @@ def info(chid=None):
 def feedlist(chid=None):
     if chid is None:
         raise ApiError("Channel ID is missing")
-    return installed.getChannel(chid).getFeeds()
+    return get_installed().getChannel(chid).getFeeds()
 
 
 def feed(chid=None, idx=None):
     if chid is None or idx is None:
         raise ApiError("Both Channel ID and feed index must be defined")
-    return installed.getChannel(chid).getFeed(idx)
+    return get_installed().getChannel(chid).getFeed(idx)
 
 
 def feed_by_name(chid=None, idx=None, name=None):
     if chid is None or idx is None or name is None:
         raise ApiError("All of Channel ID, feed index and name must be defined")
-    return installed.getChannel(chid).getFeedByName(idx, name)
+    return get_installed().getChannel(chid).getFeedByName(idx, name)
 
 
 def search(chid=None, q=None):
     if chid is None or q is None:
         raise ApiError("Both Channel ID and search query must be defined")
-    return installed.getChannel(chid).search(q)
+    return get_installed().getChannel(chid).search(q)
 
 
 def showmore(chid=None, link=None):
     if chid is None or link is None:
         raise ApiError("Both channel ID and link must be defined")
-    return installed.getChannel(chid).showmore(link)
+    return get_installed().getChannel(chid).showmore(link)
 
 
 def _search_thread(queue, chid, q):

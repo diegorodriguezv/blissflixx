@@ -1,7 +1,7 @@
-import chanutils.reddit
-from chanutils import get_doc, select_all, select_one, get_attr, get_text
-from playitem import PlayItem, PlayItemList
 from urllib.parse import quote
+
+from lib.chanutils import get_attr, get_doc, get_text, select_all, select_one
+from lib.playitem import PlayItem, PlayItemList
 
 _SEARCH_URL = "https://www.tmz.com/search/videos/"
 

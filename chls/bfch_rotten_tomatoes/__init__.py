@@ -1,5 +1,5 @@
-from playitem import SearchItem, PlayItemList
-from chanutils import get_json
+from lib.chanutils import get_json
+from lib.playitem import PlayItemList, SearchItem
 
 _FEEDLIST = [
     {

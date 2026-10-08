@@ -1,4 +1,5 @@
-import chanutils.reddit
+from lib.chanutils.reddit import get_feed
+from lib.chanutils.reddit import search as reddit_search
 
 _SUBREDDIT = "videos"
 
@@ -29,8 +30,8 @@ def feedlist():
 
 
 def feed(idx):
-    return chanutils.reddit.get_feed(_FEEDLIST[idx])
+    return get_feed(_FEEDLIST[idx])
 
 
 def search(q):
-    return chanutils.reddit.search(_SUBREDDIT, q)
+    return reddit_search(_SUBREDDIT, q)
