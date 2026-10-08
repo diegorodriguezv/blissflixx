@@ -106,13 +106,30 @@ Exact current behaviour, now pinned by `TestPipelineComposition`:
 
 A `subs` dict prepends a subtitles stage in every case.
 
-### 5. 14 of the 17 control actions are unreachable from the frontend
+### 5. All 17 control actions are reachable from the frontend
 
-The UI sends only `pause`, `resume` and `stop`. The rest — subtitle cycling,
-±30s, ±600s, volume, audio-track switching — exist only as keys in
-`omxproc2.control()`. Either the UI grew a keypad that was never wired to these,
-or the actions were added server-side in anticipation. Worth knowing before an
-abstraction decides which capabilities to expose per backend.
+**Correction.** This finding originally claimed 14 of the 17 actions were
+unreachable from the UI. That was wrong: the search only looked for
+`control('...')` and missed the remote panel, where the remaining actions are
+sent through `doAction('...')`.
+
+Verified by comparing the two sets in both directions:
+
+```
+actions the UI can send (17): hide_subtitle minus30 minus600 next_audio
+  next_subtitle pause plus30 plus600 prev_audio prev_subtitle resume
+  show_subtitle stop subminus subplus voldown volup
+
+server actions not reachable from UI: NONE
+UI actions the server does not implement: NONE
+```
+
+All 17 are wired, in `html/tags/playbar.html` behind the "…" button. There is no
+UI/server mismatch either way.
+
+The capability set is therefore still worth having, but for a different reason:
+the two omxplayer backends genuinely implement different subsets, so a UI needs
+to know which one is active. That is finding 3, not a missing keypad.
 
 Note also that `stop` is a no-op on `omxproc` (finding 3), so on that path it
 relies on `stop()` SIGKILLing the process group rather than a keypress.
@@ -166,9 +183,11 @@ parsing the two variants shared.
   setting. `_legacy_backend()` keeps the old two-boolean choice byte-for-byte
   for unconfigured installs, verified across all four http/dlsrv combinations,
   so upgrading does not silently change anyone's player.
-- **Finding 5 addressed.** Each backend advertises what it can do: the dbus
-  variant declares only pause and subtitles, the FIFO and mpv variants declare
-  everything. Still no UI for this; the capability set is available for it.
+- **Finding 5 corrected, and addressed.** The claim that most actions were
+  unreachable from the UI was wrong; all 17 are wired. The capability set is
+  still useful, because the two omxplayer backends implement different subsets:
+  the dbus variant declares only pause and subtitles, the FIFO and mpv variants
+  declare everything. The UI does not read it yet.
 - **mpv implemented.** Different binary, JSON IPC over a unix socket instead of
   dbus or FIFO keystrokes, and readiness detected by polling for the socket
   because mpv emits no status line to parse. It is the implementation that
@@ -176,6 +195,6 @@ parsing the two variants shared.
 
 ### Not addressed
 
-14 of 17 actions remain unreachable from the frontend. That is a UI question,
-not a backend one, and the capability set is now there to answer it when
-someone wants it.
+The UI still does not consult `declares()` before offering a control, so a
+backend that cannot seek would still show a seek button and silently ignore it.
+That is a frontend change and did not belong in this pass.
