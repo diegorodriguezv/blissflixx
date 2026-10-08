@@ -1,7 +1,6 @@
 import os
-import time
 
-from .processpipe import ExternalProcess, ProcessException
+from .backend import ALL_CAPABILITIES, CAP_PAUSE, CAP_STOP, OmxplayerBackend
 
 # timeout for network connections in seconds (3 retries), 0 means no timeout
 OMX_CMD = "omxplayer.bin --timeout 0 -I "
@@ -11,11 +10,24 @@ _START_TIMEOUT = None
 _CMD_FIFO = "/tmp/cmdfifo"
 
 
-class OmxplayerProcess2(ExternalProcess):
+class OmxplayerProcess2(OmxplayerBackend):
+    """
+    omxplayer.bin reading keystrokes from a FIFO.
+
+    This is the variant used whenever control matters: dlsrv serves a file that
+    is still growing, so playback is driven by writing keys to stdin rather than
+    by dbus messages.
+    """
+
+    #: This variant implements the whole action set.
+    capabilities = ALL_CAPABILITIES
+
+    start_timeout = _START_TIMEOUT
+
     def __init__(self):
         super().__init__(shell=True)
 
-    def _get_cmd(self, args):
+    def build_command(self, args):
         cmd = OMX_CMD
         if "subtitles" in args:
             cmd = cmd + "--align center --subtitles '" + args["subtitles"] + "' "
@@ -78,15 +90,3 @@ class OmxplayerProcess2(ExternalProcess):
             key = "x"
         if key is not None:
             self._send_key(key)
-
-    def _ready(self):
-        while True:
-            line = self._readline(_START_TIMEOUT)
-            if line.startswith("have a nice day"):
-                raise ProcessException("omxplayer failed to start")
-            elif line.startswith("Vcodec id unknown:"):
-                raise ProcessException("Unsupported video codec")
-            elif "Metadata:" in line:
-                break
-            elif "Duration:" in line:
-                break

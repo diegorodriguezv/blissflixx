@@ -8,11 +8,9 @@ that the right flags, paths and arguments are assembled, not that any binary is
 installed. Whether omxplayer actually renders video is a question for the
 hardware, not for this suite.
 
-One stage needs a note. OmxplayerProcess._get_cmd() returns self.cmd, but
-self.cmd is built inside start() before super().start() delegates to it, so
-the command is assembled across two methods and a fresh instance raises
-AttributeError if _get_cmd() is called directly. These tests set cmd the way
-start() would, which is the wart the planned backend abstraction removes.
+Every backend now exposes build_command(args) directly, which is pure and
+depends only on args, so no command here needs a process, a shell or the binary
+being installed.
 """
 
 import os
@@ -37,25 +35,6 @@ BBC_URL_SAMPLE = "https://www.bbc.co.uk/iplayer/episode/b0000001"
 HTTP_OUT = "http://127.0.0.1:9696/movie.mkv"
 FILE_OUT = "/tmp/blissflixx/bf.out"
 SUBS = "/tmp/blissflixx/movie.srt"
-
-
-def omxproc_cmd(args, cmd=None):
-    """
-    Reproduce OmxplayerProcess.start()'s command assembly, since _get_cmd only
-    returns what start() already built.
-    """
-    proc = OmxplayerProcess()
-    proc.cmd = cmd if cmd is not None else OMX_CMD
-    if "subtitles" in args:
-        proc.cmd = proc.cmd + "--align center --subtitles '" + args["subtitles"] + "' "
-    fname = args["outfile"]
-    if fname.startswith("http"):
-        proc.cmd = proc.cmd + "'" + fname + "'"
-    else:
-        pid = args["pid"]
-        tail = "tail -f --pid=" + str(pid) + ' --bytes=+0 "' + fname + '"'
-        proc.cmd = tail + " | " + proc.cmd + "pipe:0"
-    return proc._get_cmd(args)
 
 
 class TestDlsrv:
@@ -112,41 +91,45 @@ class TestOmxplayer2:
 
 class TestOmxplayer:
     def test_http_outfile_is_quoted_directly(self):
-        cmd = omxproc_cmd({"outfile": HTTP_OUT})
+        cmd = OmxplayerProcess().build_command({"outfile": HTTP_OUT})
         assert cmd == OMX_CMD + "'" + HTTP_OUT + "'"
 
     def test_no_tail_for_http(self):
         """An http url is streamed, so there is nothing to wait for on disk."""
-        assert "tail" not in omxproc_cmd({"outfile": HTTP_OUT})
+        assert "tail" not in OmxplayerProcess().build_command({"outfile": HTTP_OUT})
 
     def test_local_file_tails_the_producer(self):
         """
         A local file is still being written by the download stage, so playback
         is piped from tail, starting past the bytes already on disk.
         """
-        cmd = omxproc_cmd({"outfile": FILE_OUT, "pid": 4242})
+        cmd = OmxplayerProcess().build_command({"outfile": FILE_OUT, "pid": 4242})
         assert cmd.startswith('tail -f --pid=4242 --bytes=+0 "' + FILE_OUT + '"')
 
     def test_local_file_streams_into_omxplayer_stdin(self):
-        cmd = omxproc_cmd({"outfile": FILE_OUT, "pid": 4242})
+        cmd = OmxplayerProcess().build_command({"outfile": FILE_OUT, "pid": 4242})
         assert cmd.endswith("| " + OMX_CMD + "pipe:0")
 
-    def test_local_file_without_pid_is_a_keyerror(self):
+    def test_local_file_without_pid_is_reported_not_a_keyerror(self):
         """
-        The pid comes only from the yt-dlp stage. Reaching this stage without
-        one raises a bare KeyError rather than a ProcessException, so the pipe
-        would hang instead of reporting. Recorded because the planned
-        abstraction needs to decide what this branch should require.
+        The pid comes only from the yt-dlp stage, and without it there is
+        nothing to tail. This used to raise a bare KeyError, which escaped
+        start() and left the pipe hung with nothing reported to the parent. It
+        is a ProcessException now, so the failure surfaces as an error message.
         """
-        with pytest.raises(KeyError):
-            omxproc_cmd({"outfile": FILE_OUT})
+        from lib.player.processpipe import ProcessException
+
+        with pytest.raises(ProcessException, match="producing process id"):
+            OmxplayerProcess().build_command({"outfile": FILE_OUT})
 
     def test_subtitles_before_outfile(self):
-        cmd = omxproc_cmd({"outfile": HTTP_OUT, "subtitles": SUBS})
+        cmd = OmxplayerProcess().build_command({"outfile": HTTP_OUT, "subtitles": SUBS})
         assert cmd.index("--subtitles") < cmd.index(HTTP_OUT)
 
     def test_subtitles_with_local_file(self):
-        cmd = omxproc_cmd({"outfile": FILE_OUT, "pid": 1, "subtitles": SUBS})
+        cmd = OmxplayerProcess().build_command(
+            {"outfile": FILE_OUT, "pid": 1, "subtitles": SUBS}
+        )
         assert "--subtitles '" + SUBS + "'" in cmd
         assert cmd.endswith("pipe:0")
 

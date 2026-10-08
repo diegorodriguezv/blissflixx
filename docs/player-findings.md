@@ -1,9 +1,11 @@
 # Player findings
 
 Recorded by the tests added in `test_player_commands.py`, `test_player_ready.py`
-and `test_player_routing.py`. None of these are fixed, on purpose: they are the
-inputs to the planned backend abstraction, and several of them only became
-visible once the pipeline could be inspected without hardware.
+and `test_player_routing.py`.
+
+Findings 1 to 4 below have since been acted on; see "Resolved" at the end. The
+text is kept as written, because it is the record of what the tests exposed
+before the abstraction existed.
 
 ## Reproducing
 
@@ -129,7 +131,7 @@ being tangled up with command strings and readiness parsing.
 
 ## Proposed shape for the abstraction
 
-Not implemented. Sketched so the findings above map onto something concrete:
+As sketched above:
 
 - `build_command(args)` -> argv or shell string, pure, callable on a fresh
   instance (finding 1)
@@ -139,3 +141,41 @@ Not implemented. Sketched so the findings above map onto something concrete:
 - selection by name from settings, not by two booleans (finding 4)
 - `omxplayer` and `omxplayer2` as two entries, then **mpv** as the first
   non-omxplayer backend, so the design is proven by a second implementation
+
+## Resolved
+
+### lib/player/backend.py, backends.py, mpvproc.py
+
+`PlayerBackend` is the base: `build_command(args)` is pure, `control(action)` is
+per-backend, and `declares()` reports a capability set so the UI can stop
+offering controls that would be dropped. `OmxplayerBackend` holds the readiness
+parsing the two variants shared.
+
+- **Finding 1 fixed.** `OmxplayerProcess.build_command()` now builds the whole
+  command from args. The `cmd` attribute and the `omxproc_cmd` test helper are
+  gone. Verified byte-identical against the previous `start()` assembly for all
+  four argument combinations.
+- **Finding 2 fixed.** A missing `pid` raises `ProcessException` with a message
+  naming the cause, so the failure surfaces instead of hanging the pipe. The
+  test asserts the new behaviour rather than the old `KeyError`.
+- **Finding 3 fixed.** The duplicated `_ready()` is one method on
+  `OmxplayerBackend`. The AST-comparison test that recorded the duplication now
+  guards it from re-diverging.
+- **Finding 4 addressed.** `backends.py` registers `omxplayer`,
+  `omxplayer-keys` and `mpv` by name; the backend comes from the `player`
+  setting. `_legacy_backend()` keeps the old two-boolean choice byte-for-byte
+  for unconfigured installs, verified across all four http/dlsrv combinations,
+  so upgrading does not silently change anyone's player.
+- **Finding 5 addressed.** Each backend advertises what it can do: the dbus
+  variant declares only pause and subtitles, the FIFO and mpv variants declare
+  everything. Still no UI for this; the capability set is available for it.
+- **mpv implemented.** Different binary, JSON IPC over a unix socket instead of
+  dbus or FIFO keystrokes, and readiness detected by polling for the socket
+  because mpv emits no status line to parse. It is the implementation that
+  proves the abstraction is not just omxplayer in three costumes.
+
+### Not addressed
+
+14 of 17 actions remain unreachable from the frontend. That is a UI question,
+not a backend one, and the capability set is now there to answer it when
+someone wants it.

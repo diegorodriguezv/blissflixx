@@ -2,7 +2,9 @@ from queue import Queue
 
 import cherrypy
 
+from ..settings import load
 from . import ythelper
+from .backends import DEFAULT_BACKEND, get_backend
 from .dlsrvproc import DlsrvProcess
 from .localproc import LocalFileProcess
 from .omxproc import OmxplayerProcess
@@ -92,6 +94,27 @@ class _Player:
             self.msgq.put(MSG_PLAYER_QUIT)
             self.main_thread.join()
 
+    def _player_stage(self, http, dlsrv):
+        """
+        Return the backend stage for a pipeline.
+
+        A backend named in settings wins. Otherwise the historical choice is
+        kept exactly: two omxplayer variants picked by whether the media still
+        needs serving and whether keys are needed, which is what the http and
+        dlsrv flags have always meant.
+        """
+        configured = load("player").get("backend", DEFAULT_BACKEND)
+        if configured:
+            return get_backend(configured)()
+        return self._legacy_backend(http, dlsrv)
+
+    def _legacy_backend(self, http, dlsrv):
+        if not http:
+            if dlsrv:
+                return OmxplayerProcess2()
+            return OmxplayerProcess()
+        return OmxplayerProcess2()
+
     def play(self, title, src, subs=None, http=False, dlsrv=True):
         if self.main_thread is None:
             self.main_thread = _start_thread(self.start)
@@ -99,14 +122,11 @@ class _Player:
         if subs is not None:
             pipe.add_process(SubtitlesProcess(subs))
         pipe.add_process(src)
-        if not http:
-            if dlsrv:
-                pipe.add_process(DlsrvProcess())
-                pipe.add_process(OmxplayerProcess2())
-            else:
-                pipe.add_process(OmxplayerProcess())
-        else:
-            pipe.add_process(OmxplayerProcess2())
+        if not http and dlsrv:
+            # The file is still growing, so it is served over http rather than
+            # piped, which is what lets the player follow it.
+            pipe.add_process(DlsrvProcess())
+        pipe.add_process(self._player_stage(http, dlsrv))
         self.msgq.put(MSG_PLAYER_PLAY)
         self.msgq.put(pipe)
 
