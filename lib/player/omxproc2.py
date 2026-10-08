@@ -13,7 +13,7 @@ _CMD_FIFO = "/tmp/cmdfifo"
 
 class OmxplayerProcess2(ExternalProcess):
     def __init__(self):
-        ExternalProcess.__init__(self, True)
+        super().__init__(shell=True)
 
     def _get_cmd(self, args):
         cmd = OMX_CMD
@@ -29,7 +29,7 @@ class OmxplayerProcess2(ExternalProcess):
         if not os.path.exists(_CMD_FIFO):
             os.system("mkfifo " + _CMD_FIFO)
         self.control("show_subtitle")
-        ExternalProcess.start(self, args)
+        super().start(args)
 
     def stop(self):
         if os.path.exists(_CMD_FIFO):
@@ -37,7 +37,7 @@ class OmxplayerProcess2(ExternalProcess):
                 os.remove(_CMD_FIFO)
             except Exception:
                 pass
-        ExternalProcess.stop(self)
+        super().stop()
 
     def _send_key(self, key):
         os.system("echo -n " + key + " >> " + _CMD_FIFO + " &")

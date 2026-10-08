@@ -7,7 +7,7 @@ class LivestreamerProcess(ExternalProcess):
     _START_TIMEOUT = 5
 
     def __init__(self, url, quality="best"):
-        ExternalProcess.__init__(self)
+        super().__init__()
         cmd = [
             "livestreamer",
             url,

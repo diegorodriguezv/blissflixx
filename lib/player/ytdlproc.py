@@ -11,7 +11,7 @@ YTDL_PATH = os.path.join(YTDL_PATH, "__main__.py")
 
 class YoutubeDlProcess(ExternalProcess):
     def __init__(self, url):
-        ExternalProcess.__init__(self)
+        super().__init__()
         self.url = url
 
     def name(self):

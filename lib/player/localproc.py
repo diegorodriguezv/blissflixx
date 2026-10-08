@@ -3,7 +3,7 @@ from .processpipe import Process
 
 class LocalFileProcess(Process):
     def __init__(self, filepath):
-        Process.__init__(self)
+        super().__init__()
         self.filepath = filepath
 
     def name(self):

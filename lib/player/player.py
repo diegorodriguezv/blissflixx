@@ -23,7 +23,7 @@ MSG_PLAYER_STOP = 2
 MSG_PLAYER_QUIT = 3
 
 
-class _Player(object):
+class _Player:
     def __init__(self):
         self.msgq = Queue(2)
         self.play_pipe = None

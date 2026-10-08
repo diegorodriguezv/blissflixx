@@ -12,7 +12,7 @@ _START_TIMEOUT = 120
 
 class OmxplayerProcess(ExternalProcess):
     def __init__(self):
-        ExternalProcess.__init__(self, True)
+        super().__init__(shell=True)
 
     def _get_cmd(self, args):
         return self.cmd
@@ -47,7 +47,7 @@ class OmxplayerProcess(ExternalProcess):
             # Wait a bit for input
             time.sleep(5)
 
-        ExternalProcess.start(self, args)
+        super().start(args)
 
     def _ready(self):
         while True:

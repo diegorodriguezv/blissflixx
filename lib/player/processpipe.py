@@ -3,6 +3,7 @@ import select
 import shutil
 import signal
 import subprocess
+from abc import ABC, abstractmethod
 from queue import Queue
 from threading import Thread
 
@@ -25,7 +26,7 @@ def _start_thread(target, *args):
     return th
 
 
-class _DiscardFile(object):
+class _DiscardFile:
     def write(self, *args):
         pass
 
@@ -56,7 +57,7 @@ class ProcessException(Exception):
     pass
 
 
-class ProcessPipe(object):
+class ProcessPipe:
     def __init__(self, title):
         self.title = title
         self.procs = []
@@ -145,7 +146,14 @@ class ProcessPipe(object):
             self._last_proc().control(action)
 
 
-class Process(object):
+class Process(ABC):
+    """
+    Base for one stage of a ProcessPipe.
+
+    Subclasses must implement name(), start() and stop(); the msg_* methods
+    implement the pipe protocol and are provided here.
+    """
+
     def __init__(self):
         self.errors = []
 
@@ -171,14 +179,24 @@ class Process(object):
     def status_msg(self):
         return "LOADING STREAM"
 
+    @abstractmethod
     def name(self):
-        raise NotImplementedError("This method must be implemented by subclasses")
+        """Short label used in logs and status messages."""
 
+    @abstractmethod
     def start(self, args):
-        raise NotImplementedError("This method must be implemented by subclasses")
+        """Run the stage. Call msg_ready/msg_finished/msg_halted to report back."""
 
+    @abstractmethod
     def stop(self):
-        raise NotImplementedError("This method must be implemented by subclasses")
+        """Tear the stage down. Called from another thread, so must be safe
+        to race against start()."""
+
+    def control(self, action):
+        """
+        Handle a playback control action. Only stages that can act on one need
+        to override this; the default is to ignore it.
+        """
 
     def msg_ready(self, args=None):
         if args is None:
@@ -193,8 +211,16 @@ class Process(object):
 
 
 class ExternalProcess(Process):
+    """
+    A pipeline stage backed by an external command.
+
+    Subclasses supply _get_cmd() and usually _ready(); start() here does the
+    work of spawning the command, waiting for it to report readiness, then
+    draining its output until it exits.
+    """
+
     def __init__(self, shell=False):
-        Process.__init__(self)
+        super().__init__()
         self.shell = shell
         self.killing = False
         if not os.path.exists(TMP_DIR):
@@ -224,13 +250,14 @@ class ExternalProcess(Process):
         self._wait()
 
     def _wait(self):
-        # Drain stderr/stdout pipe to stop it filling up and blocking process
-        cpthr = _bgcopypipe(self.proc.stdout, None)
-        retcode = self.proc.wait()
+        # Drain stderr/stdout pipe to stop it filling up and blocking process.
+        # The thread handle is deliberately discarded: this runs on the
+        # process's own thread and nobody joins it, the copy only needs to
+        # keep running for the life of the process.
+        _bgcopypipe(self.proc.stdout, None)
+        self.proc.wait()
         self.proc = None
 
-        # if retcode != 0:
-        #  cherrypy.log("Process exited with code: " + str(retcode))
         if self.has_error() or self.killing:
             self.msg_halted()
         else:
@@ -245,7 +272,7 @@ class ExternalProcess(Process):
                 # kill - including all children of process
                 self.killing = True
                 os.killpg(self.proc.pid, signal.SIGKILL)
-            except Exception as e:
+            except Exception:
                 pass
 
         if os.path.exists(OUT_FILE):
@@ -254,11 +281,15 @@ class ExternalProcess(Process):
             except Exception:
                 pass
 
-    def _get_cmd(self):
-        raise NotImplementedError("This method must be implemented by subclasses")
+    @abstractmethod
+    def _get_cmd(self, args):
+        """Return the command to run, as a string or argv list."""
 
     def _ready(self):
-        raise NotImplementedError("This method must be implemented by subclasses")
+        """
+        Block until the process has started successfully. Returning normally
+        means ready; raising ProcessException means it failed.
+        """
 
     def _readline(self, timeout=None):
         poll_obj = select.poll()

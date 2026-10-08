@@ -9,7 +9,7 @@ _DLSRV_PORT = "9696"
 
 class DlsrvProcess(ExternalProcess):
     def __init__(self):
-        ExternalProcess.__init__(self)
+        super().__init__()
 
     def name(self):
         return "dlsrv"

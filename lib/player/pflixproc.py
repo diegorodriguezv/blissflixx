@@ -8,7 +8,7 @@ _PEERFLIX_PORT = "9696"
 
 class PeerflixProcess(ExternalProcess):
     def __init__(self, torrent, idx):
-        ExternalProcess.__init__(self)
+        super().__init__()
         cmd = ["node", "--max-old-space-size=128", "/usr/local/bin/peerflix"]
         # Avoid problems with downloading torrent files
         torrent = torrent2magnet(torrent)
@@ -47,4 +47,4 @@ class PeerflixProcess(ExternalProcess):
             shutil.rmtree("/tmp/torrent-stream")
         except Exception:
             pass
-        ExternalProcess.stop(self)
+        super().stop()

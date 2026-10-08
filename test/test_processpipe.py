@@ -17,21 +17,28 @@ The messaging is:
 msg constants live in lib.player.processpipe.
 """
 
+import inspect
 import queue
 import threading
 import time
 
 import pytest
 
+from lib.player.dlsrvproc import DlsrvProcess
+from lib.player.lvstrmrproc import LivestreamerProcess
+from lib.player.omxproc import OmxplayerProcess
+from lib.player.omxproc2 import OmxplayerProcess2
+from lib.player.pflixproc import PeerflixProcess
 from lib.player.processpipe import (
     MSG_PLAYER_PIPE_STOPPED,
-    MSG_PROCESS_FINISHED,
-    MSG_PROCESS_HALTED,
-    MSG_PROCESS_READY,
+    ExternalProcess,
     Process,
     ProcessException,
     ProcessPipe,
 )
+from lib.player.rtmpproc import RtmpProcess
+from lib.player.subsproc import SubtitlesProcess
+from lib.player.ytdlproc import YoutubeDlProcess
 
 
 class FakeProcess(Process):
@@ -311,15 +318,40 @@ class TestPipeState:
         pipe.control("pause")
         assert pipe.is_started() is False
 
-    def test_control_forwards_to_last_process_when_started(self):
+    def test_control_is_forwarded_to_the_last_process(self):
+        """
+        Only the two omxplayer stages implement control(). Everything else, such
+        as a pipeline whose last stage is a downloader, ignores it.
+
+        Process used to have no control() at all, so Player.control("pause")
+        raised AttributeError and the UI got a 500 whenever the active
+        pipeline could not be paused. Process.control() is now a documented
+        no-op on the base class.
+        """
+        handled = []
+
+        class Controllable(FakeProcess):
+            def control(self, action):
+                handled.append(action)
+
+        pipe = ProcessPipe("title")
+        pipe.add_process(FakeProcess("first"))
+        pipe.add_process(Controllable("last", outcome="ready_then_wait"))
+        start_pipe(pipe)
+        assert pipe.is_started() is True
+
+        pipe.control("pause")
+
+        assert handled == ["pause"]
+
+    def test_control_is_ignored_by_stages_that_cannot_act_on_it(self):
         pipe = ProcessPipe("title")
         pipe.add_process(FakeProcess("a", outcome="ready_then_wait"))
         start_pipe(pipe)
         assert pipe.is_started() is True
-        # The base Process has no control(), so reaching it proves the forward
-        # happened.
-        with pytest.raises(AttributeError):
-            pipe.control("pause")
+
+        # Must not raise: a downloader cannot be paused.
+        assert pipe.control("pause") is None
 
 
 class TestPipeThreadSafety:
@@ -353,3 +385,78 @@ class TestPipeStatusMsgIndexing:
         pipe = ProcessPipe("empty")
         with pytest.raises(IndexError):
             pipe.status_msg()
+
+
+class TestProcessContract:
+    """
+    Process and ExternalProcess are abstract bases now. These cover the
+    contract itself, which the rest of this file relies on.
+    """
+
+    def test_process_cannot_be_instantiated(self):
+        with pytest.raises(TypeError):
+            Process()
+
+    def test_incomplete_subclass_cannot_be_instantiated(self):
+        """
+        Previously a subclass missing name()/start()/stop() could still be
+        constructed and only failed later, at playback time, with a bare
+        NotImplementedError from deep inside a thread.
+        """
+
+        class Incomplete(Process):
+            def name(self):
+                return "incomplete"
+
+        with pytest.raises(TypeError):
+            Incomplete()
+
+    def test_external_process_requires_get_cmd(self):
+        class NoCmd(ExternalProcess):
+            def name(self):
+                return "nocmd"
+
+            def start(self, args):
+                pass
+
+            def stop(self):
+                pass
+
+        with pytest.raises(TypeError):
+            NoCmd()
+
+    def test_get_cmd_signature_takes_args(self):
+        """
+        The base used to declare _get_cmd(self) while every implementation and
+        the call site in start() used _get_cmd(args). The arity mismatch was
+        invisible because the declaration was never reached.
+        """
+        for cls in (
+            DlsrvProcess,
+            LivestreamerProcess,
+            OmxplayerProcess,
+            OmxplayerProcess2,
+            PeerflixProcess,
+            RtmpProcess,
+            SubtitlesProcess,
+            YoutubeDlProcess,
+        ):
+            params = list(inspect.signature(cls._get_cmd).parameters)
+            assert params == ["self", "args"], cls.__name__
+
+    def test_shell_flag_is_plumbed_through(self):
+        """
+        shell=True is used by the two omxplayer stages, since their commands
+        are shell strings with pipes and redirects in them.
+        """
+        assert OmxplayerProcess().shell is True
+        assert OmxplayerProcess2().shell is True
+
+    def test_base_process_control_is_a_no_op(self):
+        """
+        Stages that cannot act on a control action ignore it, rather than
+        raising. Player.control("pause") reaching a downloader used to raise
+        AttributeError and surface as a 500 in the UI.
+        """
+        proc = FakeProcess("x")
+        assert proc.control("pause") is None

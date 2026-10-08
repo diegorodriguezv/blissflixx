@@ -5,7 +5,7 @@ from .processpipe import OUT_FILE, ExternalProcess
 
 class RtmpProcess(ExternalProcess):
     def __init__(self, cmd):
-        ExternalProcess.__init__(self)
+        super().__init__()
         cmd.insert(0, "rtmpdump")
         cmd.append("-o")
         cmd.append(OUT_FILE)

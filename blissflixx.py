@@ -60,7 +60,7 @@ def first_time_install():
         os.makedirs(settings_path)
 
 
-class Api(object):
+class Api:
     def _error(self, status, msg):
         cherrypy.response.status = status
         return {"error": msg}
@@ -170,7 +170,7 @@ class IgnoreStatusLogger(LogManager):
             return LogManager.access(self)
 
 
-class Html(object):
+class Html:
     pass
 
 

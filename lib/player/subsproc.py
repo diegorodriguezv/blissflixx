@@ -9,7 +9,7 @@ GETSUBS_PATH = os.path.join(BIN_PATH, "getsubs.py")
 
 class SubtitlesProcess(ExternalProcess):
     def __init__(self, subs):
-        ExternalProcess.__init__(self)
+        super().__init__()
         self.subs = subs
         self.subsfile = None
 
@@ -54,4 +54,4 @@ class SubtitlesProcess(ExternalProcess):
                 os.remove(self.subsfile)
             except Exception:
                 pass
-        ExternalProcess.stop(self)
+        super().stop()
