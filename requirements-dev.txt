@@ -1,0 +1,8 @@
+# Development and test dependencies.
+# Install on top of requirements.txt.
+
+-r requirements.txt
+
+black
+isort
+pytest

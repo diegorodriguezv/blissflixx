@@ -1,7 +1,12 @@
+import os
+import select
+import shutil
+import signal
+import subprocess
 from queue import Queue
 from threading import Thread
-import subprocess
-import os, select, signal, cherrypy, shutil
+
+import cherrypy
 
 MSG_PROCESS_READY = 1
 MSG_PROCESS_HALTED = 2

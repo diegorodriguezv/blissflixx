@@ -1,4 +1,6 @@
-import os, time
+import os
+import time
+
 from .processpipe import ExternalProcess, ProcessException
 
 # timeout for network connections in seconds (3 retries), 0 means no timeout

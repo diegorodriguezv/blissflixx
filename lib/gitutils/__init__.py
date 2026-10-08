@@ -1,5 +1,8 @@
-import os, subprocess, cherrypy
+import os
+import subprocess
 from threading import Thread
+
+import cherrypy
 
 
 def _cd(dirpath):

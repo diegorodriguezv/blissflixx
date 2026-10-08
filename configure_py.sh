@@ -18,19 +18,30 @@ echo ""
 echo "============================================================"
 
 # Create virtual environment
-python3 -m venv virtualenv
+if [ ! -d virtualenv ]; then
+    python3 -m venv virtualenv
+fi
 
 # Activate virtual environment
 . virtualenv/bin/activate
 
-# Install requests module
-pip3 install requests
+# Runtime dependencies. Kept in requirements.txt so they are declared in one
+# place rather than as a list of pip invocations here.
+echo "Installing runtime dependencies..."
+pip3 install --upgrade pip
+pip3 install -r requirements.txt
 
-# Install lxml module
-pip3 install lxml
+# Development dependencies (formatters, test runner). Not needed to run the
+# server. Pass --dev to include them, e.g.
+#   ./configure_py.sh --dev
+if [ "$1" == "--dev" ]; then
+    echo "Installing development dependencies..."
+    pip3 install -r requirements-dev.txt
+    echo ""
+    echo "Run the test suite with:  virtualenv/bin/pytest"
+    echo "Check formatting with:    virtualenv/bin/black --check lib chls blissflixx.py"
+    echo "                         virtualenv/bin/isort --check-only lib chls blissflixx.py"
+fi
 
-# Install cssselect module
-pip3 install cssselect
-
-# Install CherryPy
-pip3 install cherrypy
+echo ""
+echo "Done."

@@ -98,6 +98,11 @@ class Api(object):
         module = api_modules.get(modname)
         if module is None:
             return self._error(404, "API Module '" + str(modname) + "' is not defined")
+        # getattr rejects a non-string name with TypeError rather than
+        # AttributeError, so a request with no fn at all would otherwise escape
+        # as a 500 traceback.
+        if not isinstance(fn, str):
+            return self._error(404, "API Function '" + str(fn) + "' is not defined")
         try:
             call = getattr(module, fn)
         except AttributeError:

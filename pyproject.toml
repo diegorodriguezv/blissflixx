@@ -1,0 +1,39 @@
+# Tool configuration lives here so that black, isort and pytest agree with each
+# other. Dependencies are in requirements.txt / requirements-dev.txt, which
+# configure_py.sh installs into ./virtualenv.
+
+[tool.black]
+# Vendored trees are not ours to format.
+extend-exclude = '''
+/(
+    lib/yt-dlp
+  | lib/torrentparse
+  | virtualenv
+  | oldplugins
+)/
+'''
+
+[tool.isort]
+profile = "black"
+known_first_party = ["lib"]
+# isort must not walk into the vendored yt-dlp checkout, the dead torrentparse
+# package, or third-party plugins installed at runtime.
+extend_skip_glob = [
+    "lib/yt-dlp/*",
+    "lib/torrentparse/*",
+    "virtualenv/*",
+    "oldplugins/*",
+    "plugins/*",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["test"]
+# The project is not installed as a package; tests import `lib` from the repo
+# root. This also lets tests import installed channels without a sys.path hack.
+pythonpath = [".", "chls"]
+# Fail fast if a test tries to reach the network. The old scripts in test/ were
+# exactly that: they hit live sites and printed whatever came back.
+addopts = "-ra --strict-markers"
+markers = [
+    "network: test needs live network access (deselect with '-m \"not network\"')",
+]

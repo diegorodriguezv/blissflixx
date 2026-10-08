@@ -1,11 +1,17 @@
 #!/usr/bin/env python3
 
-import sys, requests, zipfile, io, socket, zlib
+import io
+import socket
+import sys
+import zipfile
+import zlib
 from argparse import ArgumentParser
+from base64 import b64decode
+from http.client import HTTPConnection
 from os import path
 from xmlrpc.client import ServerProxy, Transport
-from http.client import HTTPConnection
-from base64 import b64decode
+
+import requests
 
 OUT_DIR = "/tmp"
 
@@ -49,12 +55,12 @@ class TimeoutTransport(Transport, object):
 class OpensubSession(object):
     def __init__(self):
         self.con = ServerProxy(
-            "http://api.opensubtitles.org/xml-rpc", transport=TimeoutTransport(10),headers=()
+            "http://api.opensubtitles.org/xml-rpc",
+            transport=TimeoutTransport(10),
+            headers=(),
         )
         # Login and use subliminal user-agent
-        r = self.con.LogIn(
-            "blissflixx", "PREV-BLUE-SCOPE-FEAR", "eng", "VLSub 0.11.1"
-        )
+        r = self.con.LogIn("blissflixx", "PREV-BLUE-SCOPE-FEAR", "eng", "VLSub 0.11.1")
         self.ok(r)
         self.token = r["token"]
 

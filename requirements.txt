@@ -1,0 +1,10 @@
+# Runtime dependencies for BlissFlixx.
+#
+# Deliberately minimal. omxplayer, peerflix, dbus and the yt-dlp checkout are
+# not python packages: they are installed by configure.sh and cloned on first
+# run respectively.
+
+cherrypy
+cssselect
+lxml
+requests

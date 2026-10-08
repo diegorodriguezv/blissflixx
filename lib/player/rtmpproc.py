@@ -1,5 +1,6 @@
 import cherrypy
-from .processpipe import ExternalProcess, OUT_FILE
+
+from .processpipe import OUT_FILE, ExternalProcess
 
 
 class RtmpProcess(ExternalProcess):
