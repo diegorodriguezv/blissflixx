@@ -5,14 +5,20 @@ import cherrypy
 from . import ythelper
 from .dlsrvproc import DlsrvProcess
 from .localproc import LocalFileProcess
-from .lvstrmrproc import LivestreamerProcess
 from .omxproc import OmxplayerProcess
 from .omxproc2 import OmxplayerProcess2
 from .pflixproc import PeerflixProcess
 from .processpipe import MSG_PLAYER_PIPE_STOPPED, ProcessPipe, _start_thread
-from .rtmpproc import RtmpProcess
 from .subsproc import SubtitlesProcess
 from .ytdlproc import YoutubeDlProcess
+
+# playRtmpdump() and playLivestream() were the only users of RtmpProcess and
+# LivestreamerProcess, and nothing called either method. livestreamer in
+# particular is no longer installable or supported upstream, and configure.sh
+# never provisioned it. The methods and their two imports are commented out
+# below rather than deleted so the wrappers stay recoverable.
+# from .lvstrmrproc import LivestreamerProcess
+# from .rtmpproc import RtmpProcess
 
 ST_NOT_RUNNING = 0
 ST_STARTING = 1
@@ -107,17 +113,23 @@ class _Player:
     def playYtdl(self, url, title=None, subs=None):
         if title is None:
             title = url
-        http = ythelper.skip_download(url)
-        self.play(title, YoutubeDlProcess(url), subs, http)
+        # True means yt-dlp should only resolve the stream (--simulate), so the
+        # bytes are piped straight to the player instead of buffered to disk.
+        pipe_directly = ythelper.skip_download(url)
+        self.play(title, YoutubeDlProcess(url), subs, pipe_directly)
 
-    def playRtmpdump(self, cmd, title):
-        self.play(title, RtmpProcess(cmd))
+    # Dead: RtmpProcess is only reachable from here, and rtmpdump is not
+    # installed by configure.sh.
+    # def playRtmpdump(self, cmd, title):
+    #     self.play(title, RtmpProcess(cmd))
 
     def playTorrent(self, url, idx, title, subs):
         self.play(title, PeerflixProcess(url, idx), subs, True)
 
-    def playLivestream(self, url, title):
-        self.play(title, LivestreamerProcess(url), http=False, dlsrv=False)
+    # Dead: LivestreamerProcess is only reachable from here, and livestreamer is
+    # no longer supported upstream and is not installed by configure.sh.
+    # def playLivestream(self, url, title):
+    #     self.play(title, LivestreamerProcess(url), http=False, dlsrv=False)
 
     def playLocalFile(self, filepath, title):
         # Local File path behaviour is like http

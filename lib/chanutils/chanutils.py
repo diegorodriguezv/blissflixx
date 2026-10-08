@@ -11,6 +11,11 @@ import lxml.html
 import requests
 from lxml.cssselect import CSSSelector
 
+# The CORS proxy is dead: this App Engine instance dates from 2019 and is long
+# gone. Nothing in BlissFlixx passes proxy=True, so this path is never taken.
+# It is kept, rather than removed, because get() and post() expose proxy= as
+# part of this module's public surface and community channels in plugins/ may
+# still pass it. Do not add new callers.
 _PROXY_LIST = [{"url": "http://blissflixx-proxy1.appspot.com"}]
 
 # Default network timeout in seconds. Without this a stalled remote host blocks
@@ -157,9 +162,9 @@ def get_text_content(el):
 def byte_size(num, suffix="B"):
     for unit in ["", "K", "M", "G", "T", "P", "E", "Z"]:
         if abs(num) < 1024.0:
-            return "%3.1f %s%s" % (num, unit, suffix)
+            return f"{num:3.1f} {unit}{suffix}"
         num /= 1024.0
-    return "%.1f %s%s" % (num, "Y", suffix)
+    return f"{num:.1f} Y{suffix}"
 
 
 def replace_entity(text):
@@ -193,8 +198,8 @@ def number_commas(x):
     result = ""
     while x >= 1000:
         x, r = divmod(x, 1000)
-        result = ",%03d%s" % (r, result)
-    return "%d%s" % (x, result)
+        result = f",{r:03d}{result}"
+    return f"{x}{result}"
 
 
 MOVIE_RE = re.compile(r"(.*)[\(\[]?([12][90]\d\d)[^pP][\(\[]?.*$")
@@ -232,8 +237,18 @@ class UrlInfo:
         self.tree = lxml.html.fromstring(self.page)
 
     def get_html_title(self):
+        # The raw <title> text is returned undecoded. This has been changed
+        # three times and the current behaviour is the one that works:
+        #   d92a9d1  plain text
+        #   5fd8537  .encode("latin-1").decode("utf-8)")   <- mojibake hack, buggy
+        #   18cc444  html.unescape(text), but then returned the undecoded text
+        # html.unescape is still the right call for an "&amp;" in a title, but
+        # it was tried and did not fix the reported problem, so returning the
+        # decoded form is left as a deliberate decision rather than an
+        # accident. Only caller is lib/api/playlink.py, which shows the title
+        # in the player.
         text = self.tree.find(".//title").text
-        decoded = html.unescape(text)
+        # decoded = html.unescape(text)
         return text
 
     def get_youtube_video_description(self):

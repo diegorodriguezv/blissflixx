@@ -1,26 +1,30 @@
-import cherrypy
-
-from .processpipe import OUT_FILE, ExternalProcess
-
-
-class RtmpProcess(ExternalProcess):
-    def __init__(self, cmd):
-        super().__init__()
-        cmd.insert(0, "rtmpdump")
-        cmd.append("-o")
-        cmd.append(OUT_FILE)
-        self.cmd = cmd
-
-    def name(self):
-        return "rtmpdump"
-
-    def _get_cmd(self, args):
-        return self.cmd
-
-    def _ready(self):
-        while True:
-            line = self._readline()
-            if line.startswith("Starting download at:"):
-                return {"pid": self.proc.pid, "outfile": OUT_FILE}
-            else:
-                cherrypy.log("RTMPDUMP: " + line)
+# RtmpProcess was only used by _Player.playRtmpdump(), which nothing called.
+# # rtmpdump is also not installed by configure.sh. Commented out rather than
+# # deleted so the wrapper stays recoverable.
+#
+# import cherrypy
+#
+# from .processpipe import OUT_FILE, ExternalProcess
+#
+#
+# class RtmpProcess(ExternalProcess):
+#     def __init__(self, cmd):
+#         super().__init__()
+#         cmd.insert(0, "rtmpdump")
+#         cmd.append("-o")
+#         cmd.append(OUT_FILE)
+#         self.cmd = cmd
+#
+#     def name(self):
+#         return "rtmpdump"
+#
+#     def _get_cmd(self, args):
+#         return self.cmd
+#
+#     def _ready(self):
+#         while True:
+#             line = self._readline()
+#             if line.startswith("Starting download at:"):
+#                 return {"pid": self.proc.pid, "outfile": OUT_FILE}
+#             else:
+#                 cherrypy.log("RTMPDUMP: " + line)

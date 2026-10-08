@@ -224,3 +224,55 @@ class TestVendoredTreesUntouched:
         )
         assert proc.returncode == 0, proc.stderr
         assert proc.stdout.strip() == "False"
+
+
+class TestRetiredProcessModules:
+    """
+    RtmpProcess and LivestreamerProcess were reachable only from
+    _Player.playRtmpdump() and _Player.playLivestream(), and nothing called
+    either. livestreamer is no longer supported upstream and neither it nor
+    rtmpdump is installed by configure.sh, so both modules are commented out.
+
+    Commented out rather than deleted, per the project convention, so these
+    assertions are about them staying out of the import graph.
+    """
+
+    def test_rtmp_module_is_inert(self):
+        proc = run_snippet(
+            "import lib.player.rtmpproc as m; print(hasattr(m, 'RtmpProcess'))"
+        )
+        assert proc.returncode == 0, proc.stderr
+        assert proc.stdout.strip() == "False"
+
+    def test_livestreamer_module_is_inert(self):
+        proc = run_snippet(
+            "import lib.player.lvstrmrproc as m; "
+            "print(hasattr(m, 'LivestreamerProcess'))"
+        )
+        assert proc.returncode == 0, proc.stderr
+        assert proc.stdout.strip() == "False"
+
+    def test_player_exposes_neither_wrapper(self):
+        proc = run_snippet(
+            "import lib.player as p; "
+            "print(hasattr(p.Player, 'playRtmpdump'), "
+            "hasattr(p.Player, 'playLivestream'))"
+        )
+        assert proc.returncode == 0, proc.stderr
+        assert proc.stdout.strip() == "False False"
+
+    def test_live_playback_paths_are_still_present(self):
+        """
+        The rest of the player must be untouched by retiring those two. These
+        are the methods lib/api/playr.py dispatches to: a file:// url goes to
+        playLocalFile, a torrent to playTorrent, everything else to playYtdl.
+        Stopping is an action through control(), not a method of its own.
+        """
+        proc = run_snippet(
+            "import lib.player as p; "
+            "print(all(hasattr(p.Player, n) for n in "
+            "('play', 'playYtdl', 'playTorrent', 'playLocalFile', "
+            "'control', 'status', 'quit')))"
+        )
+        assert proc.returncode == 0, proc.stderr
+        assert proc.stdout.strip() == "True"

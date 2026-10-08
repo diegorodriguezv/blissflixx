@@ -25,7 +25,6 @@ import time
 import pytest
 
 from lib.player.dlsrvproc import DlsrvProcess
-from lib.player.lvstrmrproc import LivestreamerProcess
 from lib.player.omxproc import OmxplayerProcess
 from lib.player.omxproc2 import OmxplayerProcess2
 from lib.player.pflixproc import PeerflixProcess
@@ -36,7 +35,6 @@ from lib.player.processpipe import (
     ProcessException,
     ProcessPipe,
 )
-from lib.player.rtmpproc import RtmpProcess
 from lib.player.subsproc import SubtitlesProcess
 from lib.player.ytdlproc import YoutubeDlProcess
 
@@ -433,11 +431,9 @@ class TestProcessContract:
         """
         for cls in (
             DlsrvProcess,
-            LivestreamerProcess,
             OmxplayerProcess,
             OmxplayerProcess2,
             PeerflixProcess,
-            RtmpProcess,
             SubtitlesProcess,
             YoutubeDlProcess,
         ):
