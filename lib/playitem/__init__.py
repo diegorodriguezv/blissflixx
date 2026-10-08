@@ -3,8 +3,9 @@ from ..settings import load
 
 
 class Action:
-    def get_dict(self):
-        pass
+    # Subclasses implement to_dict(). This base class previously declared a
+    # get_dict() method that returned None and was never called anywhere.
+    pass
 
 
 class AddPlaylistAction(Action):
@@ -65,14 +66,20 @@ class TorrentFilesAction(Action):
         self.title = title
 
     def to_dict(self):
+        # "torrfiles" is handled by html/tags/itemlist.html, which routes to
+        # html/pages/torrfiles.html and calls the torrent/files API.
         return {
-            "type": "showmore",
+            "type": "torrfiles",
             "label": "View Files...",
             "link": self.link,
             "title": self.title,
         }
 
 
+# This class was previously defined twice in this module. Both bodies executed
+# on import and the second silently shadowed the first, so the variant below
+# was the one actually in use. It reported type "showmore", which routed
+# "View Files..." through channels.showmore instead of torrent/files.
 # class TorrentFilesAction(Action):
 #     def __init__(self, link, title):
 #         self.link = link
@@ -80,7 +87,7 @@ class TorrentFilesAction(Action):
 #
 #     def to_dict(self):
 #         return {
-#             "type": "torrfiles",
+#             "type": "showmore",
 #             "label": "View Files...",
 #             "link": self.link,
 #             "title": self.title,

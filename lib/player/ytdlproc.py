@@ -1,8 +1,7 @@
 import json
 import os
 
-from lib.locations import YTUBE_PATH
-
+from ..locations import YTUBE_PATH
 from . import ythelper
 from .processpipe import OUT_FILE, ExternalProcess, ProcessException
 

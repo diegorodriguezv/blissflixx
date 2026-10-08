@@ -1,9 +1,8 @@
-from lib.api.torrent import set_torridx
-from lib.chanutils import UrlInfo
-from lib.chanutils.torrent import is_torrent
-from lib.playitem import PlayItem, PlayItemList
-
+from ..chanutils import UrlInfo
+from ..chanutils.torrent import is_torrent
+from ..playitem import PlayItem, PlayItemList
 from .common import ApiError
+from .torrent import set_torridx
 
 MAX_TITLE_LEN = 100
 

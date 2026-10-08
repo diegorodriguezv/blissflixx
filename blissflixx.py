@@ -19,7 +19,7 @@ import lib.locations as locations
 # lib.api is a plain namespace, so its submodules are imported explicitly here
 # rather than eagerly from lib/api/__init__.py. Importing them also attaches
 # them as attributes of the package, so the getattr dispatch below works.
-from lib.api import channels, playlink, playr, playlists, torrent
+from lib.api import channels, playlink, playlists, playr, torrent
 
 api_modules = {
     "channels": channels,

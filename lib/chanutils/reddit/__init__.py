@@ -1,5 +1,5 @@
-from lib.chanutils import get_json, movie_title_year, replace_entity
-from lib.playitem import PlayItem, PlayItemList
+from ...playitem import PlayItem, PlayItemList
+from ..chanutils import get_json, movie_title_year, replace_entity
 
 
 def search(subreddit, q, moviesubs=False):

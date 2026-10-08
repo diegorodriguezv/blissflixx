@@ -1,26 +1,26 @@
 import glob
 import os
 import shutil
+import sys
+import traceback
 from os import path
 from queue import Queue
-from threading import Thread
+from threading import Lock, Thread
 
 from ..locations import CHAN_PATH, PLUGIN_PATH, ROOT_PATH
 from ..settings import load, save
 from .common import ApiError
 
 CHANID_GLOB = "bfch_*"
-import sys
 
+# Installed channels are imported by bare module name, so their directories
+# have to be importable.
 sys.path.append(CHAN_PATH)
 sys.path.append(PLUGIN_PATH)
 
 
 class Channel:
     def __init__(self, cpath, plugin):
-        # import pdb
-        #
-        # pdb.set_trace()
         chid = path.basename(cpath)
         module = __import__(chid, globals(), locals(), [])
         name = module.name()
@@ -123,16 +123,19 @@ class InstalledChannels:
         for p in cpaths:
             try:
                 channels.append(Channel(p, False))
-            except ImportError as exc:
-                print(f"Failed to import channel {p}")
-                print(exc)
+            except Exception:
+                # A broken channel must not take the whole server down, and it
+                # need not raise ImportError: a bad selector raises ValueError,
+                # a changed API shape raises KeyError, and so on.
+                print(f"Failed to load channel {p}")
+                traceback.print_exc()
         cpaths = glob.glob(path.join(PLUGIN_PATH, CHANID_GLOB))
         for p in cpaths:
             try:
                 channels.append(Channel(p, True))
-            except ImportError as exc:
-                print(f"Failed to import plugin {p}")
-                print(exc)
+            except Exception:
+                print(f"Failed to load plugin {p}")
+                traceback.print_exc()
         # Ignore channels with no image
         channels = [chan for chan in channels if chan.imageExists()]
         self.channels = sorted(channels, key=lambda chan: chan.getTitle().upper())
@@ -184,20 +187,27 @@ class InstalledChannels:
 
 
 _installed = None
+_installed_lock = Lock()
 
 
 def get_installed():
     """
     Return the InstalledChannels singleton, creating it on first use.
 
-    Instantiating it does network I/O (every installed channel's feedlist()) and
-    imports each installed channel, so it must not happen at module import time:
-    that blocked server startup and made this module impossible to import in a
-    test or a utility script.
+    Instantiating it does network I/O (every installed channel's feedlist())
+    and imports each installed channel, so it must not happen at module import
+    time: that blocked server startup and made this module impossible to
+    import in a test or a utility script.
+
+    CherryPy serves each request in its own thread, so creation is guarded.
+    Without the lock two requests arriving on a cold server would both build
+    the object, duplicating the network work and racing on the settings file.
     """
     global _installed
     if _installed is None:
-        _installed = InstalledChannels()
+        with _installed_lock:
+            if _installed is None:
+                _installed = InstalledChannels()
     return _installed
 
 

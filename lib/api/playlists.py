@@ -6,9 +6,8 @@ import time
 
 import requests
 
-from lib.locations import PLIST_PATH
-from lib.playitem import PlayItemList, PlaylistItem
-
+from ..locations import PLIST_PATH
+from ..playitem import PlayItemList, PlaylistItem
 from .common import ApiError
 
 REMOTE_REFRESH_INT = 3600

@@ -1,14 +1,25 @@
-import requests, lxml.html, re
-import html.entities, urllib.parse, urllib.error, random
-from lxml.cssselect import CSSSelector
-import html
 import datetime
+import html
+import html.entities
+import os
+import random
+import re
+import urllib.error
+import urllib.parse
+
+import lxml.html
+import requests
+from lxml.cssselect import CSSSelector
 
 _PROXY_LIST = [{"url": "http://blissflixx-proxy1.appspot.com"}]
 
 # Default network timeout in seconds. Without this a stalled remote host blocks
-# a CherryPy request thread indefinitely.
-_TIMEOUT = 20
+# a CherryPy request thread indefinitely. Override with BF_TIMEOUT if a slow
+# link needs longer.
+try:
+    _TIMEOUT = float(os.environ.get("BF_TIMEOUT", "20"))
+except ValueError:
+    _TIMEOUT = 20.0
 
 
 _HEADERS = {
