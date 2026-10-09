@@ -396,20 +396,32 @@ class ExternalProcess(Process):
         # to say beyond "it stopped".
         tail = _LineTail(on_line=self.on_output_line)
         copier = _bgcopypipe(self.proc.stdout, tail)
-        # Bounded, because a process that cannot be waited for would otherwise
-        # hold this stage open forever. A VLC that never reports ready -- no rc
-        # module, so the socket never appears -- carries on retrying its audio
-        # output indefinitely, and this wait is what never returned: the stage
-        # never halted, the pipe never stopped, and the player sat at
-        # ST_STARTING for good. Waiting is only reached once _ready() has already
-        # failed, so the process has had its chance to finish and say why; the
-        # timeout is the backstop, not the normal path. Killing it here rather
-        # than at the failure keeps whatever it printed before it stalled.
-        try:
-            self.proc.wait(timeout=_EXIT_WAIT_TIMEOUT)
-        except subprocess.TimeoutExpired:
-            cherrypy.log("PROCESS DID NOT EXIT: " + self.name())
-            self.stop()
+        # How long to wait for the process to leave is not one thing, it depends
+        # on whether it ever arrived.
+        #
+        # If _ready() failed, the process is one that could not be started, and
+        # waiting on it is bounded: a VLC with no rc module polls for a control
+        # socket that can never appear, gives up after its timeout, and then
+        # carries on retrying audio output indefinitely. Without a bound here
+        # the stage never halted, the pipe never stopped, and the player sat at
+        # ST_STARTING for good.
+        #
+        # If _ready() succeeded, the stage has done its job and the process is
+        # now a player that will exit when the media ends. Bounding that wait
+        # kills it mid-film: a VLC that reached cli readiness was SIGKILLed
+        # exactly _EXIT_WAIT_TIMEOUT seconds in, which showed up as a torrent
+        # that stopped after five seconds and an error message full of
+        # unrelated ALSA noise from the log tail. There is no timeout here on
+        # purpose. stop() is what ends a player that must not keep running, and
+        # it already runs from the pipe.
+        if self.has_error():
+            try:
+                self.proc.wait(timeout=_EXIT_WAIT_TIMEOUT)
+            except subprocess.TimeoutExpired:
+                cherrypy.log("PROCESS DID NOT EXIT: " + self.name())
+                self.stop()
+                self.proc.wait()
+        else:
             self.proc.wait()
         self.proc = None
         # The copier finishes when stdout reaches EOF, which the exit just

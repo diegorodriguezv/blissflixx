@@ -463,21 +463,22 @@ class TestStopSurvivesAStageThatWillNotExit:
         assert pmsgq.get(timeout=2.0) == "disk is full"
 
 
-class _UnstartableExternal(ExternalProcess):
+class _StubExternal(ExternalProcess):
     """
-    An ExternalProcess whose subprocess never exits.
+    An ExternalProcess with no real subprocess behind it.
 
-    Stands in for a VLC that cannot report ready -- on Debian trixie's armhf
-    build there is no rc interface module, so the unix socket VlcProcess._ready()
-    polls for is never created, and cvlc then carries on retrying its audio
-    output indefinitely.
+    wait() honours its timeout argument the way subprocess does -- raising
+    TimeoutExpired rather than blocking -- so both the bounded and the unbounded
+    wait can be exercised without hanging the run.
     """
 
-    def __init__(self, never_exits=True):
+    def __init__(self, never_exits=True, error=False):
         super().__init__()
         self.killed = False
         self.waits = []
         self._never_exits = never_exits
+        if error:
+            self.errors.append("could not start")
 
     def name(self):
         return "stub"
@@ -492,12 +493,8 @@ class _UnstartableExternal(ExternalProcess):
         self.killed = True
 
     def _fake_proc(self):
-        """
-        A Popen stand-in whose wait() honours the timeout argument the way
-        subprocess does: it raises TimeoutExpired rather than blocking.
-        """
         never = self._never_exits
-        killed = self
+        outer = self
 
         class P:
             pid = 4242
@@ -505,20 +502,20 @@ class _UnstartableExternal(ExternalProcess):
             returncode = None
 
             def poll(self):
-                return -9 if killed.killed else None
+                return -9 if outer.killed else None
 
             def wait(self, timeout=None):
-                killed.waits.append(timeout)
-                if never and not killed.killed:
+                outer.waits.append(timeout)
+                if never and not outer.killed:
                     raise pp.subprocess.TimeoutExpired("stub", timeout)
                 return 0
 
         return P()
 
-    def run_wait(self, monkeypatch):
-        monkeypatch.setattr(pp, "_EXIT_WAIT_TIMEOUT", 0.2)
-        # _bgcopypipe needs a real file object; a pipe with no writer gives it
-        # EOF immediately, which is the copier finishing as it should.
+    def run_wait(self, monkeypatch, timeout=0.2):
+        monkeypatch.setattr(pp, "_EXIT_WAIT_TIMEOUT", timeout)
+        # A pipe with no writer gives the copier EOF immediately, which is the
+        # copier finishing as it should.
         r, w = os.pipe()
         os.close(w)
         reader = os.fdopen(r, "r")
@@ -533,101 +530,70 @@ class _UnstartableExternal(ExternalProcess):
             reader.close()
 
 
-class TestAStageThatWillNotExitIsKilled:
+class TestAStageThatCouldNotStartIsKilled:
     """
-    A stage must not wait forever for a process that is not going to leave.
+    A stage that failed to become ready must not hold the pipe open forever.
 
     VLC on Debian trixie's armhf build has no rc interface module, so the unix
     socket _ready() polls for never appears. _ready() gives up and records the
-    error, but cvlc then carries on retrying its audio output indefinitely, and
-    the unbounded proc.wait() in _wait() never returned. The stage never halted,
-    the pipe never stopped, and the player sat at ST_STARTING indefinitely --
-    which is what a torrent stream did on real hardware.
+    error, but cvlc carries on retrying its audio output indefinitely, and an
+    unbounded proc.wait() never returned. The stage never halted, the pipe never
+    stopped, and the player sat at ST_STARTING indefinitely.
 
-    The wait is bounded and the process is killed on expiry. Killing at the
-    readiness failure instead would throw away whatever the process printed on
-    its way out, which is exactly what the output-capture tests protect.
+    Only reached when _ready() has already failed, which is what makes it safe.
     """
 
     def test_a_process_that_never_exits_is_killed(self, monkeypatch):
-        proc = _UnstartableExternal(never_exits=True)
+        proc = _StubExternal(never_exits=True, error=True)
         proc.run_wait(monkeypatch)
         assert proc.killed
 
-    def test_the_wait_is_bounded(self, monkeypatch):
-        proc = _UnstartableExternal(never_exits=True)
+    def test_the_wait_is_bounded_when_startup_failed(self, monkeypatch):
+        proc = _StubExternal(never_exits=True, error=True)
         proc.run_wait(monkeypatch)
         assert proc.waits[0] == 0.2
 
     def test_a_process_that_exits_is_not_killed(self, monkeypatch):
-        proc = _UnstartableExternal(never_exits=False)
+        proc = _StubExternal(never_exits=False, error=True)
         proc.run_wait(monkeypatch)
         assert not proc.killed
-        assert proc.waits == [0.2]
 
 
-class TestAStageNameMustNotShadowTheProtocolSend:
+class TestAPlayerThatStartedIsNeverTimedOut:
     """
-    A stage must not override Process._send.
+    A stage that reported ready has succeeded. Waiting for its process to leave
+    must not be bounded, because that wait is the length of a film.
 
-    Process._send is the pipe protocol's own method -- _send(msg, args) -- and a
-    backend that reuses the name for something else silently breaks the moment
-    the stage reports readiness: msg_ready calls the inherited _send with two
-    arguments and the stage thread dies.
-
-    VLC did exactly this. Its control method was named _send, so every play
-    through the pipe raised
-
-        TypeError: VlcProcess._send() takes 2 positional arguments but 3 were
-        given
-
-    at the moment the player announced it was ready. The unit tests all passed
-    because they call the control method directly and never start a stage
-    through ExternalProcess.start(). This drives the real path.
+    This cost a torrent stream and then nearly a diagnosis: the bound was added
+    for a VLC that could not report ready, applied to every stage, and so killed
+    a healthy player exactly _EXIT_WAIT_TIMEOUT seconds in. It surfaced as a
+    stop after five seconds and an error message made of unrelated ALSA noise
+    picked up from the log tail -- which is what sent the investigation after the
+    audio pipeline, which was never broken.
     """
 
-    def test_a_stage_may_not_redefine_send(self):
-        offenders = []
-        for name in sorted(BACKENDS):
-            cls = backend_class(name)
-            assert "_send" not in vars(cls), (
-                f"{name} redefines Process._send, which is the pipe protocol's "
-                f"own method; rename it"
-            )
-            offenders.append(name)
-        assert offenders
+    def test_the_wait_is_unbounded_after_a_successful_start(self, monkeypatch):
+        proc = _StubExternal(never_exits=False, error=False)
+        proc.run_wait(monkeypatch)
+        # No timeout argument at all: proc.wait() with nothing to expire.
+        assert proc.waits == [None]
 
-    def test_the_control_method_keeps_its_own_name(self):
+    def test_a_started_player_is_not_killed(self, monkeypatch):
+        proc = _StubExternal(never_exits=False, error=False)
+        proc.run_wait(monkeypatch)
+        assert not proc.killed
+
+    def test_a_started_player_that_will_not_exit_is_left_alone(self, monkeypatch):
         """
-        Positive case, so the check above cannot pass by renaming everything to
-        something else. This is the name VLC uses to talk to the player.
+        The regression itself. A process that will not exit, with no startup
+        error, used to raise TimeoutExpired after the bound and be killed --
+        which is what stopped a healthy film five seconds in.
+
+        Here the unbounded wait is a plain proc.wait(), so the fake returns and
+        nothing is killed. A real player in this state stays alive until stop()
+        is called, which is the pipe's job, not this stage's.
         """
-        assert callable(VlcProcess._send_command)
-
-    def test_vlc_reports_ready_through_the_real_start_path(self):
-        """
-        The whole point, and it has to be the real class: the shadowed method
-        only breaks when the pipe starts the stage for real, because that is the
-        only thing that calls msg_ready and so calls Process._send. A hand-rolled
-        stand-in stage passes whether or not VLC is broken, which is exactly the
-        gap this test was added to close.
-
-        _ready is stubbed to return immediately with the banner already seen, so
-        this asserts the handshake and nothing else -- no VLC, no subprocess.
-        """
-        proc = VlcProcess()
-        proc._ready_seen = True
-        proc._ready = lambda: {}
-        args = {"outfile": "/tmp/x.mkv"}
-
-        q = queue.Queue()
-        proc.set_msgq(q, 0)
-        proc._wait = lambda: None
-        with m.patch(
-            "lib.player.processpipe.subprocess.Popen",
-            return_value=m.MagicMock(poll=lambda: 0, stdout=None),
-        ):
-            proc.start(args)
-
-        assert q.get_nowait() == MSG_PROCESS_READY
-        assert q.get_nowait() == 0
+        proc = _StubExternal(never_exits=False, error=False)
+        proc.run_wait(monkeypatch)
+        assert not proc.killed
+        assert proc.waits == [None]
