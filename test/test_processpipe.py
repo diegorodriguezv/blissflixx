@@ -27,18 +27,21 @@ import unittest.mock as m
 import pytest
 
 import lib.player.processpipe as pp
+from lib.player.backends import BACKENDS, backend_class
 from lib.player.dlsrvproc import DlsrvProcess
 from lib.player.omxproc import OmxplayerProcess
 from lib.player.omxproc2 import OmxplayerProcess2
 from lib.player.pflixproc import PeerflixProcess
 from lib.player.processpipe import (
     MSG_PLAYER_PIPE_STOPPED,
+    MSG_PROCESS_READY,
     ExternalProcess,
     Process,
     ProcessException,
     ProcessPipe,
 )
 from lib.player.subsproc import SubtitlesProcess
+from lib.player.vlcproc import VlcProcess
 from lib.player.ytdlproc import YoutubeDlProcess
 
 
@@ -561,3 +564,70 @@ class TestAStageThatWillNotExitIsKilled:
         proc.run_wait(monkeypatch)
         assert not proc.killed
         assert proc.waits == [0.2]
+
+
+class TestAStageNameMustNotShadowTheProtocolSend:
+    """
+    A stage must not override Process._send.
+
+    Process._send is the pipe protocol's own method -- _send(msg, args) -- and a
+    backend that reuses the name for something else silently breaks the moment
+    the stage reports readiness: msg_ready calls the inherited _send with two
+    arguments and the stage thread dies.
+
+    VLC did exactly this. Its control method was named _send, so every play
+    through the pipe raised
+
+        TypeError: VlcProcess._send() takes 2 positional arguments but 3 were
+        given
+
+    at the moment the player announced it was ready. The unit tests all passed
+    because they call the control method directly and never start a stage
+    through ExternalProcess.start(). This drives the real path.
+    """
+
+    def test_a_stage_may_not_redefine_send(self):
+        offenders = []
+        for name in sorted(BACKENDS):
+            cls = backend_class(name)
+            assert "_send" not in vars(cls), (
+                f"{name} redefines Process._send, which is the pipe protocol's "
+                f"own method; rename it"
+            )
+            offenders.append(name)
+        assert offenders
+
+    def test_the_control_method_keeps_its_own_name(self):
+        """
+        Positive case, so the check above cannot pass by renaming everything to
+        something else. This is the name VLC uses to talk to the player.
+        """
+        assert callable(VlcProcess._send_command)
+
+    def test_vlc_reports_ready_through_the_real_start_path(self):
+        """
+        The whole point, and it has to be the real class: the shadowed method
+        only breaks when the pipe starts the stage for real, because that is the
+        only thing that calls msg_ready and so calls Process._send. A hand-rolled
+        stand-in stage passes whether or not VLC is broken, which is exactly the
+        gap this test was added to close.
+
+        _ready is stubbed to return immediately with the banner already seen, so
+        this asserts the handshake and nothing else -- no VLC, no subprocess.
+        """
+        proc = VlcProcess()
+        proc._ready_seen = True
+        proc._ready = lambda: {}
+        args = {"outfile": "/tmp/x.mkv"}
+
+        q = queue.Queue()
+        proc.set_msgq(q, 0)
+        proc._wait = lambda: None
+        with m.patch(
+            "lib.player.processpipe.subprocess.Popen",
+            return_value=m.MagicMock(poll=lambda: 0, stdout=None),
+        ):
+            proc.start(args)
+
+        assert q.get_nowait() == MSG_PROCESS_READY
+        assert q.get_nowait() == 0

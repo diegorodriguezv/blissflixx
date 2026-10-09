@@ -78,7 +78,7 @@ class VlcProcess(PlayerBackend):
     defaults = {
         "binary": VLC_BIN,
         # cli, not dummy: the cli interface is what accepts the commands in
-        # _send(). With dummy, and with stdin at EOF, it used to load anyway and
+        # _send_command(). With dummy, and with stdin at EOF, it used to load anyway and
         # then shut down as soon as it started.
         "extra_args": ["--intf=cli"],
         "audio_device": "hdmi:CARD=vc4hdmi,DEV=0",
@@ -201,9 +201,22 @@ class VlcProcess(PlayerBackend):
 
     # -- control ----------------------------------------------------------
 
-    def _send(self, command):
+    def _send_command(self, command):
         """
         Type one command into VLC's stdin and read what it says back.
+
+        Named _send_command rather than _send on purpose. Process._send is the
+        pipe protocol's own method, and this overrode it by accident: when the
+        stage reported readiness, msg_ready() called the inherited _send with
+        (msg, args) and raised
+
+            TypeError: VlcProcess._send() takes 2 positional arguments but 3
+            were given
+
+        which killed the stage thread at exactly the moment it was trying to
+        hand control to the next stage. Nothing in the unit tests noticed,
+        because they call this directly and never start a stage through
+        ExternalProcess.start().
 
         The newline is the whole point, and it is the same bug the rc socket had.
         VLC's cli interface is a line interpreter: it reads until it sees a
@@ -261,7 +274,7 @@ class VlcProcess(PlayerBackend):
         return " / ".join(collected)[:_REPLY_MAX_CHARS]
 
     def _seek(self, seconds):
-        return self._send("seek " + str(seconds))
+        return self._send_command("seek " + str(seconds))
 
     def control(self, action):
         """
@@ -272,9 +285,9 @@ class VlcProcess(PlayerBackend):
         believes is current. That matches how omxplayer's key map behaves.
         """
         if action in ("pause", "resume"):
-            self._send("pause" if action == "pause" else "play")
+            self._send_command("pause" if action == "pause" else "play")
         elif action == "stop":
-            self._send("quit")
+            self._send_command("quit")
         elif action == "plus30":
             self._seek(30)
         elif action == "minus30":
@@ -301,7 +314,7 @@ class VlcProcess(PlayerBackend):
         # The cli interface reports an unrecognised command by echoing the
         # prompt and saying nothing at all, which is indistinguishable from
         # success unless you know the verb list.
-        return self._send("volume " + str(value))
+        return self._send_command("volume " + str(value))
 
     def stop(self):
         super().stop()

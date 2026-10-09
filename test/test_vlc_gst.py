@@ -50,7 +50,7 @@ class TestVlcCommand:
     def test_matches_the_verified_pi_invocation(self):
         """
         The exact set of flags measured working, plus --intf=cli so the
-        commands in _send() have somewhere to go.
+        commands in _send_command() have somewhere to go.
 
         --vout=drm_vout with the vc4 module is the hardware acceleration
         setup on the Pi and is deliberate, not an arbitrary default.
@@ -134,7 +134,7 @@ class TestVlcControl:
     def _sent(self, action, **config):
         proc = VlcProcess({**config})
         sent = []
-        proc._send = lambda command: sent.append(command) or True
+        proc._send_command = lambda command: sent.append(command) or True
         proc.control(action)
         return sent[0] if sent else None
 
@@ -159,7 +159,7 @@ class TestVlcControl:
         mid-scale default of 256. The cli interface has no query for it either.
         """
         proc = VlcProcess()
-        proc._send = lambda c: True
+        proc._send_command = lambda c: True
         proc.control("voldown")
         assert proc._volume == 251
         proc.control("volup")
@@ -169,14 +169,14 @@ class TestVlcControl:
 
     def test_volume_never_goes_below_zero(self):
         proc = VlcProcess()
-        proc._send = lambda c: True
+        proc._send_command = lambda c: True
         for _ in range(60):
             proc.control("voldown")
         assert proc._volume == 0
 
     def test_volume_is_capped(self):
         proc = VlcProcess()
-        proc._send = lambda c: True
+        proc._send_command = lambda c: True
         for _ in range(200):
             proc.control("volup")
         assert proc._volume == proc.opt("volume_max")
@@ -215,7 +215,7 @@ class TestVlcControl:
         """
         proc = VlcProcess()
         sent = []
-        proc._send = lambda c: sent.append(c) or True
+        proc._send_command = lambda c: sent.append(c) or True
         proc._set_volume(300)
         assert sent == ["volume 300"]
 
@@ -289,7 +289,7 @@ class TestVlcControl:
         }
         proc = VlcProcess()
         sent = []
-        proc._send = lambda c: sent.append(c) or True
+        proc._send_command = lambda c: sent.append(c) or True
         for action in (
             "pause",
             "resume",
@@ -377,18 +377,18 @@ class TestVlcTransport:
         proc = _running()
         proc._replies.put("> pause")
         proc._replies.put(">")
-        assert proc._send("pause") is True
+        assert proc._send_command("pause") is True
         assert proc.proc.stdin.written == [b"pause\n"]
 
     def test_nothing_sent_when_the_process_is_gone(self):
         """Already stopped, or never started. Must not raise into the API."""
         proc = VlcProcess()
         proc.proc = types.SimpleNamespace(poll=lambda: 0)
-        assert proc._send("pause") is False
+        assert proc._send_command("pause") is False
 
     def test_no_process_at_all_is_not_delivered(self):
         proc = VlcProcess()
-        assert proc._send("pause") is False
+        assert proc._send_command("pause") is False
 
     def test_a_broken_pipe_is_not_propagated(self):
         """
@@ -397,7 +397,7 @@ class TestVlcTransport:
         """
         proc = _running()
         proc.proc.stdin.broken = True
-        assert proc._send("quit") is False
+        assert proc._send_command("quit") is False
 
 
 class TestVlcReady:
@@ -673,12 +673,12 @@ class _FakeCli:
 
     The point of this is that it only *executes* a command once it has seen a
     complete line, and it echoes the command before answering it. The original
-    _send() wrote "pause" with no terminator, so a reader that buffers until a
+    _send_command() wrote "pause" with no terminator, so a reader that buffers until a
     newline never executes anything: which is exactly what VLC did, and why
     every control action was silently dropped. A MagicMock cannot catch that,
     because it does not parse anything.
 
-    Two real os.pipe() pairs, so what _send() writes is what this reads and what
+    Two real os.pipe() pairs, so what _send_command() writes is what this reads and what
     it writes is what the process would really have seen on stdout:
 
         commands pipe   process -> VLC
@@ -825,31 +825,31 @@ class TestVlcAgainstALineReader:
     """
 
     def test_command_is_executed_by_a_line_reader(self, proc_for, cli):
-        assert proc_for._send("pause") is True
+        assert proc_for._send_command("pause") is True
         assert cli.wait_for_command() == "pause"
 
     def test_seek_command_reaches_the_reader_intact(self, proc_for, cli):
-        proc_for._send("seek 30")
+        proc_for._send_command("seek 30")
         assert cli.wait_for_command() == "seek 30"
 
     def test_negative_seek_is_sent_as_a_signed_number(self, proc_for, cli):
-        proc_for._send("seek -30")
+        proc_for._send_command("seek -30")
         assert cli.wait_for_command() == "seek -30"
 
     def test_quit_is_sent(self, proc_for, cli):
-        proc_for._send("quit")
+        proc_for._send_command("quit")
         assert cli.wait_for_command() == "quit"
 
     def test_several_commands_in_a_row_are_all_seen(self, proc_for, cli):
         for action in ("pause", "seek 30", "volume 300"):
-            proc_for._send(action)
+            proc_for._send_command(action)
         deadline = time.time() + 3.0
         while time.time() < deadline and len(cli.commands) < 3:
             time.sleep(0.01)
         assert cli.commands == ["pause", "seek 30", "volume 300"]
 
     def test_volume_command_reaches_the_reader(self, proc_for, cli):
-        proc_for._send("volume 300")
+        proc_for._send_command("volume 300")
         assert cli.wait_for_command() == "volume 300"
 
     def test_payload_is_newline_terminated(self, proc_for, cli):
@@ -877,7 +877,7 @@ class TestVlcAgainstALineReader:
         does get executed. Without this pair the first test could pass against a
         reader that never executed anything at all.
         """
-        proc_for._send("pause")
+        proc_for._send_command("pause")
         assert cli.wait_for_command() == "pause"
 
     def test_subtitle_visibility_is_not_offered(self):
@@ -887,7 +887,7 @@ class TestVlcAgainstALineReader:
         """
         proc = VlcProcess()
         sent = []
-        proc._send = lambda cmd: sent.append(cmd) or True
+        proc._send_command = lambda cmd: sent.append(cmd) or True
         for action in ("show_subtitle", "hide_subtitle", "next_subtitle"):
             proc.control(action)
         assert sent == []
@@ -909,7 +909,7 @@ class TestVlcAgainstALineReader:
         proc._replies.put("ok")
         proc._replies.put(">")
         with caplog.at_level("INFO"):
-            proc._send("pause")
+            proc._send_command("pause")
         assert "VLC CLI: pause -> ok" in caplog.text
 
     def test_missing_reply_still_reports_the_command_as_sent(self, monkeypatch, caplog):
@@ -920,7 +920,7 @@ class TestVlcAgainstALineReader:
         monkeypatch.setattr("lib.player.vlcproc._REPLY_TIMEOUT", 0.3)
         proc = _running()
         with caplog.at_level("INFO"):
-            assert proc._send("pause") is True
+            assert proc._send_command("pause") is True
         assert "VLC CLI: pause -> no reply" in caplog.text
 
     def test_slow_reply_does_not_hang(self, monkeypatch, caplog):
@@ -931,6 +931,6 @@ class TestVlcAgainstALineReader:
         monkeypatch.setattr("lib.player.vlcproc._REPLY_TIMEOUT", 0.3)
         proc = _running()
         started = time.time()
-        assert proc._send("pause") is True
+        assert proc._send_command("pause") is True
         assert time.time() - started < 2.0
         assert "no reply" in caplog.text
