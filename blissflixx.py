@@ -40,24 +40,34 @@ def check_not_root():
         sys.exit(1)
 
 
+def ensure_data_dirs():
+    """
+    Create the directories the server writes to.
+
+    Done on every start rather than only on a first run. lib.settings.save()
+    writes straight into data/settings with no existence check, so a checkout
+    that has yt-dlp but no data directory fails on the first settings write
+    rather than at startup. That is not hypothetical: installing by copying the
+    tree, or restoring a backup that included lib/yt-dlp, both produce exactly
+    that state.
+    """
+    for path in (
+        locations.PLUGIN_PATH,
+        locations.DATA_PATH,
+        os.path.join(locations.DATA_PATH, "playlists"),
+        locations.SETTINGS_PATH,
+    ):
+        os.makedirs(path, exist_ok=True)
+
+
 def first_time_install():
-    # Check if first time run and need to finish install
+    # The data directories are needed regardless of whether yt-dlp is present.
+    ensure_data_dirs()
+
     if os.path.exists(locations.YTUBE_PATH):
         return
-    cherrypy.log("Finishing Installation. Please wait...")
+    cherrypy.log("Downloading yt-dlp. Please wait...")
     gitutils.clone(locations.LIB_PATH, "https://github.com/yt-dlp/yt-dlp.git")
-
-    datapath = locations.DATA_PATH
-    playlist_path = os.path.join(datapath, "playlists")
-    settings_path = os.path.join(datapath, "settings")
-    if not os.path.exists(locations.PLUGIN_PATH):
-        os.makedirs(locations.PLUGIN_PATH)
-    if not os.path.exists(datapath):
-        os.makedirs(datapath)
-    if not os.path.exists(playlist_path):
-        os.makedirs(playlist_path)
-    if not os.path.exists(settings_path):
-        os.makedirs(settings_path)
 
 
 class Api:

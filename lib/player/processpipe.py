@@ -17,6 +17,9 @@ MSG_PLAYER_PIPE_STOPPED = 4
 
 TMP_DIR = "/tmp/blissflixx"
 OUT_FILE = "/tmp/blissflixx/bf.out"
+#: Seconds to wait for a finished process's output to be read out of its pipe
+#: before giving up on it.
+_COPY_DRAIN_TIMEOUT = 5
 
 
 def _start_thread(target, *args):
@@ -34,8 +37,83 @@ class _DiscardFile:
         pass
 
 
+class _LineTail:
+    """
+    A file-like sink that keeps the last few lines written to it.
+
+    Used as the destination for a process's output, so that when a stage fails
+    its explanation survives. Players report why they cannot start on stdout or
+    stderr and nowhere else, and discarding it left the pipe with nothing to say
+    beyond "it stopped".
+
+    Keeps lines rather than raw chunks because players are chatty and the
+    interesting line is rarely the last byte written.
+    """
+
+    def __init__(self, keep=12):
+        self.keep = keep
+        self.lines = []
+        self._partial = ""
+
+    def write(self, text):
+        """
+        Accepts bytes or str.
+
+        A subprocess pipe is opened in binary mode, so shutil.copyfileobj writes
+        bytes to this. The old sink took whatever it was given and ignored it,
+        which is why the mismatch went unnoticed: the TypeError was swallowed
+        by _copypipe's except clause and the output simply vanished.
+        """
+        if isinstance(text, (bytes, bytearray)):
+            text = text.decode("utf-8", "replace")
+        if not text:
+            return
+        self._partial += text
+        while "\n" in self._partial:
+            line, self._partial = self._partial.split("\n", 1)
+            self._push(line)
+        # Bound the partial buffer too, in case a stage writes one huge line with
+        # no newline: keep its tail, which is where the message ends.
+        if len(self._partial) > 2000:
+            self._partial = self._partial[-2000:]
+
+    def _push(self, line):
+        line = line.strip()
+        if not line:
+            return
+        self.lines.append(line)
+        if len(self.lines) > self.keep:
+            del self.lines[: len(self.lines) - self.keep]
+
+    def close(self):
+        if self._partial.strip():
+            self._push(self._partial)
+        self._partial = ""
+
+    def __len__(self):
+        return len(self.lines)
+
+    def __bool__(self):
+        # A process that died mid-line has still said something, and that
+        # fragment is often the reason. Only complete lines are in self.lines
+        # until close(), so _partial has to count.
+        return bool(self.lines) or bool(self._partial.strip())
+
+    def summary(self, max_lines=3):
+        """The last few lines, which is where a failure reason usually is."""
+        lines = list(self.lines)
+        # A process that died mid-line left a fragment. Non-destructive, so this
+        # can be called before close() without losing the pending line.
+        partial = self._partial.strip()
+        if partial and (not lines or lines[-1] != partial):
+            lines.append(partial)
+        if not lines:
+            return "no output"
+        return " | ".join(lines[-max_lines:])
+
+
 def _copypipe(src, dest):
-    if not dest:
+    if dest is None:
         dest = _DiscardFile()
 
     # Ignore broken pipe errors if process
@@ -249,16 +327,42 @@ class ExternalProcess(Process):
 
         self._wait()
 
+    def _add_output_to_error(self, tail):
+        """
+        Fold the process's own output into this stage's error.
+
+        The pipe reports a stage's first error and nothing else, so the output
+        has to go into that one rather than becoming a second entry that would
+        never be read. Without this a player that printed why it could not start
+        left the UI with a generic message and no way to act on it.
+        """
+        if not tail:
+            return
+        output = tail.summary()
+        if self.errors:
+            self.errors[0] = self.errors[0] + " | " + output
+        else:
+            self._set_error(self.name() + " failed: " + output)
+
     def _wait(self):
-        # Drain stderr/stdout pipe to stop it filling up and blocking process.
-        # The thread handle is deliberately discarded: this runs on the
-        # process's own thread and nobody joins it, the copy only needs to
-        # keep running for the life of the process.
-        _bgcopypipe(self.proc.stdout, None)
+        # Drain stderr/stdout so the pipe cannot fill and block the process, but
+        # keep the last few lines rather than discarding them. A player that
+        # cannot start says why on stdout ("Failed to get xlease", for a DRM
+        # lease it could not take), and discarding it left the pipe with nothing
+        # to say beyond "it stopped".
+        tail = _LineTail()
+        copier = _bgcopypipe(self.proc.stdout, tail)
         self.proc.wait()
         self.proc = None
+        # The copier finishes when stdout reaches EOF, which the exit just
+        # caused. Joining it matters: reading tail before it has drained is a
+        # race, and on the Pi that race reliably returned an empty tail, losing
+        # the reason all over again. Timed, so a wedged reader cannot hold up
+        # the pipe.
+        copier.join(timeout=_COPY_DRAIN_TIMEOUT)
 
         if self.has_error() or self.killing:
+            self._add_output_to_error(tail)
             self.msg_halted()
         else:
             self.msg_finished()
