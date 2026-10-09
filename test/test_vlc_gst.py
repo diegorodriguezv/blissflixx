@@ -207,21 +207,25 @@ class TestVlcControl:
         """
         proc = VlcProcess()
         sent = []
-        proc._send_command = lambda c: sent.append(c) or True
 
-        def listing():
-            proc._replies.put("+----[ audio-es ]")
-            proc._replies.put("-1 - Disable")
-            proc._replies.put("1 - English - [English] *")
-            proc._replies.put("+----[ end of audio-es ]")
+        def collect(command):
+            sent.append(command)
+            return [
+                l.strip()
+                for l in (
+                    "+----[ audio-es ]",
+                    "-1 - Disable",
+                    "1 - English - [English] *",
+                    "+----[ end of audio-es ]",
+                )
+            ]
 
-        listing()
+        proc._send_and_collect = collect
         proc.control("next_audio")
         assert sent == ["atrack", "atrack -1"], sent
 
         # From -1, "prev" wraps forward to the last real track.
         sent.clear()
-        listing()
         proc.control("prev_audio")
         assert sent == ["atrack", "atrack 1"], sent
 
@@ -949,10 +953,14 @@ class TestVlcAgainstALineReader:
         """
         The six actions that were being dropped when the track interface was
         thought to be unusable.
+
+        Both layers are stubbed, because stepping goes through two of them: the
+        listing is fetched by one and the chosen id sent by the other.
         """
         proc = VlcProcess()
         sent = []
         proc._send_command = lambda cmd: sent.append(cmd) or True
+        proc._send_and_collect = lambda cmd: (sent.append(cmd) or [])
         proc._track_listing["strack"] = [-1, 2]
         proc._track_listing["atrack"] = [-1, 1]
         for action in (

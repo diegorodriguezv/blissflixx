@@ -75,6 +75,25 @@ _TRACK_ID = re.compile(r"^(-?\d+)\s+-")
 _TRACK_DISABLED = -1
 
 
+def _summarise_reply(lines):
+    """
+    Render collected reply lines for the log.
+
+    A track listing is many lines, so it is folded to its track ids rather than
+    quoted in full; anything else is joined as it arrived.
+    """
+    if not lines:
+        return "no reply"
+    ids = []
+    for line in lines:
+        found = _TRACK_ID.match(line.strip())
+        if found:
+            ids.append(found.group(1))
+    if ids and len(ids) == len([x for x in lines if x.strip()]):
+        return "tracks " + ", ".join(ids)
+    return " / ".join(lines)[:_REPLY_MAX_CHARS]
+
+
 def _is_echo(line):
     """
     True for the interface echoing back what it was given.
@@ -301,37 +320,52 @@ class VlcProcess(PlayerBackend):
         had nothing to say, which is not a failure, so this returns True rather
         than blocking the request thread that sent it.
         """
+        lines = self._send_and_collect(command)
+        if lines is None:
+            return False
+        cherrypy.log("VLC CLI: " + command + " -> " + _summarise_reply(lines))
+        return True
+
+    def _send_and_collect(self, command):
+        """
+        Write one command and return the lines that came back, or None.
+
+        Sending and reading are one operation rather than two on purpose. A
+        track listing is the reply to the command, so asking for it and then
+        reading the queue separately means the read drains the very lines that
+        were wanted and finds nothing: "strack" arrived, was consumed as that
+        command's reply, and the listing was gone. Both callers need the lines
+        rather than a string, so this is the shared part.
+        """
         proc = getattr(self, "proc", None)
         if proc is None or proc.poll() is not None:
-            return False
+            return None
         try:
             proc.stdin.write((command + "\n").encode("utf-8"))
             proc.stdin.flush()
         except (OSError, ValueError):
-            return False
-        reply = self._await_reply(command)
-        cherrypy.log("VLC CLI: " + command + " -> " + reply)
-        return True
+            return None
+        return self._collect_reply()
 
-    def _await_reply(self, command):
+    def _collect_reply(self, settle=_REPLY_SETTLE):
         """
-        Collect whatever the interface says about a command, briefly.
+        Take the lines that arrive shortly after a command, ignoring noise.
 
-        The echo was tried first, as the marker for where a command's answer
-        begins. It does not work: the cli interface writes its prompt and its
-        replies to the same stdout it logs to, and the output copier drains that
-        stream continuously, so the echo is usually already consumed by the time
-        a command is sent. Every reply came back "no reply" while the commands
-        were plainly working -- pause did pause, and volume 300 did change the
-        volume.
+        There is no marker for where a command's answer begins, and this does not
+        pretend otherwise. The interface echoes the command back, but it writes
+        its prompt and replies to the same stdout it logs to, and the output
+        copier drains that continuously, so the echo has usually been consumed by
+        the time anything is sent. Attributing replies by the echo gave "no
+        reply" for every command while the commands were working perfectly.
 
-        So there is no marker, and this does not pretend otherwise. It takes the
-        lines that arrive in a short window and reports any that are not the
-        player's own logging. Those are the replies: "state paused",
-        "( audio volume: 300 )", and so on. A command with nothing to say looks
-        the same as one that was ignored, which is a real limitation of this
-        interface rather than a bug, and it is why the log says what was sent
-        alongside whatever came back.
+        So this keeps whatever arrives in a short window and drops the player's
+        own logging, which is recognisable by the bracketed thread id VLC puts
+        on every line. What is left is the answer: "( state paused )",
+        "( audio volume: 300 )", or a track listing.
+
+        A command the interface ignored looks exactly like one it had nothing to
+        say about. That is a real limitation of this interface, not a bug, and it
+        is why the log always names the command alongside whatever came back.
         """
         deadline = time.time() + _REPLY_TIMEOUT
         collected = []
@@ -339,17 +373,15 @@ class VlcProcess(PlayerBackend):
             try:
                 line = self._replies.get(timeout=0.1)
             except Empty:
-                # Nothing more is coming; a short silence ends the wait rather
-                # than spending the whole budget on a player with nothing to say.
-                if collected or time.time() > deadline - _REPLY_SETTLE:
+                # A short silence ends the wait rather than spending the whole
+                # budget on a player with nothing to say.
+                if collected or time.time() > deadline - settle:
                     break
                 continue
             if _is_player_logging(line) or _is_echo(line):
                 continue
             collected.append(line)
-        if not collected:
-            return "no reply"
-        return " / ".join(collected)[:_REPLY_MAX_CHARS]
+        return collected
 
     def _seek(self, seconds):
         return self._send_command("seek " + str(seconds))
@@ -429,18 +461,11 @@ class VlcProcess(PlayerBackend):
         Replies come back on the shared stdout, so this reads the same queue
         _send_command does and filters out the player's own logging.
         """
-        self._send_command(command)
+        lines = self._send_and_collect(command)
+        if lines is None:
+            return []
         ids = []
-        deadline = time.time() + _REPLY_TIMEOUT
-        while time.time() < deadline:
-            try:
-                line = self._replies.get(timeout=0.1)
-            except Empty:
-                if ids:
-                    break
-                continue
-            if _is_player_logging(line) or _is_echo(line):
-                continue
+        for line in lines:
             found = _TRACK_ID.match(line.strip())
             if found:
                 ids.append(int(found.group(1)))
