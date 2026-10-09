@@ -761,7 +761,6 @@ class _FakeCli:
                     if self.reply_delay:
                         time.sleep(self.reply_delay)
                     out += self.reply + "\n"
-                out += "> "
                 try:
                     os.write(self._out_w, out.encode())
                 except (OSError, ValueError):
@@ -907,17 +906,48 @@ class TestVlcAgainstALineReader:
         )
         proc._replies.put("> pause")
         proc._replies.put("ok")
-        proc._replies.put(">")
         with caplog.at_level("INFO"):
             proc._send_command("pause")
         assert "VLC CLI: pause -> ok" in caplog.text
+
+    def test_the_players_own_logging_is_not_mistaken_for_a_reply(
+        self, monkeypatch, caplog
+    ):
+        """
+        The interface shares stdout with VLC's logging, and this player writes
+        constantly while playing. Lines carrying a thread id are not answers to
+        anything and must not appear in the reply.
+        """
+        monkeypatch.setattr("lib.player.vlcproc._REPLY_TIMEOUT", 0.4)
+        proc = _running()
+        proc._replies.put("[007070c8] main audio output error: nope")
+        proc._replies.put("( state paused )")
+        with caplog.at_level("INFO"):
+            proc._send_command("pause")
+        assert "VLC CLI: pause -> ( state paused )" in caplog.text
+        assert "nope" not in caplog.text
+
+    def test_a_command_with_no_answer_reports_none_rather_than_log_noise(
+        self, monkeypatch, caplog
+    ):
+        """
+        The honest failure mode: a quiet player and one that ignored the command
+        look identical here, so this reports "no reply" instead of dressing up
+        whatever happened to be on stdout as a result.
+        """
+        monkeypatch.setattr("lib.player.vlcproc._REPLY_TIMEOUT", 0.4)
+        proc = _running()
+        proc._replies.put("[abc1234] some unrelated log line")
+        with caplog.at_level("INFO"):
+            assert proc._send_command("pause") is True
+        assert "VLC CLI: pause -> no reply" in caplog.text
 
     def test_missing_reply_still_reports_the_command_as_sent(self, monkeypatch, caplog):
         """
         A quiet player is not a failure. The command was written; VLC simply had
         nothing to say, so this must not raise into the API or block the thread.
         """
-        monkeypatch.setattr("lib.player.vlcproc._REPLY_TIMEOUT", 0.3)
+        monkeypatch.setattr("lib.player.vlcproc._REPLY_TIMEOUT", 0.4)
         proc = _running()
         with caplog.at_level("INFO"):
             assert proc._send_command("pause") is True

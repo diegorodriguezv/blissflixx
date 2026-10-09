@@ -25,6 +25,7 @@ command equivalent, so they are declared absent rather than silently dropped.
 """
 
 import os
+import re
 import time
 from queue import Empty, Queue
 
@@ -48,8 +49,32 @@ _REPLY_MAX_CHARS = 200
 #: lua interface, not a plugin, so it does not show up in `cvlc --list`, but it
 #: loads and it announces itself.
 _CLI_READY_MARKER = "Command Line Interface initialized"
-#: The cli interface prints this before each command it reads.
-_CLI_PROMPT = ">"
+#: VLC prefixes every line of its own logging with a bracketed thread id, e.g.
+#: "[007070c8] main audio output error: ...". Those lines share stdout with the
+#: cli interface's replies and are not answers to anything.
+_VLC_LOG_PREFIX = re.compile(r"^\[[0-9a-fA-F]+\]")
+#: How long to keep listening after a reply arrives, for a trailing line.
+_REPLY_SETTLE = 0.3
+
+
+def _is_player_logging(line):
+    return bool(_VLC_LOG_PREFIX.match(line.strip()))
+
+
+def _is_echo(line):
+    """
+    True for the interface echoing back what it was given.
+
+    The prompt is not a reliable marker for where an answer starts, because the
+    copier drains the stream faster than a command is sent. But the echo of the
+    command itself is still noise in the reply, and stripping it keeps the log
+    about the answer rather than about what was asked.
+    """
+    text = line.strip()
+    if not text.startswith(">"):
+        return False
+    return len(text) > 1
+
 
 #: Output that means cvlc will not play this input.
 _ERROR_MARKERS = (
@@ -243,34 +268,40 @@ class VlcProcess(PlayerBackend):
 
     def _await_reply(self, command):
         """
-        Wait for the cli interface to echo the command back and answer it.
+        Collect whatever the interface says about a command, briefly.
 
-        The interface echoes what it was given, so the echo is used as a marker:
-        everything after it up to the next prompt is that command's answer. That
-        is what makes replies attributable, since a single stream also carries
-        every log line the player writes while it plays.
+        The echo was tried first, as the marker for where a command's answer
+        begins. It does not work: the cli interface writes its prompt and its
+        replies to the same stdout it logs to, and the output copier drains that
+        stream continuously, so the echo is usually already consumed by the time
+        a command is sent. Every reply came back "no reply" while the commands
+        were plainly working -- pause did pause, and volume 300 did change the
+        volume.
+
+        So there is no marker, and this does not pretend otherwise. It takes the
+        lines that arrive in a short window and reports any that are not the
+        player's own logging. Those are the replies: "state paused",
+        "( audio volume: 300 )", and so on. A command with nothing to say looks
+        the same as one that was ignored, which is a real limitation of this
+        interface rather than a bug, and it is why the log says what was sent
+        alongside whatever came back.
         """
         deadline = time.time() + _REPLY_TIMEOUT
-        echoed = False
         collected = []
         while time.time() < deadline:
             try:
-                line = self._replies.get(timeout=0.2)
+                line = self._replies.get(timeout=0.1)
             except Empty:
+                # Nothing more is coming; a short silence ends the wait rather
+                # than spending the whole budget on a player with nothing to say.
+                if collected or time.time() > deadline - _REPLY_SETTLE:
+                    break
                 continue
-            if not echoed:
-                # The echo arrives as "> command" or just the command.
-                if command in line:
-                    echoed = True
+            if _is_player_logging(line) or _is_echo(line):
                 continue
-            line = line.strip()
-            if not line or line == _CLI_PROMPT:
-                break
             collected.append(line)
-        if not echoed:
-            return "no reply"
         if not collected:
-            return "ok"
+            return "no reply"
         return " / ".join(collected)[:_REPLY_MAX_CHARS]
 
     def _seek(self, seconds):
