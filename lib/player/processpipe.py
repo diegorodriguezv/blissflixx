@@ -65,10 +65,14 @@ class _LineTail:
     interesting line is rarely the last byte written.
     """
 
-    def __init__(self, keep=12):
+    def __init__(self, keep=12, on_line=None):
         self.keep = keep
         self.lines = []
         self._partial = ""
+        # Optional per-line observer. A stage that is controlled by typing
+        # commands at the process reads its replies from the same stream the
+        # process logs to, so it needs the lines rather than just the tail.
+        self.on_line = on_line
 
     def write(self, text):
         """
@@ -99,6 +103,13 @@ class _LineTail:
         self.lines.append(line)
         if len(self.lines) > self.keep:
             del self.lines[: len(self.lines) - self.keep]
+        if self.on_line is not None:
+            try:
+                self.on_line(line)
+            except Exception:
+                # An observer that raises must not take the copier down with
+                # it and lose the output it was observing.
+                pass
 
     def close(self):
         if self._partial.strip():
@@ -318,9 +329,16 @@ class ExternalProcess(Process):
     draining its output until it exits.
     """
 
-    def __init__(self, shell=False):
+    def __init__(self, shell=False, stdin_pipe=False):
         super().__init__()
         self.shell = shell
+        # A stage driven by typing commands into its own process needs a pipe to
+        # write them to. Off by default so every other stage keeps inheriting
+        # stdin exactly as before; VLC is currently the only one that asks.
+        self.stdin_pipe = stdin_pipe
+        # Set by a stage that needs each output line as it arrives. See
+        # _LineTail.on_line.
+        self.on_output_line = None
         self.killing = False
         if not os.path.exists(TMP_DIR):
             os.makedirs(TMP_DIR)
@@ -335,6 +353,11 @@ class ExternalProcess(Process):
             cmd,
             stderr=subprocess.STDOUT,
             stdout=subprocess.PIPE,
+            # None means inherit, which is what every stage did before. The pipe
+            # is never closed by us: closing it gives the process EOF on stdin,
+            # which is exactly how the VLC cli interface used to exit the moment
+            # it started.
+            stdin=subprocess.PIPE if self.stdin_pipe else None,
             preexec_fn=os.setsid,
             shell=self.shell,
         )
@@ -371,7 +394,7 @@ class ExternalProcess(Process):
         # cannot start says why on stdout ("Failed to get xlease", for a DRM
         # lease it could not take), and discarding it left the pipe with nothing
         # to say beyond "it stopped".
-        tail = _LineTail()
+        tail = _LineTail(on_line=self.on_output_line)
         copier = _bgcopypipe(self.proc.stdout, tail)
         # Bounded, because a process that cannot be waited for would otherwise
         # hold this stage open forever. A VLC that never reports ready -- no rc

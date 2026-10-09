@@ -7,36 +7,33 @@ path, which makes it the most capable of the three non-omxplayer options.
 
 Two things differ from the mpv backend:
 
-- Control goes over VLC's rc interface as plaintext commands on a unix socket.
-  A socket rather than rc-host because it needs no port, so there is nothing to
-  collide with and no password to configure. The commands are a small verb set,
-  which suits it: pause, play, stop, seek, volup, voldown, quit.
-- Readiness is detected the same way as for mpv, by polling for the control
-  socket to appear. cvlc says very little on stdout with --intf=dummy, so there
-  is no status line stream to parse the way omxplayer has.
+- Control goes through VLC's cli interface, by typing plaintext commands into
+  its stdin and reading the replies off its stdout. The rc interface would be
+  the obvious choice, but this VLC has no rc module at all: Debian trixie's
+  3.0.23 for armhf ships dummy, oldrc, dbus and others, and no
+  librc_plugin.so, so --extraintf=rc is silently ignored and the socket never
+  appears. The cli interface is a lua interface rather than a plugin, which is
+  why it does not show up in `cvlc --list`, but it is present and it works.
+  It is the same line-oriented protocol, so a command is only executed once its
+  newline arrives.
+- Readiness is the cli interface's own banner, "Command Line Interface
+  initialized", rather than a socket appearing. That is a better signal than a
+  path check: it is the control surface reporting that it is live.
 
-Not implemented: audio track cycling. rc has no command for it, so
-next_audio/prev_audio are declared absent rather than silently dropped.
+Not implemented: audio track cycling and subtitle visibility. Neither has a cli
+command equivalent, so they are declared absent rather than silently dropped.
 """
 
 import os
-import socket
 import time
+from queue import Empty, Queue
 
 import cherrypy
 
-from .backend import (
-    CAP_PAUSE,
-    CAP_SEEK,
-    CAP_STOP,
-    CAP_SUBTITLES,
-    CAP_VOLUME,
-    PlayerBackend,
-)
+from .backend import CAP_PAUSE, CAP_SEEK, CAP_STOP, CAP_VOLUME, PlayerBackend
 from .processpipe import ProcessException
 
 VLC_BIN = "cvlc"
-_RC_SOCKET = "/tmp/blissflixx/vlc.sock"
 _START_TIMEOUT = 30
 #: Seconds to wait for VLC to acknowledge a command before giving up on a reply.
 #: The command has already been written at that point, so this only bounds how
@@ -46,6 +43,13 @@ _REPLY_TIMEOUT = 2
 #: memory or the log.
 _REPLY_MAX_BYTES = 4096
 _REPLY_MAX_CHARS = 200
+
+#: Printed by the cli interface once it is ready to accept commands. This is a
+#: lua interface, not a plugin, so it does not show up in `cvlc --list`, but it
+#: loads and it announces itself.
+_CLI_READY_MARKER = "Command Line Interface initialized"
+#: The cli interface prints this before each command it reads.
+_CLI_PROMPT = ">"
 
 #: Output that means cvlc will not play this input.
 _ERROR_MARKERS = (
@@ -64,21 +68,26 @@ class VlcProcess(PlayerBackend):
     growing http url, so it works with or without the dlsrv stage.
     """
 
-    capabilities = frozenset({CAP_PAUSE, CAP_STOP, CAP_SEEK, CAP_VOLUME, CAP_SUBTITLES})
+    # No subtitle-visibility or audio-track command exists in the cli
+    # interface, so those are declared absent rather than offered and dropped.
+    capabilities = frozenset({CAP_PAUSE, CAP_STOP, CAP_SEEK, CAP_VOLUME})
 
     # The defaults are the invocation measured working on the Pi: DRM/KMS video
     # output through the vc4 driver, ALSA audio pinned to the HDMI card, and no
     # interactive interface since control arrives over the rc socket.
     defaults = {
         "binary": VLC_BIN,
-        "extra_args": ["--intf=dummy"],
+        # cli, not dummy: the cli interface is what accepts the commands in
+        # _send(). With dummy, and with stdin at EOF, it used to load anyway and
+        # then shut down as soon as it started.
+        "extra_args": ["--intf=cli"],
         "audio_device": "hdmi:CARD=vc4hdmi,DEV=0",
         "video_output": "drm_vout",
         "video_output_module": "vc4",
         # The Pi's screen is small, so VLC's default text size is too small to
-        # read at typical viewing distance.
-        "subtitle_text_scale": "60",
-        "rc_socket": _RC_SOCKET,
+        # read at typical viewing distance. 95 rather than 60 because of the
+        # text rendering bug at this resolution.
+        "subtitle_text_scale": "95",
         "start_timeout": _START_TIMEOUT,
         "volume_step": 5,
         "volume_max": 512,
@@ -87,13 +96,20 @@ class VlcProcess(PlayerBackend):
     def __init__(self, config=None):
         super().__init__(config=config)
         self.shell = False
-        # rc has no command that reports the current volume, so it is tracked
-        # from the last set point. VLC treats 256 of 512 as its default level.
+        # Commands are typed into VLC's own stdin and its replies come back on
+        # the same stdout it logs to, so it needs a pipe on stdin rather than
+        # inheriting one. Without a pipe, and with stdin at EOF, the cli
+        # interface shuts down the moment it starts.
+        self.stdin_pipe = True
+        self._ready_seen = False
+        self._replies = Queue()
+        # Once the stage is running, the copier feeds every line the player
+        # writes -- replies and log output alike -- through here. During startup
+        # there is no copier yet and _ready() reads stdout itself.
+        self.on_output_line = self._replies.put
+        # The cli interface has no volume query, so it is tracked from the last
+        # set point. VLC treats 256 of 512 as its default level.
         self._volume = 256
-
-    @property
-    def rc_socket_path(self):
-        return self.opt("rc_socket")
 
     @property
     def start_timeout(self):
@@ -108,9 +124,6 @@ class VlcProcess(PlayerBackend):
             "--vout=" + self.opt("video_output"),
             "--drm-vout-module=" + self.opt("video_output_module"),
             "--sub-text-scale=" + self.opt("subtitle_text_scale"),
-            # Accept control commands on a unix socket rather than a TCP port.
-            "--extraintf=rc",
-            "--rc-unix=" + self.rc_socket_path,
             # A run that must not stop on its own.
             "--no-video-title-show",
             "--play-and-exit",
@@ -123,22 +136,41 @@ class VlcProcess(PlayerBackend):
     def name(self):
         return "vlc"
 
-    def start(self, args):
-        # A stale socket from a previous run would stop the new one binding.
-        self._remove_socket()
-        super().start(args)
-
     def _ready(self):
+        """
+        Wait for the cli interface to announce itself.
+
+        This used to wait for the rc unix socket, which cannot exist on this
+        machine: Debian trixie's VLC 3.0.23 for armhf ships no librc_plugin.so,
+        so --extraintf=rc was silently ignored and the socket was never created.
+        _ready() therefore always ran out its full timeout and failed.
+
+        The cli interface is a lua interface rather than a plugin, so it does not
+        appear in `cvlc --list`, but it is present and it prints a banner once it
+        is ready for commands. That banner is the readiness signal, and it is a
+        better one than a path check: it is the control surface saying it is
+        live, rather than a file being assumed to mean so.
+
+        Lines are also queued on the way past, so the control path has the
+        startup chatter available when the first command arrives.
+        """
         deadline = time.time() + self.start_timeout
         while time.time() < deadline:
-            if os.path.exists(self.rc_socket_path):
-                return
             if self.proc is not None and self.proc.poll() is not None:
                 raise ProcessException(
                     self._drain_error() or "vlc exited during startup"
                 )
-            time.sleep(0.1)
-        raise ProcessException("vlc timed out starting up")
+            try:
+                line = self._readline(0.5)
+            except ProcessException:
+                continue
+            self._replies.put(line)
+            if _CLI_READY_MARKER in line:
+                self._ready_seen = True
+                return
+            if any(marker in line for marker in _ERROR_MARKERS):
+                raise ProcessException(line)
+        raise ProcessException("vlc cli interface did not come up")
 
     def _drain_error(self):
         while True:
@@ -152,61 +184,69 @@ class VlcProcess(PlayerBackend):
 
     def _send(self, command):
         """
-        Send one plaintext rc command and read what VLC says back.
+        Type one command into VLC's stdin and read what it says back.
 
-        The terminator is the whole point. VLC's rc interface is a line-oriented
-        interpreter: it reads a line, executes it and replies. Without the newline
-        it waits for more input, so every control action was silently dropped and
-        the UI showed a player that would not pause or seek.
+        The newline is the whole point, and it is the same bug the rc socket had.
+        VLC's cli interface is a line interpreter: it reads until it sees a
+        newline, executes what it has, and replies. Without it the command is
+        never executed and never rejected -- it just sits there -- which is
+        exactly how every control action came to be dropped silently.
 
-        The reply is read so that "written" and "accepted" are distinguishable in
-        the log. It is best-effort: a timeout means the command went out and VLC
-        had nothing to say, which is not a failure, so it returns True rather than
-        blocking the request thread that sent it.
+        The reply is read so "written" and "accepted" are distinguishable in the
+        log. Best-effort by design: a timeout means the command went out and VLC
+        had nothing to say, which is not a failure, so this returns True rather
+        than blocking the request thread that sent it.
         """
-        if not os.path.exists(self.rc_socket_path):
+        proc = getattr(self, "proc", None)
+        if proc is None or proc.poll() is not None:
             return False
         try:
-            with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock:
-                sock.connect(self.rc_socket_path)
-                sock.settimeout(_REPLY_TIMEOUT)
-                sock.sendall((command + "\n").encode("utf-8"))
-                reply = self._read_reply(sock)
-        except OSError:
+            proc.stdin.write((command + "\n").encode("utf-8"))
+            proc.stdin.flush()
+        except (OSError, ValueError):
             return False
-        cherrypy.log("VLC RC: " + command + " -> " + reply)
+        reply = self._await_reply(command)
+        cherrypy.log("VLC CLI: " + command + " -> " + reply)
         return True
 
-    @staticmethod
-    def _read_reply(sock):
+    def _await_reply(self, command):
         """
-        Read one line of VLC's response, or say why there wasn't one.
+        Wait for the cli interface to echo the command back and answer it.
 
-        Bounded so a player that never replies cannot hold up the thread serving
-        the control request.
+        The interface echoes what it was given, so the echo is used as a marker:
+        everything after it up to the next prompt is that command's answer. That
+        is what makes replies attributable, since a single stream also carries
+        every log line the player writes while it plays.
         """
-        try:
-            data = sock.recv(_REPLY_MAX_BYTES)
-        except OSError:
-            # A timeout. The command was written; VLC simply did not answer.
-            return "no reply"
-        if not data:
-            return "no reply"
-        text = data.decode("utf-8", "replace").strip()
-        # VLC's rc opens with a version banner and closes with the status dump;
-        # the first meaningful line is the useful part.
-        for line in text.splitlines():
+        deadline = time.time() + _REPLY_TIMEOUT
+        echoed = False
+        collected = []
+        while time.time() < deadline:
+            try:
+                line = self._replies.get(timeout=0.2)
+            except Empty:
+                continue
+            if not echoed:
+                # The echo arrives as "> command" or just the command.
+                if command in line:
+                    echoed = True
+                continue
             line = line.strip()
-            if line:
-                return line[:_REPLY_MAX_CHARS]
-        return "no reply"
+            if not line or line == _CLI_PROMPT:
+                break
+            collected.append(line)
+        if not echoed:
+            return "no reply"
+        if not collected:
+            return "ok"
+        return " / ".join(collected)[:_REPLY_MAX_CHARS]
 
     def _seek(self, seconds):
         return self._send("seek " + str(seconds))
 
     def control(self, action):
         """
-        Map a BlissFlixx action onto an rc verb.
+        Map a BlissFlixx action onto a cli verb.
 
         Subtitle visibility is toggled rather than set, so show_subtitle and
         hide_subtitle share one command and the caller tracks which state it
@@ -228,15 +268,9 @@ class VlcProcess(PlayerBackend):
             self._set_volume(self._current_volume() + self.opt("volume_step"))
         elif action == "voldown":
             self._set_volume(max(0, self._current_volume() - self.opt("volume_step")))
-        elif action in (
-            "next_subtitle",
-            "prev_subtitle",
-            "show_subtitle",
-            "hide_subtitle",
-        ):
-            self._send("subtitle")
-        # next_audio / prev_audio: rc has no track cycling command. Declared
-        # absent in capabilities so the UI can hide the buttons.
+        # subtitle visibility, next_audio, prev_audio: the cli interface has no
+        # command for any of them. Declared absent in capabilities so the UI can
+        # hide the buttons rather than offer one that does nothing.
 
     def _current_volume(self):
         return self._volume
@@ -246,13 +280,5 @@ class VlcProcess(PlayerBackend):
         self._volume = value
         return self._send("vol " + str(value))
 
-    def _remove_socket(self):
-        if os.path.exists(self.rc_socket_path):
-            try:
-                os.remove(self.rc_socket_path)
-            except OSError:
-                pass
-
     def stop(self):
-        self._remove_socket()
         super().stop()

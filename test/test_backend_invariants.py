@@ -443,7 +443,6 @@ class TestReadmeMatchesTheCode:
             "video_output",
             "video_output_module",
             "subtitle_text_scale",
-            "rc_socket",
             "start_timeout",
             "volume_step",
             "volume_max",

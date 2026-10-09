@@ -218,7 +218,7 @@ for anyone still on the old OS.
 |---|---|---|---|---|
 | `omxplayer` | omxplayer | dbus, pause only | yes | no |
 | `omxplayer-keys` | omxplayer.bin | FIFO keystrokes | yes | yes |
-| `vlc` | cvlc | rc interface | yes | no |
+| `vlc` | cvlc | cli interface | yes | no |
 | `mpv` | mpv | JSON IPC | yes | yes |
 | `gstreamer` | gst-launch-1.0 | none | no | no |
 
@@ -229,7 +229,16 @@ by CPU and the least capable.
 
 `vlc` is the recommended player on current Raspberry Pi OS, and the default. It
 decodes H.264 in hardware, sends audio to HDMI and burns in subtitles, without
-the expensive GStreamer compositing path.
+the expensive GStreamer compositing path. Video output is pinned to `drm_vout`
+through the `vc4` driver, which is what makes the Pi decode in hardware.
+
+VLC is controlled through its cli interface: commands are typed into the
+player's stdin and the replies read from its stdout. The rc interface would be
+the more usual choice, but Debian trixie's VLC 3.0.23 for armhf ships no
+`librc_plugin.so`, so `--extraintf=rc` is silently ignored and no control socket
+is ever created. Because the cli interface has no subtitle-visibility toggle and
+no audio-track command, VLC declares neither capability; use `mpv` or
+omxplayer-keys if you need those buttons.
 
 ## Choosing a backend
 
@@ -283,7 +292,7 @@ The full set of keys, and their defaults, is each backend's `defaults` dict:
 
 | Backend | Keys |
 |---|---|
-| `vlc` | `binary`, `extra_args`, `audio_device`, `video_output`, `video_output_module`, `subtitle_text_scale`, `rc_socket`, `start_timeout`, `volume_step`, `volume_max` |
+| `vlc` | `binary`, `extra_args`, `audio_device`, `video_output`, `video_output_module`, `subtitle_text_scale`, `start_timeout`, `volume_step`, `volume_max` |
 | `mpv` | `binary`, `extra_args`, `audio_device`, `socket`, `start_timeout` |
 | `gstreamer` | `binary`, `pipeline`, `http_source`, `plane_id`, `connector_id`, `audio_device`, `video_decoder`, `audio_decoder`, `start_timeout` |
 | `omxplayer` | `binary`, `extra_args`, `start_timeout`, `input_timeout`, `dbus_path` |
