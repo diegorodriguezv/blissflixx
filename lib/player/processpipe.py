@@ -1,10 +1,9 @@
 import os
-import select
 import shutil
 import signal
 import subprocess
 from abc import ABC, abstractmethod
-from queue import Queue
+from queue import Empty, Queue
 from threading import Thread
 
 import cherrypy
@@ -138,23 +137,50 @@ class _LineTail:
         return " | ".join(lines[-max_lines:])
 
 
-def _copypipe(src, dest):
+def _copypipe(src, dest, on_done=None):
     if dest is None:
         dest = _DiscardFile()
 
-    # Ignore broken pipe errors if process
-    # are forced to stop
+    # Read incrementally, one buffer at a time, and hand each one straight on.
+    #
+    # shutil.copyfileobj is not usable here. It calls src.read(length), and
+    # read() on a BufferedReader blocks until it has that many bytes or hits EOF.
+    # That was harmless when the copier only fed a log tail -- the lines could
+    # wait -- but the copier now feeds readiness as well, and a player that
+    # printed three lines and then sat there playing would never have them
+    # delivered. read1() returns whatever has arrived instead of waiting for a
+    # full buffer, which is what makes a line available the moment it is written.
+    #
+    # Broken pipe errors are ignored because a stage can be stopped underneath
+    # this while it is still reading.
     try:
-        shutil.copyfileobj(src, dest)
+        read1 = getattr(src, "read1", None)
+        while True:
+            chunk = read1(65536) if read1 else src.read(65536)
+            if not chunk:
+                break
+            dest.write(chunk)
     except Exception:
         pass
 
     src.close()
     dest.close()
+    if on_done is not None:
+        # Reached end of output. Whatever is blocked reading this pipe is about
+        # to find out.
+        on_done()
 
 
-def _bgcopypipe(src, dest):
-    return _start_thread(_copypipe, src, dest)
+def _bgcopypipe(src, dest, on_done=None):
+    return _start_thread(_copypipe, src, dest, on_done)
+
+
+#: Pushed onto a stage's line queue when its process reaches end of output, so a
+#: thread blocked in _readline() wakes up instead of waiting forever. Only a
+#: sentinel can do that: the queue looks identical whether a line is coming or
+#: the pipe has closed, and a process that dies silently would otherwise hang
+#: every stage waiting on it.
+_EOF = object()
 
 
 class ProcessException(Exception):
@@ -361,6 +387,34 @@ class ExternalProcess(Process):
             preexec_fn=os.setsid,
             shell=self.shell,
         )
+        # One reader, started here, for the whole life of the process.
+        #
+        # This used to read stdout with select() during _ready() and then hand
+        # the same handle to a copier for _wait(). That combination cannot work:
+        # select watches the OS file descriptor, while readline() on a
+        # BufferedReader pulls a whole 8 KB chunk into Python's buffer and
+        # returns only the first line. The rest are stranded in that buffer where
+        # select cannot see them, so once the OS pipe drained, select reported
+        # "not ready" forever and every further read raised "Timed out".
+        #
+        # That is how a VLC printed its cli banner and still failed to start:
+        # the banner arrived in the chunk after some log lines, so _ready()
+        # consumed the first line and never saw it, spun for its full 30 second
+        # timeout, and reported "vlc cli interface did not come up" with the
+        # banner quoted in the failure message. Which stage it bites depends
+        # entirely on how the output happens to be chunked, so it was a latent
+        # bug in _readline for every backend, not something about VLC.
+        #
+        # Now a single copier owns stdout for the whole run. _ready() consumes
+        # lines off a queue it fills, and _wait() joins that same copier instead
+        # of starting a second reader. There is no select left to disagree with
+        # the buffer.
+        self._tail = _LineTail(on_line=self._observe_line)
+        self._lines = Queue()
+        self._copier = _bgcopypipe(
+            self.proc.stdout, self._tail, lambda: self._lines.put(_EOF)
+        )
+
         try:
             args = self._ready()
             self.msg_ready(args)
@@ -370,6 +424,20 @@ class ExternalProcess(Process):
                 self._set_error(str(e))
 
         self._wait()
+
+    def _observe_line(self, line):
+        """
+        Hand one complete line to everyone who wants it.
+
+        Logging, the _readline queue and a stage's own on_output_line all happen
+        here, once per line, because the copier is the only thing that reads the
+        process's output. A stage's observer is called last so that a stage which
+        consumes lines cannot lose one before it is logged.
+        """
+        cherrypy.log("LINE(" + self.name() + "): " + line)
+        self._lines.put(line)
+        if self.on_output_line is not None:
+            self.on_output_line(line)
 
     def _add_output_to_error(self, tail):
         """
@@ -389,13 +457,12 @@ class ExternalProcess(Process):
             self._set_error(self.name() + " failed: " + output)
 
     def _wait(self):
-        # Drain stderr/stdout so the pipe cannot fill and block the process, but
-        # keep the last few lines rather than discarding them. A player that
-        # cannot start says why on stdout ("Failed to get xlease", for a DRM
-        # lease it could not take), and discarding it left the pipe with nothing
-        # to say beyond "it stopped".
-        tail = _LineTail(on_line=self.on_output_line)
-        copier = _bgcopypipe(self.proc.stdout, tail)
+        # The copier started back in start() and owns stdout for the whole run,
+        # so there is nothing to drain here and nothing to discard. The tail it
+        # fills keeps the last few lines, which is how a player that could not
+        # start still says why ("Failed to get xlease", for a DRM lease it could
+        # not take) instead of leaving the pipe with nothing to report but that
+        # it stopped.
         # How long to wait for the process to leave is not one thing, it depends
         # on whether it ever arrived.
         #
@@ -425,14 +492,14 @@ class ExternalProcess(Process):
             self.proc.wait()
         self.proc = None
         # The copier finishes when stdout reaches EOF, which the exit just
-        # caused. Joining it matters: reading tail before it has drained is a
+        # caused. Joining it matters: reading the tail before it has drained is a
         # race, and on the Pi that race reliably returned an empty tail, losing
         # the reason all over again. Timed, so a wedged reader cannot hold up
         # the pipe.
-        copier.join(timeout=_COPY_DRAIN_TIMEOUT)
+        self._copier.join(timeout=_COPY_DRAIN_TIMEOUT)
 
         if self.has_error() or self.killing:
-            self._add_output_to_error(tail)
+            self._add_output_to_error(self._tail)
             self.msg_halted()
         else:
             self.msg_finished()
@@ -466,18 +533,34 @@ class ExternalProcess(Process):
         """
 
     def _readline(self, timeout=None):
-        poll_obj = select.poll()
-        poll_obj.register(self.proc.stdout, select.POLLIN)
-        while self.proc.poll() is None:
-            if timeout is not None:
-                poll_result = poll_obj.poll(1000 * timeout)
-                if not poll_result:
-                    raise ProcessException("Timed out waiting for input")
-            line = self.proc.stdout.readline()
-            if not line:
-                raise ProcessException("Process suddenly died")
-            line = line.strip().decode("utf-8")
-            cherrypy.log("LINE(" + self.name() + "): " + line)
-            if line.strip() != "":
-                return line
-        raise ProcessException("Process exit: " + str(self.proc.returncode))
+        """
+        Take one line of the process's output.
+
+        Reads from the queue the copier fills, so this never inspects the pipe
+        itself and cannot disagree with the copier about what has been read.
+
+        With no timeout this blocks until a line arrives or the process ends.
+        With a timeout it gives up after that many seconds and raises.
+
+        Both raise ProcessException at end of output, which is what the stages
+        waiting on a startup line depend on to stop looping: peerflix, dlsrv and
+        yt-dlp all call this with no timeout inside a while True, and would
+        otherwise block forever on a process that died silently.
+        """
+        try:
+            line = self._lines.get(timeout=timeout)
+        except Empty:
+            raise ProcessException("Timed out waiting for input")
+        if line is _EOF:
+            # The copier reached the end of stdout. Report it the way a blocking
+            # readline() used to: as a death, and with the exit code when there
+            # is one, because "exited 0" and "died" read very differently in a
+            # failure message.
+            if self.proc is not None and self.proc.poll() is not None:
+                raise ProcessException("Process exit: " + str(self.proc.returncode))
+            raise ProcessException("Process suddenly died")
+        if not line.strip():
+            # Blank lines are not output worth reporting. mpv in particular
+            # prints a bare prompt before it is ready for anything.
+            return self._readline(timeout)
+        return line.strip()

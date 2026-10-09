@@ -523,6 +523,14 @@ class _StubExternal(ExternalProcess):
         self.proc.stdout = reader
         self.msgq = queue.Queue()
         self.procidx = 0
+        # Set up exactly what start() sets up, since _wait() now joins the copier
+        # start() began rather than creating one of its own. A pipe with no writer
+        # gives that copier EOF at once, which is it finishing.
+        self._tail = pp._LineTail(on_line=self._observe_line)
+        self._lines = queue.Queue()
+        self._copier = pp._bgcopypipe(
+            reader, self._tail, lambda: self._lines.put(pp._EOF)
+        )
         try:
             ExternalProcess._wait(self)
         finally:
@@ -597,3 +605,225 @@ class TestAPlayerThatStartedIsNeverTimedOut:
         proc.run_wait(monkeypatch)
         assert not proc.killed
         assert proc.waits == [None]
+
+
+class _ChunkedStage(ExternalProcess):
+    """
+    A stage whose process writes a known chunk of output and then stops.
+
+    Used to reproduce a bug that cost an evening of hardware testing: two lines
+    arriving in one read, with a third arriving much later. The old _readline()
+    polled the OS file descriptor with select() but read through a
+    BufferedReader, so one read pulled the whole chunk into Python's buffer and
+    handed back only the first line. The rest were invisible to select, so once
+    the pipe drained every subsequent call reported "not ready" and the stage
+    waited out its full timeout and reported failure -- while the line it was
+    waiting for sat unread in its own buffer.
+    """
+
+    def __init__(self, chunks, hold=True):
+        super().__init__()
+        self.chunks = chunks
+        self.hold = hold
+        self.errors = []
+
+    def name(self):
+        return "chunked"
+
+    def _get_cmd(self, args):
+        return ["true"]
+
+    def _read_chunks(self):
+        """
+        Drive the real reader with real pipes, then hand back the queue.
+        """
+        r, w = os.pipe()
+        writer = os.fdopen(w, "wb")
+        for text in self.chunks:
+            writer.write(text.encode())
+            writer.flush()
+            time.sleep(0.05)
+        if not self.hold:
+            writer.close()
+
+        # Binary, because that is what Popen hands over for stdout=PIPE, and it
+        # matters: a text stream has no read1, so the copier would fall back to
+        # read() and block until it had filled its buffer.
+        reader = os.fdopen(r, "rb")
+        self.proc = m.MagicMock(poll=lambda: None, stdout=reader, returncode=None)
+        self._tail = pp._LineTail(on_line=self._observe_line)
+        self._lines = queue.Queue()
+        self._copier = pp._bgcopypipe(
+            reader, self._tail, lambda: self._lines.put(pp._EOF)
+        )
+        self.msgq = queue.Queue()
+        self.procidx = 0
+        return reader, writer
+
+    def drain_lines(self, reader, writer, count, timeout=2.0):
+        got = []
+        deadline = time.time() + timeout
+        while len(got) < count and time.time() < deadline:
+            try:
+                got.append(self._readline(0.2))
+            except ProcessException:
+                break
+        writer.close()
+        self._copier.join(timeout=2)
+        reader.close()
+        return got
+
+
+class TestLinesInOneChunkAreAllReadable:
+    """
+    Every line a process writes must be readable, however it was chunked.
+
+    This is the fix for the readiness failure seen on the Pi: a VLC printed
+    "Command Line Interface initialized", so _ready() could see it and return,
+    but that line arrived in the chunk after some log lines. The first read
+    consumed the earlier lines, and the banner was never returned. _ready() then
+    ran out its 30 second timeout and reported "vlc cli interface did not come
+    up" with the banner quoted in the failure message, which is what finally
+    identified it.
+    """
+
+    def test_all_lines_from_a_single_chunk_come_back(self):
+        stage = _ChunkedStage(["first\nsecond\nthird\n"])
+        reader, writer = stage._read_chunks()
+        assert stage.drain_lines(reader, writer, 3) == ["first", "second", "third"]
+
+    def test_a_line_arriving_after_an_early_chunk_is_still_read(self):
+        """
+        The exact shape that failed: two lines at once, then a pause, then the
+        one that matters.
+        """
+        stage = _ChunkedStage(["noise one\nnoise two\n", "late arrival\n"])
+        reader, writer = stage._read_chunks()
+        assert stage.drain_lines(reader, writer, 3) == [
+            "noise one",
+            "noise two",
+            "late arrival",
+        ]
+
+    def test_a_chunk_without_a_trailing_newline_is_not_swallowed(self):
+        """
+        copyfileobj hands over whatever it read, so a process that writes without
+        flushing a newline leaves a partial line. It is not returned until the
+        rest arrives, which is correct -- but it must not be lost either.
+        """
+        stage = _ChunkedStage(["partial", " rest\n"])
+        reader, writer = stage._read_chunks()
+        assert stage.drain_lines(reader, writer, 1) == ["partial rest"]
+
+
+class TestReadlineAtEndOfOutput:
+    """
+    Reading past the end of a process's output must raise, not block.
+
+    Four stages -- peerflix, dlsrv, yt-dlp and subtitles -- call _readline()
+    with no timeout inside a while True, relying on it to raise when the process
+    dies. A queue looks the same whether a line is coming or the pipe has closed,
+    so the copier pushes a sentinel at EOF to wake them. Without it a process
+    that died silently would hang the stage, and with it the pipe, for ever.
+    """
+
+    def test_end_of_output_raises_rather_than_blocking(self):
+        stage = _ChunkedStage(["only line\n"], hold=False)
+        reader, writer = stage._read_chunks()
+        try:
+            assert stage._readline(2.0) == "only line"
+            with pytest.raises(ProcessException):
+                stage._readline(2.0)
+        finally:
+            writer.close()
+            reader.close()
+
+    def test_the_exception_says_how_the_process_died(self):
+        """
+        "exited 0" and "died" mean very different things in a failure message,
+        so the return code is kept.
+        """
+        stage = _ChunkedStage([], hold=False)
+        reader, writer = stage._read_chunks()
+        stage.proc.poll = lambda: 0
+        stage.proc.returncode = 3
+        try:
+            with pytest.raises(ProcessException, match="Process exit: 3"):
+                stage._readline(2.0)
+        finally:
+            writer.close()
+            reader.close()
+
+    def test_a_timeout_with_nothing_to_read_raises(self):
+        """
+        The other way out, and the one a stage polling for readiness depends on:
+        no line within the window is a timeout, not a hang.
+        """
+        stage = _ChunkedStage([])
+        reader, writer = stage._read_chunks()
+        try:
+            with pytest.raises(ProcessException, match="Timed out"):
+                stage._readline(0.2)
+        finally:
+            writer.close()
+            reader.close()
+
+    def test_blank_lines_are_skipped_not_returned(self):
+        """
+        Players print bare newlines while starting. The old reader dropped them,
+        so _ready() did not spend a call on one.
+        """
+        stage = _ChunkedStage(["\n\n  \nreal\n"])
+        reader, writer = stage._read_chunks()
+        assert stage.drain_lines(reader, writer, 1) == ["real"]
+
+
+class TestOneReaderPerProcess:
+    """
+    stdout is read once, by the copier that start() launches.
+
+    Two readers on one pipe is what made the desync possible, and the second one
+    was started in _wait() after _ready() had already consumed part of the
+    stream. One reader means the lines a stage sees and the lines kept for the
+    failure message are the same lines, in the same order.
+    """
+
+    def test_wait_does_not_start_a_second_reader(self):
+        stage = _ChunkedStage(["line\n"], hold=False)
+        reader, writer = stage._read_chunks()
+        before = stage._copier
+        stage.proc.wait = lambda timeout=None: 0
+        stage._wait()
+        assert stage._copier is before
+        writer.close()
+        reader.close()
+
+    def test_the_tail_covers_the_whole_run(self):
+        """
+        The tail now fills from the moment the process starts rather than from
+        _ready() onward, so a failure message includes what the player said
+        before it was ever asked whether it was ready.
+        """
+        stage = _ChunkedStage(["said at startup\n"])
+        reader, writer = stage._read_chunks()
+        try:
+            stage._readline(2.0)
+            assert "said at startup" in stage._tail.summary()
+        finally:
+            writer.close()
+            reader.close()
+
+    def test_every_line_is_logged_once(self, caplog):
+        """
+        Logging moved into the single reader. Two observers would double it, and
+        these lines are how every one of these bugs was diagnosed.
+        """
+        stage = _ChunkedStage(["logged once\n"])
+        reader, writer = stage._read_chunks()
+        try:
+            with caplog.at_level("INFO"):
+                stage._readline(2.0)
+            assert caplog.text.count("LINE(chunked): logged once") == 1
+        finally:
+            writer.close()
+            reader.close()
