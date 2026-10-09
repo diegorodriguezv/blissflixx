@@ -236,9 +236,12 @@ VLC is controlled through its cli interface: commands are typed into the
 player's stdin and the replies read from its stdout. The rc interface would be
 the more usual choice, but Debian trixie's VLC 3.0.23 for armhf ships no
 `librc_plugin.so`, so `--extraintf=rc` is silently ignored and no control socket
-is ever created. Because the cli interface has no subtitle-visibility toggle and
-no audio-track command, VLC declares neither capability; use `mpv` or
-omxplayer-keys if you need those buttons.
+is ever created. Subtitles and audio tracks are selected through `strack` and `atrack`,
+which list the available tracks and mark the active one with an asterisk,
+so visibility can be turned off with `-1` and back on with a real id. VLC
+therefore declares the same capabilities as `mpv` and `omxplayer-keys`.
+`--osd` is enabled so a pause or a seek is visible on screen: without it
+the only feedback is a log line nobody watching a film can see.
 
 ## Choosing a backend
 

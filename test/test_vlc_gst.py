@@ -64,6 +64,7 @@ class TestVlcCommand:
             "--vout=drm_vout",
             "--drm-vout-module=vc4",
             "--sub-text-scale=95",
+            "--osd",
             "--no-video-title-show",
             "--play-and-exit",
             FILE_OUT,
@@ -77,6 +78,17 @@ class TestVlcCommand:
         cmd = vlc({"outfile": FILE_OUT})
         assert "--vout=drm_vout" in cmd
         assert "--drm-vout-module=vc4" in cmd
+
+    def test_the_osd_is_enabled(self):
+        """
+        Without it a pause or a seek changes nothing visible. The person
+        watching has no way to tell whether the button worked, which is the whole
+        reason the UI has an on-screen display on the other backends.
+        """
+        cmd = vlc({"outfile": FILE_OUT})
+        assert "--osd" in cmd
+        # --osd and --no-osd are the same option; having both would be ambiguous.
+        assert "--no-osd" not in cmd
 
     def test_the_cli_interface_is_selected(self):
         """
@@ -181,30 +193,61 @@ class TestVlcControl:
             proc.control("volup")
         assert proc._volume == proc.opt("volume_max")
 
-    def test_audio_track_sends_nothing(self):
+    def test_audio_track_actions_reach_the_track_interface(self):
         """
-        The cli interface has no track cycling command. Sending nothing is
-        correct; declaring the capability absent is what stops the UI offering
-        the buttons.
-        """
-        assert self._sent("next_audio") is None
-        assert self._sent("prev_audio") is None
+        "atrack" lists audio tracks with the active one marked, the same way
+        strack does for subtitles. Replaces the pair of tests that asserted
+        these were dropped, which was true only while the track interface was
+        assumed to be unusable.
 
-    def test_audio_track_capability_is_not_declared(self):
-        assert VlcProcess().declares(CAP_AUDIO_TRACK) is False
+        Stepping starts by asking for the listing -- the bare verb -- and only
+        then sends an id. With nothing chosen yet the current track is taken to
+        be the first real one, so "next" from there wraps to -1 and disables,
+        and "prev" from the first track also wraps to -1.
+        """
+        proc = VlcProcess()
+        sent = []
+        proc._send_command = lambda c: sent.append(c) or True
+
+        def listing():
+            proc._replies.put("+----[ audio-es ]")
+            proc._replies.put("-1 - Disable")
+            proc._replies.put("1 - English - [English] *")
+            proc._replies.put("+----[ end of audio-es ]")
+
+        listing()
+        proc.control("next_audio")
+        assert sent == ["atrack", "atrack -1"], sent
+
+        # From -1, "prev" wraps forward to the last real track.
+        sent.clear()
+        listing()
+        proc.control("prev_audio")
+        assert sent == ["atrack", "atrack 1"], sent
 
     def test_declared_capabilities(self):
         proc = VlcProcess()
-        for cap in (CAP_PAUSE, CAP_STOP, CAP_SEEK, CAP_VOLUME):
+        for cap in (
+            CAP_PAUSE,
+            CAP_STOP,
+            CAP_SEEK,
+            CAP_VOLUME,
+            CAP_SUBTITLES,
+            CAP_AUDIO_TRACK,
+        ):
             assert proc.declares(cap), cap
 
-    def test_subtitles_are_not_declared_because_there_is_no_command(self):
+    def test_subtitles_and_audio_track_are_declared(self):
         """
-        Declared honestly rather than left declared: the cli interface has no
-        subtitle-visibility toggle, so offering the button would offer one that
-        does nothing. This is a real loss against mpv and omxplayer.
+        Both are controllable after all: strack and atrack list their tracks and
+        the asterisk shows which is active, so visibility can be turned off with
+        -1 and back on with a real id. The buttons were hidden when these were
+        believed to be missing, which took them away from anyone who could have
+        used them.
         """
-        assert VlcProcess().declares(CAP_SUBTITLES) is False
+        proc = VlcProcess()
+        assert proc.declares(CAP_SUBTITLES) is True
+        assert proc.declares(CAP_AUDIO_TRACK) is True
 
     def test_volume_is_sent_with_the_verb_the_interface_actually_has(self):
         """
@@ -314,22 +357,23 @@ class TestVlcControl:
         """
         assert VlcProcess().stdin_pipe is True
 
-    def test_vlc_declares_less_than_mpv(self):
+    def test_vlc_declares_exactly_what_it_can_do(self):
         """
-        The dbus omxplayer variant declares even less, and the FIFO variant
-        declares everything. VLC sits in between: it can pause, seek and change
-        volume, but has no subtitle or audio-track command.
+        The set is pinned rather than compared as a length, so gaining or losing
+        a capability has to be a deliberate edit here. It matched mpv's set and
+        omxplayer-keys' before strack and atrack made that true; the FIFO
+        variant declares the same, the dbus one less because it cannot cycle
+        tracks at all.
         """
+        from lib.player.backend import ALL_CAPABILITIES
         from lib.player.mpvproc import MpvProcess
         from lib.player.omxproc import OmxplayerProcess
         from lib.player.omxproc2 import OmxplayerProcess2
 
-        assert (
-            len(OmxplayerProcess().capabilities)
-            < len(VlcProcess().capabilities)
-            < len(OmxplayerProcess2().capabilities)
-        )
-        assert MpvProcess().capabilities == OmxplayerProcess2().capabilities
+        assert VlcProcess().capabilities == ALL_CAPABILITIES
+        assert VlcProcess().capabilities == MpvProcess().capabilities
+        assert VlcProcess().capabilities == OmxplayerProcess2().capabilities
+        assert len(OmxplayerProcess().capabilities) < len(ALL_CAPABILITIES)
 
 
 class _FakeStdin:
@@ -901,19 +945,27 @@ class TestVlcAgainstALineReader:
         proc_for._send_command("pause")
         assert cli.wait_for_command() == "pause"
 
-    def test_subtitle_visibility_is_not_offered(self):
+    def test_every_track_action_sends_something(self):
         """
-        The cli interface has no subtitle toggle, so the action is absent from
-        capabilities rather than sent as a command that would be rejected.
+        The six actions that were being dropped when the track interface was
+        thought to be unusable.
         """
         proc = VlcProcess()
         sent = []
         proc._send_command = lambda cmd: sent.append(cmd) or True
-        for action in ("show_subtitle", "hide_subtitle", "next_subtitle"):
+        proc._track_listing["strack"] = [-1, 2]
+        proc._track_listing["atrack"] = [-1, 1]
+        for action in (
+            "show_subtitle",
+            "hide_subtitle",
+            "next_subtitle",
+            "prev_subtitle",
+            "next_audio",
+            "prev_audio",
+        ):
+            sent.clear()
             proc.control(action)
-        assert sent == []
-        assert "subtitles" not in proc.capabilities
-        assert "audio_track" not in proc.capabilities
+            assert sent, action
 
     def test_reply_is_logged_so_delivery_is_visible(self, proc_for, caplog):
         """

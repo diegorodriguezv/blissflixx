@@ -222,15 +222,18 @@ class TestCapabilitiesMatchImplementation:
 
     def test_audio_track_capability_matches_the_transport(self):
         """
-        mpv's IPC and omxplayer's key map can cycle tracks; VLC's rc cannot, and
-        gstreamer has no control at all.
+        mpv's IPC, omxplayer's key map and VLC's track interface can all cycle
+        audio tracks. VLC was counted as unable to for as long as the cli
+        interface was assumed to have no track verb, which turned out to be
+        wrong: "atrack" lists the tracks and marks the active one, the same way
+        "strack" does for subtitles. gstreamer has no control at all.
         """
         from lib.player.gstproc import GStreamerProcess
         from lib.player.mpvproc import MpvProcess
         from lib.player.vlcproc import VlcProcess
 
         assert MpvProcess().declares("audio_track") is True
-        assert VlcProcess().declares("audio_track") is False
+        assert VlcProcess().declares("audio_track") is True
         assert GStreamerProcess().declares("audio_track") is False
 
     def test_a_capability_less_backend_declares_none(self):

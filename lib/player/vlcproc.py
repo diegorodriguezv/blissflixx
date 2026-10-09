@@ -31,7 +31,15 @@ from queue import Empty, Queue
 
 import cherrypy
 
-from .backend import CAP_PAUSE, CAP_SEEK, CAP_STOP, CAP_VOLUME, PlayerBackend
+from .backend import (
+    CAP_AUDIO_TRACK,
+    CAP_PAUSE,
+    CAP_SEEK,
+    CAP_STOP,
+    CAP_SUBTITLES,
+    CAP_VOLUME,
+    PlayerBackend,
+)
 from .processpipe import ProcessException
 
 VLC_BIN = "cvlc"
@@ -59,6 +67,12 @@ _REPLY_SETTLE = 0.3
 
 def _is_player_logging(line):
     return bool(_VLC_LOG_PREFIX.match(line.strip()))
+
+
+#: A track id as printed in a strack/atrack listing, e.g. "2 - English (CC)".
+_TRACK_ID = re.compile(r"^(-?\d+)\s+-")
+#: VLC's id for "no subtitles", as printed in the listing.
+_TRACK_DISABLED = -1
 
 
 def _is_echo(line):
@@ -93,9 +107,17 @@ class VlcProcess(PlayerBackend):
     growing http url, so it works with or without the dlsrv stage.
     """
 
-    # No subtitle-visibility or audio-track command exists in the cli
-    # interface, so those are declared absent rather than offered and dropped.
-    capabilities = frozenset({CAP_PAUSE, CAP_STOP, CAP_SEEK, CAP_VOLUME})
+    capabilities = frozenset(
+        {
+            CAP_AUDIO_TRACK,
+            CAP_PAUSE,
+            CAP_STOP,
+            CAP_SEEK,
+            CAP_VOLUME,
+            CAP_SUBTITLES,
+            CAP_AUDIO_TRACK,
+        }
+    )
 
     # The defaults are the invocation measured working on the Pi: DRM/KMS video
     # output through the vc4 driver, ALSA audio pinned to the HDMI card, and no
@@ -128,6 +150,10 @@ class VlcProcess(PlayerBackend):
         self.stdin_pipe = True
         self._ready_seen = False
         self._startup_errors = []
+        # Last track id chosen per interface verb, so stepping does not have to
+        # re-read the listing every time. See _step_track.
+        self._track_choice = {}
+        self._track_listing = {}
         # Once the stage is running, the copier feeds every line the player
         # writes -- replies and log output alike -- through here. During startup
         # there is no copier yet and _ready() reads stdout itself.
@@ -158,6 +184,12 @@ class VlcProcess(PlayerBackend):
             "--drm-vout-module=" + self.opt("video_output_module"),
             "--sub-text-scale=" + self.opt("subtitle_text_scale"),
             # A run that must not stop on its own.
+            # OSD is what tells the user their action landed. Without it a
+            # pause or a seek is invisible on the screen, so the only feedback
+            # is whatever the log says, which nobody watching a film can see.
+            "--osd",
+            # The startup title overlay is not wanted: it covers the picture
+            # while the film begins and is not what --osd is for.
             "--no-video-title-show",
             "--play-and-exit",
         ]
@@ -346,9 +378,75 @@ class VlcProcess(PlayerBackend):
             self._set_volume(self._current_volume() + self.opt("volume_step"))
         elif action == "voldown":
             self._set_volume(max(0, self._current_volume() - self.opt("volume_step")))
-        # subtitle visibility, next_audio, prev_audio: the cli interface has no
-        # command for any of them. Declared absent in capabilities so the UI can
-        # hide the buttons rather than offer one that does nothing.
+        elif action in ("show_subtitle", "hide_subtitle"):
+            self._send_command("strack " + ("-1" if action == "hide_subtitle" else "0"))
+        elif action == "next_subtitle":
+            self._step_track("strack", +1)
+        elif action == "prev_subtitle":
+            self._step_track("strack", -1)
+        elif action == "next_audio":
+            self._step_track("atrack", +1)
+        elif action == "prev_audio":
+            self._step_track("atrack", -1)
+
+    def _step_track(self, command, direction):
+        """
+        Move to the next or previous subtitle or audio track.
+
+        "strack" and "atrack" with no argument list the available tracks and
+        mark the active one with an asterisk:
+
+            +----[ spu-es ]
+            | -1 - Disable
+            | 2 - English (CC) - [English] *
+            +----[ end of spu-es ]
+
+        There is no "next track" verb, so the current position is read from that
+        listing and an adjacent id is chosen. Stepping past either end wraps: the
+        listing always includes -1, which disables the track, so a step forward
+        from the last track goes to -1 and a step back from -1 goes to the last.
+
+        The active id is cached after the first listing, because the listing is
+        the only way to find it and it costs a round trip.
+        """
+        tracks = self._track_ids(command)
+        if not tracks:
+            return False
+        current = self._track_choice.get(command)
+        if current is None or current not in tracks:
+            current = next((t for t in tracks if t != _TRACK_DISABLED), None)
+            if current is None:
+                return False
+        index = tracks.index(current)
+        target = tracks[(index + direction) % len(tracks)]
+        self._track_choice[command] = target
+        return self._send_command(command + " " + str(target))
+
+    def _track_ids(self, command):
+        """
+        Ask for the track listing and pull the ids out of it.
+
+        Replies come back on the shared stdout, so this reads the same queue
+        _send_command does and filters out the player's own logging.
+        """
+        self._send_command(command)
+        ids = []
+        deadline = time.time() + _REPLY_TIMEOUT
+        while time.time() < deadline:
+            try:
+                line = self._replies.get(timeout=0.1)
+            except Empty:
+                if ids:
+                    break
+                continue
+            if _is_player_logging(line) or _is_echo(line):
+                continue
+            found = _TRACK_ID.match(line.strip())
+            if found:
+                ids.append(int(found.group(1)))
+        if ids:
+            self._track_listing[command] = ids
+        return self._track_listing.get(command, [])
 
     def _current_volume(self):
         return self._volume
