@@ -23,16 +23,20 @@ silently switch anyone's player.
 """
 
 from ..settings import load
+from .gstproc import GStreamerProcess
 from .mpvproc import MpvProcess
 from .omxproc import OmxplayerProcess
 from .omxproc2 import OmxplayerProcess2
+from .vlcproc import VlcProcess
 
 #: name -> backend class. Add an entry to make a backend selectable. Registering
 #: the same class under two names gives two independent configurations.
 BACKENDS = {
     "omxplayer": OmxplayerProcess,
     "omxplayer-keys": OmxplayerProcess2,
+    "vlc": VlcProcess,
     "mpv": MpvProcess,
+    "gstreamer": GStreamerProcess,
 }
 
 #: Used when no backend is configured. None means "keep the legacy choice".
@@ -77,9 +81,14 @@ def get_backend(name):
 def describe(name):
     """Name, display name and capabilities, for reporting to the UI."""
     instance = get_backend(name)
-    return {
+    info = {
         "backend": name,
         "name": instance.name(),
         "capabilities": sorted(instance.capabilities),
         "binary": instance.opt("binary"),
     }
+    # A backend with no control surface needs saying out loud, so a caller does
+    # not offer buttons that will be dropped. gstreamer is the case that matters.
+    if not instance.capabilities:
+        info["note"] = "this backend cannot be paused, seeked or adjusted"
+    return info

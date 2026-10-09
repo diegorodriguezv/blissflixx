@@ -357,11 +357,24 @@ class TestOmxCapabilities:
 
 
 class TestRegistry:
-    def test_all_three_backends_registered(self):
-        assert set(BACKENDS) == {"omxplayer", "omxplayer-keys", "mpv"}
+    def test_the_original_backends_are_registered(self):
+        """
+        Not the full list: adding a backend should not require editing an
+        assertion here. The registry's own invariants are covered in
+        test_backend_config.py; what matters is that these three stay
+        selectable, because omxplayer is the legacy default.
+        """
+        for name in ("omxplayer", "omxplayer-keys", "mpv"):
+            assert name in BACKENDS
 
     def test_names_are_sorted(self):
-        assert backend_names() == ["mpv", "omxplayer", "omxplayer-keys"]
+        """Ordering, not membership: callers may present the list to a picker."""
+        names = backend_names()
+        assert names == sorted(names)
+
+    def test_every_registered_backend_is_reachable_by_name(self):
+        for name in backend_names():
+            assert get_backend(name) is not None
 
     def test_get_backend_returns_a_configured_instance(self):
         assert isinstance(get_backend("mpv"), MpvProcess)
