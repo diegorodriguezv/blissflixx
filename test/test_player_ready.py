@@ -74,6 +74,46 @@ class TestDlsrvReady:
             proc._ready()
 
 
+class TestPeerflixListeningAddress:
+    """
+    The URL handed downstream is the one peerflix actually bound to.
+
+    This used to be composed as "http://127.0.0.1:" + port no matter what
+    peerflix printed. peerflix chooses its own address -- the first
+    non-internal interface it finds -- so on a Pi with a wired connection it
+    reports 192.168.1.x and listens there, and the composed loopback URL is an
+    address nothing is listening on. The player then sat there for a minute and
+    failed with "cannot connect to 127.0.0.1:9696", which is exactly what a
+    torrent stream did on real hardware.
+    """
+
+    def _ready_url(self, line):
+        proc = feed(PeerflixProcess("http://x/y.torrent", None), line)
+        proc.args = {}
+        return proc._ready()["outfile"]
+
+    def test_the_lan_address_peerflix_printed_is_used(self):
+        line = "server is listening on http://192.168.1.119:9696/"
+        assert self._ready_url(line) == "http://192.168.1.119:9696"
+
+    def test_loopback_is_still_honoured_when_that_is_what_is_printed(self):
+        line = "server is listening on http://127.0.0.1:9696/"
+        assert self._ready_url(line) == "http://127.0.0.1:9696"
+
+    def test_a_trailing_slash_does_not_leak_into_the_url(self):
+        line = "server is listening on http://192.168.1.119:9696/"
+        assert not self._ready_url(line).endswith("/")
+
+    def test_it_falls_back_to_loopback_when_no_url_is_present(self):
+        """
+        The old behaviour survives as a last resort, so an unexpected line shape
+        degrades to something plausible instead of handing on None.
+        """
+        proc = feed(PeerflixProcess("http://x/y.torrent", None), "server is listening")
+        proc.args = {}
+        assert proc._ready()["outfile"] == "http://127.0.0.1:" + YTDL_PORT
+
+
 class TestPeerflixReady:
     def test_listening_line_makes_the_output_an_http_url(self):
         proc = feed(
