@@ -26,10 +26,30 @@ else
     
     # Install default fonts for subtitles
     apt install fonts-freefont-ttf
-    
-    # Install raspberry pi optimized video player
-    apt -y install omxplayer
-    
+
+    # Player backends.
+    #
+    # VLC is the default backend. omxplayer has no package on current Raspberry
+    # Pi OS, so installing it fails; it is attempted because the legacy
+    # backends still work on the old OS, but a failure here is not fatal and the
+    # rest of the install continues.
+    if [[ $@ != *-no-players* ]] ; then
+        apt -y install vlc
+        apt -y install mpv
+        # GStreamer for the most CPU-efficient pipeline. The element set depends
+        # on which plugin packages are installed, so bin/check_players.py
+        # verifies afterwards what actually arrived.
+        apt -y install gstreamer1.0-tools \
+                       gstreamer1.0-plugins-base \
+                       gstreamer1.0-plugins-good \
+                       gstreamer1.0-plugins-bad \
+                       gstreamer1.0-libav
+
+        # Best effort: absent on current Raspberry Pi OS.
+        apt -y install omxplayer || \
+            echo "omxplayer is not available for this OS, which is expected."
+    fi
+
     # Install version control software for updates and to install other packages like
     # yt-dlp. It is probably already installed, but it is possible that the user
     # got blissflixx other way, like downloading the source as a zip file.
@@ -58,6 +78,18 @@ else
     
     # Configure python dependencies as a normal user
     sudo -u $user ./configure_py.sh
+
+    # Report what is actually usable. Installing a player is not the same as
+    # being able to run it: omxplayer has no package on current Raspberry Pi OS,
+    # and stock GStreamer has no v4l2h264dec, so the GStreamer pipeline needs
+    # video_decoder changed to avdec_h264. The checks come from the backends'
+    # own defaults, so they stay correct as backends change.
+    echo ""
+    echo "============================================================"
+    echo ""
+    sudo -u $user ./virtualenv/bin/python ./bin/check_players.py || true
+    echo ""
+    echo "============================================================"
 fi
 
 # Check for optional script arguments

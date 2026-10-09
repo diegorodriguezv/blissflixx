@@ -91,6 +91,29 @@ Performs only the options invoked. Useful to configure BlissFlixx after initial 
 
 For example `sudo ./configure.sh -only -blank` will just install the blank screen screen service, skipping over installation.
 
+* `-no-players`
+
+Skips installing the player backends, for when they are already present or you
+want a smaller install. Everything else is installed as usual.
+
+## After installing
+
+`configure.sh` finishes by running `bin/check_players.py`, which reports whether
+each registered backend can actually run rather than merely be installed. It is
+worth knowing, because two of them need attention on a current Raspberry Pi OS:
+
+* omxplayer has no package, so it cannot be installed at all. The two omxplayer
+  backends only work on the old OS.
+* stock GStreamer has no `v4l2h264dec`; the v4l2 decoders were dropped from the
+  main gst-plugins set. Set `video_decoder` to `avdec_h264` in
+  `data/settings/player-gstreamer` for software decode, which costs CPU.
+
+Run it again at any time:
+
+```
+./virtualenv/bin/python ./bin/check_players.py
+```
+
 # configure_py.sh
 
 The `configure_py.sh` script will set up the python environment for BlissFlixx.
