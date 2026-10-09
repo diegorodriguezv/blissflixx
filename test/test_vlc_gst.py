@@ -229,6 +229,67 @@ class TestVlcControl:
         proc.control("prev_audio")
         assert sent == ["atrack", "atrack 1"], sent
 
+    def test_hiding_a_subtitle_track_uses_vlcs_disabled_id(self):
+        """
+        -1 is how VLC spells "off" and it is always present in a listing.
+        """
+        proc = VlcProcess()
+        sent = []
+        proc._send_command = lambda c: sent.append(c) or True
+        proc.control("hide_subtitle")
+        assert sent == ["strack -1"]
+
+    def test_showing_a_subtitle_track_sends_a_real_track_id(self):
+        """
+        This used to send "strack 0", on the assumption that 0 meant the first
+        track. A real listing on the Pi is
+
+            | -1 - Disable
+            | 2 - English (CC) - [English]
+
+        so there is no 0 in it, and asking for it turned subtitles back on for
+        nobody while the log showed a command that had plainly been sent.
+        """
+        proc = VlcProcess()
+        sent = []
+        proc._send_command = lambda c: sent.append(c) or True
+        proc._track_listing["strack"] = [-1, 2]
+        proc.control("show_subtitle")
+        assert sent == ["strack 2"]
+
+    def test_showing_a_track_returns_to_the_one_that_was_on(self):
+        """
+        Hide then show comes back to the same track rather than jumping to
+        whichever happens to be first.
+        """
+        proc = VlcProcess()
+        sent = []
+        proc._send_command = lambda c: sent.append(c) or True
+        proc._track_listing["strack"] = [-1, 2, 3]
+        proc._track_choice["strack"] = 3
+        proc.control("show_subtitle")
+        assert sent == ["strack 3"]
+
+    def test_showing_a_track_with_no_listing_fetches_one_first(self):
+        proc = VlcProcess()
+        sent = []
+        proc._send_command = lambda c: sent.append(c) or True
+        proc._send_and_collect = lambda c: ["| -1 - Disable", "| 4 - Spanish"]
+        proc.control("show_subtitle")
+        assert sent == ["strack 4"]
+
+    def test_showing_a_track_with_nothing_to_show_sends_nothing(self):
+        """
+        A listing of nothing but "disable" means there is no subtitle track to
+        turn on, so there is no id to send.
+        """
+        proc = VlcProcess()
+        sent = []
+        proc._send_command = lambda c: sent.append(c) or True
+        proc._track_listing["strack"] = [-1]
+        proc.control("show_subtitle")
+        assert sent == []
+
     def test_declared_capabilities(self):
         proc = VlcProcess()
         for cap in (
@@ -1046,3 +1107,28 @@ class TestVlcAgainstALineReader:
         assert proc._send_command("pause") is True
         assert time.time() - started < 2.0
         assert "no reply" in caplog.text
+
+
+class TestTrackListingIsLogged:
+    """
+    A listing that matches nothing must still be logged.
+
+    This is the difference between a command that was sent and ignored, and one
+    that was never sent: both log nothing at all. The unanchored track pattern
+    sat unnoticed for exactly that reason -- the output was plainly arriving and
+    simply being thrown away, and the log had no trace of it.
+    """
+
+    def test_a_parsed_listing_is_logged(self, caplog):
+        proc = VlcProcess()
+        proc._send_and_collect = lambda c: ["| -1 - Disable", "| 2 - English"]
+        with caplog.at_level("INFO"):
+            assert proc._track_ids("strack") == [-1, 2]
+        assert "VLC CLI: strack -> tracks -1, 2" in caplog.text
+
+    def test_an_unparseable_listing_is_logged_rather_than_silent(self, caplog):
+        proc = VlcProcess()
+        proc._send_and_collect = lambda c: ["something unexpected"]
+        with caplog.at_level("INFO"):
+            assert proc._track_ids("strack") == []
+        assert "VLC CLI: strack -> something unexpected" in caplog.text

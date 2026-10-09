@@ -413,8 +413,11 @@ class VlcProcess(PlayerBackend):
             self._set_volume(self._current_volume() + self.opt("volume_step"))
         elif action == "voldown":
             self._set_volume(max(0, self._current_volume() - self.opt("volume_step")))
-        elif action in ("show_subtitle", "hide_subtitle"):
-            self._send_command("strack " + ("-1" if action == "hide_subtitle" else "0"))
+        elif action == "hide_subtitle":
+            # -1 is VLC's "disabled", and it is always in the listing.
+            self._send_command("strack " + str(_TRACK_DISABLED))
+        elif action == "show_subtitle":
+            self._show_track("strack")
         elif action == "next_subtitle":
             self._step_track("strack", +1)
         elif action == "prev_subtitle":
@@ -423,6 +426,34 @@ class VlcProcess(PlayerBackend):
             self._step_track("atrack", +1)
         elif action == "prev_audio":
             self._step_track("atrack", -1)
+
+    def _show_track(self, command):
+        """
+        Turn a track back on.
+
+        There is no "enable" command, so a real track id has to be sent. The
+        last one chosen is preferred, so show/hide/show returns to the same
+        track rather than jumping somewhere else; otherwise the first track in
+        the listing.
+
+        This used to send "strack 0" on the assumption that 0 meant "the first
+        one". It does not. A real listing on the Pi came back as
+
+            | -1 - Disable
+            | 2 - English (CC) - [English]
+
+        so 0 is not a track at all, and asking for it turned subtitles back on
+        for nobody.
+        """
+        target = self._track_choice.get(command)
+        if target is None or target == _TRACK_DISABLED:
+            tracks = self._track_listing.get(command) or self._track_ids(command)
+            real = [t for t in tracks if t != _TRACK_DISABLED]
+            if not real:
+                return False
+            target = real[0]
+            self._track_choice[command] = target
+        return self._send_command(command + " " + str(target))
 
     def _step_track(self, command, direction):
         """
@@ -474,6 +505,12 @@ class VlcProcess(PlayerBackend):
                 ids.append(int(found.group(1)))
         if ids:
             self._track_listing[command] = ids
+        # Log the listing whether or not anything matched. A command that was
+        # sent but matched nothing looks exactly like one that was never sent --
+        # both log nothing at all -- and that is what made the unanchored
+        # pattern hard to find: the output was plainly arriving and simply
+        # being ignored.
+        cherrypy.log("VLC CLI: " + command + " -> " + _summarise_reply(lines))
         return self._track_listing.get(command, [])
 
     def _current_volume(self):
