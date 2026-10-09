@@ -62,13 +62,23 @@ def settings(temp_settings):
 
 @pytest.fixture(autouse=True)
 def no_network(request):
-    """Fail loudly if an unmarked test tries to reach the network."""
+    """
+    Fail loudly if an unmarked test tries to reach the network.
+
+    Only INET sockets are blocked. AF_UNIX is not network access: tests use unix
+    sockets to exercise the VLC and mpv control transports against a fake server
+    in tmp_path, which is exactly the kind of thing this fixture should permit
+    rather than force to be mocked away. A MagicMock cannot check that a command
+    is line-terminated; a real socket peer can, and that difference already let a
+    bug through.
+    """
     if request.node.get_closest_marker("network"):
         return
 
     real_connect = socket.socket.connect
     real_connect_ex = socket.socket.connect_ex
     real_create_connection = socket.create_connection
+    inet = (socket.AF_INET, socket.AF_INET6)
 
     def deny(*args, **kwargs):
         raise NetworkAccessDenied(
@@ -76,9 +86,19 @@ def no_network(request):
             "@pytest.mark.network if that is intended."
         )
 
+    def guard_connect(sock, *args, **kwargs):
+        if sock.family in inet:
+            return deny()
+        return real_connect(sock, *args, **kwargs)
+
+    def guard_connect_ex(sock, *args, **kwargs):
+        if sock.family in inet:
+            return deny()
+        return real_connect_ex(sock, *args, **kwargs)
+
     monkeypatch = pytest.MonkeyPatch()
-    monkeypatch.setattr(socket.socket, "connect", deny)
-    monkeypatch.setattr(socket.socket, "connect_ex", deny)
+    monkeypatch.setattr(socket.socket, "connect", guard_connect)
+    monkeypatch.setattr(socket.socket, "connect_ex", guard_connect_ex)
     monkeypatch.setattr(socket, "create_connection", deny)
     try:
         yield

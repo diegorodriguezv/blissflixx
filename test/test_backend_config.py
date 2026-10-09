@@ -119,14 +119,19 @@ class TestUnknownKeys:
         assert backend.opt("audio_device") == "alsa/plughw:0"
         assert "hwdec" not in backend.config
 
-    def test_unknown_key_is_logged(self, settings, capsys):
-        import cherrypy
+    def test_unknown_key_is_logged(self, settings, caplog):
+        """
+        Asserted through caplog, which is where cherrypy.log's output ends up.
 
-        logged = []
-        cherrypy.log = lambda msg: logged.append(str(msg))
-        write_settings("mpv", {"hwdec": "auto"})
-        get_backend("mpv")
-        assert any("hwdec" in m for m in logged)
+        An earlier version of this assigned cherrypy.log directly. That replaces
+        a module global for the rest of the session, so every test after it saw
+        no log output at all — which is how a passing VLC reply-logging test came
+        to fail depending on where in the suite it ran.
+        """
+        with caplog.at_level("INFO"):
+            write_settings("mpv", {"hwdec": "auto"})
+            get_backend("mpv")
+        assert any("hwdec" in record.getMessage() for record in caplog.records)
 
     def test_typo_in_a_real_key_still_uses_the_default(self, settings):
         """A misspelt key must not silently disable the setting."""

@@ -23,6 +23,8 @@ import os
 import socket
 import time
 
+import cherrypy
+
 from .backend import (
     CAP_PAUSE,
     CAP_SEEK,
@@ -36,6 +38,14 @@ from .processpipe import ProcessException
 VLC_BIN = "cvlc"
 _RC_SOCKET = "/tmp/blissflixx/vlc.sock"
 _START_TIMEOUT = 30
+#: Seconds to wait for VLC to acknowledge a command before giving up on a reply.
+#: The command has already been written at that point, so this only bounds how
+#: long the request thread can be held.
+_REPLY_TIMEOUT = 2
+#: Cap on the reply we read, so a chatty status dump cannot be pulled whole into
+#: memory or the log.
+_REPLY_MAX_BYTES = 4096
+_REPLY_MAX_CHARS = 200
 
 #: Output that means cvlc will not play this input.
 _ERROR_MARKERS = (
@@ -142,20 +152,54 @@ class VlcProcess(PlayerBackend):
 
     def _send(self, command):
         """
-        Send one plaintext rc command.
+        Send one plaintext rc command and read what VLC says back.
 
-        Returns False when there is nothing to talk to, so a control arriving
-        during startup or after exit is dropped rather than raising into the API.
+        The terminator is the whole point. VLC's rc interface is a line-oriented
+        interpreter: it reads a line, executes it and replies. Without the newline
+        it waits for more input, so every control action was silently dropped and
+        the UI showed a player that would not pause or seek.
+
+        The reply is read so that "written" and "accepted" are distinguishable in
+        the log. It is best-effort: a timeout means the command went out and VLC
+        had nothing to say, which is not a failure, so it returns True rather than
+        blocking the request thread that sent it.
         """
         if not os.path.exists(self.rc_socket_path):
             return False
         try:
             with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock:
                 sock.connect(self.rc_socket_path)
-                sock.sendall(command.encode("utf-8"))
-            return True
+                sock.settimeout(_REPLY_TIMEOUT)
+                sock.sendall((command + "\n").encode("utf-8"))
+                reply = self._read_reply(sock)
         except OSError:
             return False
+        cherrypy.log("VLC RC: " + command + " -> " + reply)
+        return True
+
+    @staticmethod
+    def _read_reply(sock):
+        """
+        Read one line of VLC's response, or say why there wasn't one.
+
+        Bounded so a player that never replies cannot hold up the thread serving
+        the control request.
+        """
+        try:
+            data = sock.recv(_REPLY_MAX_BYTES)
+        except OSError:
+            # A timeout. The command was written; VLC simply did not answer.
+            return "no reply"
+        if not data:
+            return "no reply"
+        text = data.decode("utf-8", "replace").strip()
+        # VLC's rc opens with a version banner and closes with the status dump;
+        # the first meaningful line is the useful part.
+        for line in text.splitlines():
+            line = line.strip()
+            if line:
+                return line[:_REPLY_MAX_CHARS]
+        return "no reply"
 
     def _seek(self, seconds):
         return self._send("seek " + str(seconds))

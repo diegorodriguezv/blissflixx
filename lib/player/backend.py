@@ -115,8 +115,20 @@ class PlayerBackend(ExternalProcess):
         """
         Act on a playback control action.
 
-        Called for actions the caller believes are supported; check declares()
-        if an unknown action should be reported rather than ignored.
+        Backends do not all control the player the same way, and a backend should
+        not assume omxplayer's model. There are three shapes in practice:
+
+        - Keystroke, no acknowledgement. omxplayer.bin reads keys from a FIFO.
+          Writing the key is all there is; nothing reports whether it was acted
+          on, so a caller cannot distinguish "delivered" from "ignored".
+        - Request/response. VLC's rc interface and mpv's JSON IPC both reply, so
+          delivery can be observed and logged.
+        - None. gst-launch exposes no IPC at all, so every action is dropped.
+
+        control() returns False when the command could not be delivered at all
+        (no socket, nothing running), and otherwise does not raise. It is called
+        for actions the caller believes are supported; check declares() if an
+        unsupported action should be reported rather than ignored.
         """
 
     def _ready(self):

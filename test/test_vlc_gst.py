@@ -12,6 +12,9 @@ without the Pi's kernel packages. That is exactly why the decoders are
 configurable rather than hardcoded, and why nothing here needs the element.
 """
 
+import socket
+import threading
+import time
 import types
 import unittest.mock as m
 
@@ -27,7 +30,7 @@ from lib.player.backend import (
 )
 from lib.player.gstproc import GStreamerProcess
 from lib.player.processpipe import ProcessException
-from lib.player.vlcproc import VlcProcess
+from lib.player.vlcproc import _REPLY_TIMEOUT, VlcProcess
 
 FILE_OUT = "/home/diego/testfiles/h264_1080p.mkv"
 HTTP_OUT = "http://127.0.0.1:9696/movie.mkv"
@@ -198,8 +201,14 @@ class TestVlcControl:
 
 class TestVlcTransport:
     def test_command_is_sent_as_bytes_on_the_socket(self):
+        """
+        The terminator is asserted here and, more usefully, against a real line
+        reader in TestVlcAgainstALineReader. This assertion used to expect the
+        unterminated payload, which is what VLC could not act on.
+        """
         proc = VlcProcess({"rc_socket": RC_SOCK})
         sock = m.MagicMock()
+        sock.recv.return_value = b""
         ctx = m.MagicMock()
         ctx.__enter__.return_value = sock
         with (
@@ -208,7 +217,7 @@ class TestVlcTransport:
         ):
             assert proc._send("pause") is True
         sock.connect.assert_called_once_with(RC_SOCK)
-        assert sock.sendall.call_args[0][0] == b"pause"
+        assert sock.sendall.call_args[0][0] == b"pause\n"
 
     def test_nothing_sent_when_socket_absent(self):
         """Not running yet, or already gone. Must not raise into the API."""
@@ -427,3 +436,182 @@ class TestRegistryCoversBoth:
 
         assert "note" in describe("gstreamer")
         assert "note" not in describe("mpv")
+
+
+class _FakeRcServer:
+    """
+    A unix socket that speaks VLC's rc line protocol.
+
+    The point of this is that it only *executes* a command once it has seen a
+    complete line. The original _send() wrote "pause" with no terminator, so a
+    server that buffers until a newline never executes anything: which is
+    exactly what VLC did, and why every control action was silently dropped. A
+    MagicMock cannot catch that, because it does not parse anything.
+    """
+
+    def __init__(self, path, reply=None, reply_delay=0):
+        self.path = str(path)
+        self.commands = []
+        self.reply = reply
+        self.reply_delay = reply_delay
+        self.connected = False
+        self._buf = ""
+        self._ready = threading.Event()
+        self._sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        self._sock.bind(self.path)
+        self._sock.listen(1)
+        self._sock.settimeout(5)
+        self._thread = threading.Thread(target=self._serve, daemon=True)
+        self._thread.start()
+
+    def _serve(self):
+        # Accept in a loop: _send() opens a fresh connection per command, so the
+        # server sees them one after another rather than all on one socket.
+        while True:
+            try:
+                conn, _ = self._sock.accept()
+            except OSError:
+                return
+            self.connected = True
+            with conn:
+                conn.settimeout(5)
+                while True:
+                    try:
+                        chunk = conn.recv(4096)
+                    except OSError:
+                        break
+                    if not chunk:
+                        break
+                    self._buf += chunk.decode("utf-8", "replace")
+                    while "\n" in self._buf:
+                        line, self._buf = self._buf.split("\n", 1)
+                        if line.strip():
+                            self.commands.append(line.strip())
+                            self._ready.set()
+                    if self.reply is not None:
+                        if self.reply_delay:
+                            time.sleep(self.reply_delay)
+                        conn.sendall(self.reply.encode("utf-8"))
+
+    def wait_for_command(self, timeout=5):
+        assert self._ready.wait(timeout), "no complete line was ever received"
+        return self.commands[0]
+
+    def close(self):
+        try:
+            self._sock.close()
+        except OSError:
+            pass
+
+
+@pytest.fixture
+def rc_server(tmp_path):
+    """A fake rc server that replies, and records only complete lines."""
+    server = _FakeRcServer(
+        tmp_path / "vlc.sock", reply="VLC 3.0.23 command line interface\n"
+    )
+    yield server
+    server.close()
+
+
+class TestVlcAgainstALineReader:
+    """
+    These replace the assertion that encoded the bug: it checked that the payload
+    equalled b"pause", which is precisely the payload VLC cannot act on.
+    """
+
+    def test_command_is_executed_by_a_line_reader(self, rc_server):
+        proc = VlcProcess({"rc_socket": rc_server.path})
+        assert proc._send("pause") is True
+        assert rc_server.wait_for_command() == "pause"
+
+    def test_seek_command_reaches_the_reader_intact(self, rc_server):
+        proc = VlcProcess({"rc_socket": rc_server.path})
+        proc.control("plus30")
+        assert rc_server.wait_for_command() == "seek 30"
+
+    def test_negative_seek_is_sent_as_a_signed_number(self, rc_server):
+        proc = VlcProcess({"rc_socket": rc_server.path})
+        proc.control("minus30")
+        assert rc_server.wait_for_command() == "seek -30"
+
+    def test_quit_is_sent(self, rc_server):
+        proc = VlcProcess({"rc_socket": rc_server.path})
+        proc.control("stop")
+        assert rc_server.wait_for_command() == "quit"
+
+    def test_several_commands_in_a_row_are_all_seen(self, rc_server):
+        """Reconnect-per-command, so each must carry its own terminator."""
+        proc = VlcProcess({"rc_socket": rc_server.path})
+        for action in ("pause", "resume", "plus30", "minus30"):
+            proc.control(action)
+        deadline = time.time() + 5
+        while len(rc_server.commands) < 4 and time.time() < deadline:
+            time.sleep(0.05)
+        assert rc_server.commands == ["pause", "play", "seek 30", "seek -30"]
+
+    def test_volume_command_reaches_the_reader(self, rc_server):
+        proc = VlcProcess({"rc_socket": rc_server.path})
+        proc.control("volup")
+        assert rc_server.wait_for_command() == "vol 261"
+
+    def test_subtitle_toggle_reaches_the_reader(self, rc_server):
+        proc = VlcProcess({"rc_socket": rc_server.path})
+        proc.control("show_subtitle")
+        assert rc_server.wait_for_command() == "subtitle"
+
+    def test_payload_is_newline_terminated(self, rc_server):
+        """Spelled out directly, so the requirement is visible on its own."""
+        proc = VlcProcess({"rc_socket": rc_server.path})
+        with m.patch("lib.player.vlcproc.socket.socket") as factory:
+            sock = m.MagicMock()
+            sock.recv.return_value = b""
+            factory.return_value.__enter__.return_value = sock
+            proc._send("pause")
+        payload = sock.sendall.call_args[0][0]
+        assert payload == b"pause\n"
+
+    def test_reply_is_logged_so_delivery_is_visible(self, rc_server, caplog):
+        """
+        Distinguishing "written" from "accepted" needs the reply surfaced.
+
+        Read through caplog rather than capsys: cherrypy.log goes via the
+        logging module, so it does not appear on the captured stderr stream.
+        """
+        proc = VlcProcess({"rc_socket": rc_server.path})
+        with caplog.at_level("INFO"):
+            proc._send("pause")
+        rc_server.wait_for_command()
+        logged = caplog.text
+        assert "VLC RC: pause" in logged
+        assert "VLC 3.0.23" in logged
+
+    def test_missing_reply_still_reports_the_command_as_sent(self, tmp_path):
+        """
+        Best-effort: a player that accepts the command but says nothing must not
+        be reported as a failure, and must not block the request thread.
+        """
+        server = _FakeRcServer(tmp_path / "quiet.sock", reply=None)
+        try:
+            proc = VlcProcess({"rc_socket": server.path})
+            assert proc._send("pause") is True
+        finally:
+            server.close()
+
+    def test_slow_reply_does_not_hang(self, tmp_path):
+        """
+        The control request runs on a CherryPy thread, so a player that never
+        answers must not hold it for longer than the reply timeout.
+        """
+        server = _FakeRcServer(tmp_path / "slow.sock", reply="late\n", reply_delay=30)
+        try:
+            proc = VlcProcess({"rc_socket": server.path})
+            started = time.time()
+            assert proc._send("pause") is True
+            assert time.time() - started < _REPLY_TIMEOUT + 2
+        finally:
+            server.close()
+
+    def test_no_socket_means_not_delivered(self, tmp_path):
+        proc = VlcProcess({"rc_socket": str(tmp_path / "absent.sock")})
+        assert proc._send("pause") is False
