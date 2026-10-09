@@ -431,18 +431,40 @@ class TestVlcReady:
         proc._ready()
         assert proc._ready_seen is True
 
-    def test_startup_chatter_is_kept_for_the_first_command(self):
+    def test_startup_chatter_is_discarded_so_it_is_not_mistaken_for_a_reply(self):
         """
-        Everything read while starting is queued, so the control path has the
-        banner and prompt available when the first command arrives rather than
-        waiting for the next thing the player says.
+        Reversed deliberately. The banner and version line used to be queued so
+        the first command would have context, but the interface says nothing
+        until spoken to -- so the first control action came back reporting a ten
+        second old startup banner as its own answer:
+
+            VLC CLI: pause -> VLC media player 3.0.23 Vetinari /
+            Command Line Interface initialized. Type 'help'
+
+        which reads like a failure and is just staleness. Readiness discards
+        everything read on the way past.
+        """
+        proc = self._lines(
+            _running(),
+            "VLC media player 3.0.23 Vetinari",
+            "Command Line Interface initialized. Type 'help' for help.",
+        )
+        proc._ready()
+        assert proc._replies.empty()
+
+    def test_the_line_observer_follows_the_fresh_queue(self):
+        """
+        The copier installs on_output_line, so resetting the queue has to rebind
+        it. Miss that and every reply from a started player is written to a queue
+        nobody reads -- which is the same silence, one layer further in.
         """
         proc = self._lines(
             _running(),
             "Command Line Interface initialized. Type 'help' for help.",
         )
         proc._ready()
-        assert "Command Line Interface initialized" in proc._replies.get_nowait()
+        proc.on_output_line("( state playing )")
+        assert proc._replies.get_nowait() == "( state playing )"
 
     def test_banner_that_never_arrives_times_out(self):
         proc = _running({"start_timeout": 0.05})

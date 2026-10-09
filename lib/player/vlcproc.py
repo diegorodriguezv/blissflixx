@@ -128,10 +128,17 @@ class VlcProcess(PlayerBackend):
         self.stdin_pipe = True
         self._ready_seen = False
         self._startup_errors = []
-        self._replies = Queue()
         # Once the stage is running, the copier feeds every line the player
         # writes -- replies and log output alike -- through here. During startup
         # there is no copier yet and _ready() reads stdout itself.
+        #
+        # _ready() swaps this for a fresh queue once it has what it was waiting
+        # for, so on_output_line has to be rebound with it rather than holding
+        # the old queue's put.
+        self._reset_replies()
+
+    def _reset_replies(self):
+        self._replies = Queue()
         self.on_output_line = self._replies.put
         # The cli interface has no volume query, so it is tracked from the last
         # set point. VLC treats 256 of 512 as its default level.
@@ -177,8 +184,10 @@ class VlcProcess(PlayerBackend):
         better one than a path check: it is the control surface saying it is
         live, rather than a file being assumed to mean so.
 
-        Lines are also queued on the way past, so the control path has the
-        startup chatter available when the first command arrives.
+        The lines read on the way are discarded once readiness is established.
+        They were queued for the first command to have context, but the interface
+        does not speak until spoken to, so a ten second old banner came back as
+        the answer to whatever was sent first.
         """
         deadline = time.time() + self.start_timeout
         while time.time() < deadline:
@@ -193,6 +202,12 @@ class VlcProcess(PlayerBackend):
             self._replies.put(line)
             if _CLI_READY_MARKER in line:
                 self._ready_seen = True
+                # Drop everything read while starting. The banner and the
+                # version line were queued so the first command would have
+                # context, but the interface is quiet until it is spoken to, so
+                # they just sat there: the first control action came back
+                # reporting the startup banner as if it were its own answer.
+                self._reset_replies()
                 return
             if any(marker in line for marker in _ERROR_MARKERS):
                 # Defer this one. The interface reads its next command from
