@@ -31,6 +31,10 @@ _COPY_DRAIN_TIMEOUT = 5
 #: makes the stop notification unconditional, which is the whole property the
 #: loop depends on to make progress.
 _STOP_JOIN_TIMEOUT = 5
+#: Seconds to wait for a spawned process to exit after its stage has finished
+#: with it. Only reached when _ready() has already failed, so the process has
+#: already had its chance to exit on its own.
+_EXIT_WAIT_TIMEOUT = 5
 
 
 def _start_thread(target, *args):
@@ -369,7 +373,21 @@ class ExternalProcess(Process):
         # to say beyond "it stopped".
         tail = _LineTail()
         copier = _bgcopypipe(self.proc.stdout, tail)
-        self.proc.wait()
+        # Bounded, because a process that cannot be waited for would otherwise
+        # hold this stage open forever. A VLC that never reports ready -- no rc
+        # module, so the socket never appears -- carries on retrying its audio
+        # output indefinitely, and this wait is what never returned: the stage
+        # never halted, the pipe never stopped, and the player sat at
+        # ST_STARTING for good. Waiting is only reached once _ready() has already
+        # failed, so the process has had its chance to finish and say why; the
+        # timeout is the backstop, not the normal path. Killing it here rather
+        # than at the failure keeps whatever it printed before it stalled.
+        try:
+            self.proc.wait(timeout=_EXIT_WAIT_TIMEOUT)
+        except subprocess.TimeoutExpired:
+            cherrypy.log("PROCESS DID NOT EXIT: " + self.name())
+            self.stop()
+            self.proc.wait()
         self.proc = None
         # The copier finishes when stdout reaches EOF, which the exit just
         # caused. Joining it matters: reading tail before it has drained is a

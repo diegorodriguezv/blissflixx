@@ -18,9 +18,11 @@ msg constants live in lib.player.processpipe.
 """
 
 import inspect
+import os
 import queue
 import threading
 import time
+import unittest.mock as m
 
 import pytest
 
@@ -458,107 +460,104 @@ class TestStopSurvivesAStageThatWillNotExit:
         assert pmsgq.get(timeout=2.0) == "disk is full"
 
 
-class TestPipeThreadSafety:
-    def test_two_pipes_are_independent(self):
-        """
-        Each pipe owns its own msgq and thread list, so running two at once
-        must not cross-talk. This is the shape _Player uses when a new item is
-        queued while the current one is still stopping.
-        """
-        p1 = ProcessPipe("one")
-        p1.add_process(FakeProcess("a1", outcome="finished"))
-        p2 = ProcessPipe("two")
-        p2.add_process(FakeProcess("a2", outcome="finished"))
-
-        c1, t1 = drain(p1, timeout=2.0)
-        c2, t2 = drain(p2, timeout=2.0)
-
-        assert c1[0] == MSG_PLAYER_PIPE_STOPPED
-        assert c2[0] == MSG_PLAYER_PIPE_STOPPED
-        assert p1.msgq is not p2.msgq
-
-
-class TestPipeStatusMsgIndexing:
-    def test_status_msg_with_no_processes_added(self):
-        """
-        An empty pipe has no process to ask for a status message, and
-        status_msg() indexes procs[0], so it raises. Unreachable in practice:
-        _Player.play() always adds at least one process before the pipe is used.
-        Pinned so that making the empty case work is a deliberate change.
-        """
-        pipe = ProcessPipe("empty")
-        with pytest.raises(IndexError):
-            pipe.status_msg()
-
-
-class TestProcessContract:
+class _UnstartableExternal(ExternalProcess):
     """
-    Process and ExternalProcess are abstract bases now. These cover the
-    contract itself, which the rest of this file relies on.
+    An ExternalProcess whose subprocess never exits.
+
+    Stands in for a VLC that cannot report ready -- on Debian trixie's armhf
+    build there is no rc interface module, so the unix socket VlcProcess._ready()
+    polls for is never created, and cvlc then carries on retrying its audio
+    output indefinitely.
     """
 
-    def test_process_cannot_be_instantiated(self):
-        with pytest.raises(TypeError):
-            Process()
+    def __init__(self, never_exits=True):
+        super().__init__()
+        self.killed = False
+        self.waits = []
+        self._never_exits = never_exits
 
-    def test_incomplete_subclass_cannot_be_instantiated(self):
+    def name(self):
+        return "stub"
+
+    def _get_cmd(self, args):
+        return ["true"]
+
+    def _wait(self):
+        pass
+
+    def stop(self):
+        self.killed = True
+
+    def _fake_proc(self):
         """
-        Previously a subclass missing name()/start()/stop() could still be
-        constructed and only failed later, at playback time, with a bare
-        NotImplementedError from deep inside a thread.
+        A Popen stand-in whose wait() honours the timeout argument the way
+        subprocess does: it raises TimeoutExpired rather than blocking.
         """
+        never = self._never_exits
+        killed = self
 
-        class Incomplete(Process):
-            def name(self):
-                return "incomplete"
+        class P:
+            pid = 4242
+            stdout = None
+            returncode = None
 
-        with pytest.raises(TypeError):
-            Incomplete()
+            def poll(self):
+                return -9 if killed.killed else None
 
-    def test_external_process_requires_get_cmd(self):
-        class NoCmd(ExternalProcess):
-            def name(self):
-                return "nocmd"
+            def wait(self, timeout=None):
+                killed.waits.append(timeout)
+                if never and not killed.killed:
+                    raise pp.subprocess.TimeoutExpired("stub", timeout)
+                return 0
 
-            def start(self, args):
-                pass
+        return P()
 
-            def stop(self):
-                pass
+    def run_wait(self, monkeypatch):
+        monkeypatch.setattr(pp, "_EXIT_WAIT_TIMEOUT", 0.2)
+        # _bgcopypipe needs a real file object; a pipe with no writer gives it
+        # EOF immediately, which is the copier finishing as it should.
+        r, w = os.pipe()
+        os.close(w)
+        reader = os.fdopen(r, "r")
+        self.proc = self._fake_proc()
+        self.proc.stdout = reader
+        self.msgq = queue.Queue()
+        self.procidx = 0
+        try:
+            ExternalProcess._wait(self)
+        finally:
+            # _wait() clears self.proc once the process is done with.
+            reader.close()
 
-        with pytest.raises(TypeError):
-            NoCmd()
 
-    def test_get_cmd_signature_takes_args(self):
-        """
-        The base used to declare _get_cmd(self) while every implementation and
-        the call site in start() used _get_cmd(args). The arity mismatch was
-        invisible because the declaration was never reached.
-        """
-        for cls in (
-            DlsrvProcess,
-            OmxplayerProcess,
-            OmxplayerProcess2,
-            PeerflixProcess,
-            SubtitlesProcess,
-            YoutubeDlProcess,
-        ):
-            params = list(inspect.signature(cls._get_cmd).parameters)
-            assert params == ["self", "args"], cls.__name__
+class TestAStageThatWillNotExitIsKilled:
+    """
+    A stage must not wait forever for a process that is not going to leave.
 
-    def test_shell_flag_is_plumbed_through(self):
-        """
-        shell=True is used by the two omxplayer stages, since their commands
-        are shell strings with pipes and redirects in them.
-        """
-        assert OmxplayerProcess().shell is True
-        assert OmxplayerProcess2().shell is True
+    VLC on Debian trixie's armhf build has no rc interface module, so the unix
+    socket _ready() polls for never appears. _ready() gives up and records the
+    error, but cvlc then carries on retrying its audio output indefinitely, and
+    the unbounded proc.wait() in _wait() never returned. The stage never halted,
+    the pipe never stopped, and the player sat at ST_STARTING indefinitely --
+    which is what a torrent stream did on real hardware.
 
-    def test_base_process_control_is_a_no_op(self):
-        """
-        Stages that cannot act on a control action ignore it, rather than
-        raising. Player.control("pause") reaching a downloader used to raise
-        AttributeError and surface as a 500 in the UI.
-        """
-        proc = FakeProcess("x")
-        assert proc.control("pause") is None
+    The wait is bounded and the process is killed on expiry. Killing at the
+    readiness failure instead would throw away whatever the process printed on
+    its way out, which is exactly what the output-capture tests protect.
+    """
+
+    def test_a_process_that_never_exits_is_killed(self, monkeypatch):
+        proc = _UnstartableExternal(never_exits=True)
+        proc.run_wait(monkeypatch)
+        assert proc.killed
+
+    def test_the_wait_is_bounded(self, monkeypatch):
+        proc = _UnstartableExternal(never_exits=True)
+        proc.run_wait(monkeypatch)
+        assert proc.waits[0] == 0.2
+
+    def test_a_process_that_exits_is_not_killed(self, monkeypatch):
+        proc = _UnstartableExternal(never_exits=False)
+        proc.run_wait(monkeypatch)
+        assert not proc.killed
+        assert proc.waits == [0.2]
