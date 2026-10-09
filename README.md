@@ -185,6 +185,79 @@ The settings page currently contains two options. The first - MANAGE CHANNELS - 
 
 The second option - RESTART & UPDATE - will restart and also update the server to the latest release. If you come across any problems make sure you first update the server to the latest version to check if the issue has already been fixed.
 
+# Player backends
+
+Playback used to go through omxplayer, which no longer runs on current Raspberry
+Pi OS. There are now five backends; omxplayer remains the default so an existing
+install is unaffected.
+
+| Backend name | Player | Control | Subtitles | Audio tracks |
+|---|---|---|---|---|
+| `omxplayer` | omxplayer | dbus, pause only | yes | no |
+| `omxplayer-keys` | omxplayer.bin | FIFO keystrokes | yes | yes |
+| `vlc` | cvlc | rc interface | yes | no |
+| `mpv` | mpv | JSON IPC | yes | yes |
+| `gstreamer` | gst-launch-1.0 | none | no | no |
+
+`gstreamer` has no control surface at all: `gst-launch` is a one-shot pipeline
+runner with no IPC, so it cannot be paused, seeked or adjusted. Stopping still
+works, because the player SIGKILLs the process group. It is the most efficient
+by CPU and the least capable.
+
+`vlc` is the recommended player on current Raspberry Pi OS. It decodes H.264 in
+hardware, sends audio to HDMI and burns in subtitles, without the expensive
+GStreamer compositing path.
+
+## Choosing a backend
+
+Which backend is active is a plain JSON file, `data/settings/player`:
+
+```json
+{"backend": "vlc"}
+```
+
+Delete the file, or leave it out, to go back to the omxplayer default. The
+choice is read on each `play`, so it takes effect from the next item onwards
+rather than needing a restart.
+
+## Configuring a backend
+
+Each backend's settings live in `data/settings/player-<backend name>`, and only
+need to contain what differs from the built-in defaults. This is where the parts
+that vary between machines go: an ALSA card name, a KMS plane id.
+
+```json
+{"audio_device": "alsa/hdmi:CARD=hdmi_zero,DEV=0"}
+```
+
+A Pi 4 uses `CARD=vc4hdmi`, a Pi 5 uses `CARD=hdmi_zero`. Because the file is
+per backend, the same checkout can hold a Pi 4 profile and a Pi 5 profile at once
+by registering the second under another name.
+
+The full set of keys, and their defaults, is each backend's `defaults` dict:
+
+| Backend | Keys |
+|---|---|
+| `vlc` | `binary`, `extra_args`, `audio_device`, `video_output`, `video_output_module`, `subtitle_text_scale`, `rc_socket`, `start_timeout`, `volume_step`, `volume_max` |
+| `mpv` | `binary`, `extra_args`, `audio_device`, `socket`, `start_timeout` |
+| `gstreamer` | `binary`, `pipeline`, `http_source`, `plane_id`, `connector_id`, `audio_device`, `video_decoder`, `audio_decoder`, `start_timeout` |
+| `omxplayer` | `binary`, `extra_args`, `start_timeout`, `input_timeout`, `dbus_path` |
+| `omxplayer-keys` | `binary`, `extra_args`, `start_timeout`, `fifo` |
+
+`extra_args` replaces the built-in flag list rather than adding to it, so a flag
+the backend always passes can be removed by naming the list without it.
+
+A key the backend does not recognise is logged and ignored, so a settings file
+written for a different version stays usable.
+
+## What still needs the Pi
+
+The command for each backend, its readiness handling and its control commands
+are all covered by the test suite on a development machine. What cannot be is
+whether the video actually appears: `kmssink`, `drm_vout` and `v4l2h264dec` need
+the Pi's kernel and hardware. `gst-launch` in particular cannot express a path
+containing a space, and says so rather than failing obscurely.
+
 # Help
 
 If you find a bug or want to ask a question please use the [github issues page](https://github.com/blissland/blissflixx/issues).

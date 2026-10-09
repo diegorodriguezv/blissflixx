@@ -14,6 +14,7 @@ at playback time, on hardware, as an empty command or an unhandled action.
 """
 
 import json
+import pathlib
 import unittest.mock as m
 
 import pytest
@@ -363,3 +364,77 @@ class TestPauseCapabilityIsAlwaysAvailable:
     def test_backend_declaring_pause_has_the_property(self, name):
         if get_backend(name).declares(CAP_PAUSE):
             assert callable(get_backend(name).control)
+
+
+class TestReadmeMatchesTheCode:
+    """
+    The README documents each backend's settings keys so the format is
+    discoverable. Documentation that has drifted from the code is worse than
+    none, so the table is checked against defaults.
+    """
+
+    DOCUMENTED = {
+        "vlc": {
+            "binary",
+            "extra_args",
+            "audio_device",
+            "video_output",
+            "video_output_module",
+            "subtitle_text_scale",
+            "rc_socket",
+            "start_timeout",
+            "volume_step",
+            "volume_max",
+        },
+        "mpv": {"binary", "extra_args", "audio_device", "socket", "start_timeout"},
+        "gstreamer": {
+            "binary",
+            "pipeline",
+            "http_source",
+            "plane_id",
+            "connector_id",
+            "audio_device",
+            "video_decoder",
+            "audio_decoder",
+            "start_timeout",
+        },
+        "omxplayer": {
+            "binary",
+            "extra_args",
+            "start_timeout",
+            "input_timeout",
+            "dbus_path",
+        },
+        "omxplayer-keys": {"binary", "extra_args", "start_timeout", "fifo"},
+    }
+
+    @staticmethod
+    def readme():
+        return (pathlib.Path(__file__).resolve().parents[1] / "README.md").read_text()
+
+    def test_every_backend_is_documented(self):
+        assert set(self.DOCUMENTED) == set(ALL_NAMES)
+
+    @pytest.mark.parametrize("name", ALL_NAMES)
+    def test_documented_keys_are_the_real_keys(self, name):
+        assert self.DOCUMENTED[name] == set(backend_class(name).defaults), name
+
+    @pytest.mark.parametrize("name", ALL_NAMES)
+    def test_documented_keys_appear_in_the_readme(self, name):
+        """
+        Checked against the actual table text, so renaming a key without editing
+        the prose fails rather than passing on the dict comparison alone.
+        """
+        readme = self.readme()
+        missing = [k for k in sorted(backend_class(name).defaults) if k not in readme]
+        assert missing == [], (name, missing)
+
+    def test_the_backend_table_lists_every_name(self):
+        readme = self.readme()
+        for name in ALL_NAMES:
+            assert "`" + name + "`" in readme, name
+
+    def test_capability_free_backend_is_called_out(self):
+        """The README has to warn, since the UI does not hide the buttons yet."""
+        readme = self.readme().lower()
+        assert "no control surface" in readme
