@@ -4,7 +4,7 @@ import cherrypy
 
 from ..settings import load
 from . import ythelper
-from .backends import DEFAULT_BACKEND, get_backend
+from .backends import DEFAULT_BACKEND, LEGACY_BACKEND, get_backend
 from .dlsrvproc import DlsrvProcess
 from .localproc import LocalFileProcess
 from .omxproc import OmxplayerProcess
@@ -98,17 +98,25 @@ class _Player:
         """
         Return the backend stage for a pipeline.
 
-        A backend named in settings wins. Otherwise the historical choice is
-        kept exactly: two omxplayer variants picked by whether the media still
-        needs serving and whether keys are needed, which is what the http and
-        dlsrv flags have always meant.
+        A backend named in settings wins, defaulting to DEFAULT_BACKEND. The
+        pseudo-name "legacy" selects the pre-abstraction behaviour instead, where
+        the http and dlsrv flags pick between the two omxplayer variants, which
+        is what this did before backends could be chosen by name.
         """
         configured = load("player").get("backend", DEFAULT_BACKEND)
-        if configured:
-            return get_backend(configured)
-        return self._legacy_backend(http, dlsrv)
+        if configured == LEGACY_BACKEND:
+            return self._legacy_backend(http, dlsrv)
+        return get_backend(configured)
 
     def _legacy_backend(self, http, dlsrv):
+        """
+        The pre-abstraction choice, kept reachable under the name "legacy".
+
+        Whether the media still needs serving, and whether keys are needed, have
+        always decided between the two omxplayer variants. That is a choice about
+        control transport rather than about which player runs, which is why a
+        backend can now be named directly instead.
+        """
         if not http:
             if dlsrv:
                 return OmxplayerProcess2()

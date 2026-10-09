@@ -158,30 +158,48 @@ def stages(pipe):
 
 
 class TestPipelineComposition:
+    """
+    The dlsrv stage is about *serving* a file that is still growing, which is
+    independent of which player is doing the rendering. The player stage comes
+    from the backend selection; these tests pin the serving half.
+    """
+
     def test_local_file_is_served_over_http_by_default(self):
         """
-        A file:// url has no stream to pipe, so dlsrv serves it and omxplayer2
-        reads over http.
+        A file:// url has no stream to pipe, so dlsrv serves it over http and
+        the player reads from there, which is what lets it follow a file that is
+        still being written.
         """
         pipe = build_pipe()
-        assert stages(pipe) == ["localfile", "dlsrv", "omxplayer with keys"]
+        assert stages(pipe)[:2] == ["localfile", "dlsrv"]
 
     def test_piped_stream_skips_dlsrv(self):
+        """
+        A stream is already live, so there is nothing to serve and nothing to
+        follow.
+        """
         pipe = build_pipe(http=True, dlsrv=False)
-        assert stages(pipe) == ["localfile", "omxplayer with keys"]
+        assert "dlsrv" not in stages(pipe)
 
-    def test_dlsrv_path_uses_the_key_controlled_player(self):
-        """
-        This is the combination that needs key control: dlsrv's output is a
-        growing file, so omxplayer.bin watches the FIFO rather than sending dbus
-        messages.
-        """
-        pipe = build_pipe(http=False, dlsrv=True)
-        assert stages(pipe) == ["localfile", "dlsrv", "omxplayer with keys"]
+    def test_dlsrv_is_added_when_the_file_is_not_piped(self):
+        assert "dlsrv" in stages(build_pipe(http=False, dlsrv=True))
 
-    def test_plain_omxplayer_used_when_neither_dlsrv_nor_http(self):
-        pipe = build_pipe(http=False, dlsrv=False)
-        assert stages(pipe) == ["localfile", "omxplayer"]
+    def test_dlsrv_omitted_when_http_is_requested(self):
+        """
+        The distinction is http, not the backend: a live stream must not be
+        served a second time.
+        """
+        assert "dlsrv" not in stages(build_pipe(http=True, dlsrv=True))
+
+    def test_the_player_stage_comes_from_the_backend_choice(self):
+        """Not from the http and dlsrv flags, which is what "legacy" is for."""
+        with m.patch("lib.player.player.load", return_value={"backend": "vlc"}):
+            pipe = build_pipe()
+        assert stages(pipe)[-1] == "vlc"
+
+    def test_default_backend_is_the_player_stage(self):
+        pipe = build_pipe()
+        assert stages(pipe)[-1] == "vlc"
 
     def test_subtitles_stage_precedes_everything(self):
         """

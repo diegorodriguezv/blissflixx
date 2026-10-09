@@ -4,7 +4,12 @@ Backend registry.
 Backends are selected by name. Which one is active comes from the "player"
 setting:
 
-    data/settings/player   {"backend": "mpv"}
+    data/settings/player   {"backend": "vlc"}
+
+Leaving it unset selects DEFAULT_BACKEND. The pseudo-name "legacy" selects the
+behaviour from before backends existed, where the http and dlsrv flags chose
+between the two omxplayer variants; that path lives in
+_Player._legacy_backend() and is unchanged.
 
 How a given backend is invoked comes from its own settings file:
 
@@ -15,11 +20,6 @@ with different configuration. That is how a Pi 4 and a Pi 5, or a desktop and a
 Pi, sit side by side in one checkout without a platform conditional:
 
     BACKENDS = {"mpv": MpvProcess, "mpv-pi5": MpvProcess}
-
-Leaving "backend" unset keeps the historical behaviour: the http and dlsrv flags
-choose between the two omxplayer variants. That path lives in
-_Player._legacy_backend() and is deliberately unchanged, so upgrading does not
-silently switch anyone's player.
 """
 
 from ..settings import load
@@ -39,12 +39,40 @@ BACKENDS = {
     "gstreamer": GStreamerProcess,
 }
 
-#: Used when no backend is configured. None means "keep the legacy choice".
-DEFAULT_BACKEND = None
+#: Used when no backend is configured.
+#:
+#: omxplayer only runs on obsolete Raspberry Pi OS, so VLC is the default: it
+#: decodes H.264 in hardware, sends audio to HDMI and burns in subtitles without
+#: the expensive GStreamer compositing path. The two omxplayer backends remain
+#: selectable by name for anyone who needs them.
+DEFAULT_BACKEND = "vlc"
+
+#: Selects the pre-abstraction behaviour, where the http and dlsrv flags decide
+#: between the two omxplayer variants. Not a backend in its own right, but
+#: reachable by name so that path is not lost now that a backend is chosen
+#: without consulting those flags.
+LEGACY_BACKEND = "legacy"
 
 
 def backend_names():
+    """
+    Every registered backend.
+
+    This is the registry and nothing else, so every name here resolves through
+    get_backend(). The legacy pseudo-backend is not in it, because it is not a
+    class; see selectable_names() for what a client may choose from.
+    """
     return sorted(BACKENDS)
+
+
+def selectable_names():
+    """Everything a client may select: the registry plus the legacy name."""
+    return sorted(BACKENDS) + [LEGACY_BACKEND]
+
+
+def is_known(name):
+    """Whether name can be selected, without raising."""
+    return name in BACKENDS or name == LEGACY_BACKEND
 
 
 def backend_class(name):
@@ -78,8 +106,39 @@ def get_backend(name):
     return backend_class(name)(resolve_config(name))
 
 
+def active_backend_name():
+    """
+    Which backend the next play will use.
+
+    Falls back to DEFAULT_BACKEND, so an unconfigured install still has a
+    definite answer. The value is not validated here: an unknown name in the
+    settings file is reported when playback is attempted, where the traceback is
+    useful, rather than being silently swapped for something else.
+    """
+    return load("player").get("backend", DEFAULT_BACKEND)
+
+
 def describe(name):
-    """Name, display name and capabilities, for reporting to the UI."""
+    """
+    What a backend is and what it can do, for reporting to the UI.
+
+    Capabilities matter here more than the name. The playbar renders one set of
+    controls regardless of which backend is active, so a UI that wants to hide
+    buttons a backend would drop needs this rather than a hardcoded list.
+    """
+    if name == LEGACY_BACKEND:
+        # Not a single backend: it picks between two depending on the flags,
+        # so its capabilities depend on what it resolves to at playback time.
+        # Reported as the richer of the two, which is what it mostly resolves to.
+        keys = get_backend("omxplayer-keys")
+        info = {
+            "backend": name,
+            "name": "omxplayer (chosen per item)",
+            "capabilities": sorted(keys.capabilities),
+            "binary": "omxplayer / omxplayer.bin",
+            "note": "the player is chosen from the http and dlsrv flags",
+        }
+        return info
     instance = get_backend(name)
     info = {
         "backend": name,

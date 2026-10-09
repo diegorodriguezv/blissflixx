@@ -22,6 +22,7 @@ import pytest
 from lib.player.backend import ALL_CAPABILITIES, CAP_PAUSE, PlayerBackend
 from lib.player.backends import (
     BACKENDS,
+    LEGACY_BACKEND,
     backend_class,
     backend_names,
     describe,
@@ -42,6 +43,11 @@ class TestRegistryShape:
 
     def test_names_are_unique_and_sorted(self):
         assert backend_names() == sorted(set(backend_names()))
+
+    def test_every_registered_name_resolves(self):
+        """backend_names() is the registry, so all of it must be gettable."""
+        for name in backend_names():
+            assert get_backend(name) is not None
 
     def test_every_name_resolves(self):
         for name in ALL_NAMES:
@@ -276,17 +282,56 @@ class TestDescribeIsSerialisable:
         assert "note" in describe("gstreamer")
 
 
+class TestDefaultBackend:
+    """
+    VLC is the default because omxplayer no longer runs on current Raspberry Pi
+    OS. VLC decodes H.264 in hardware, sends audio to HDMI and burns in
+    subtitles without the expensive GStreamer compositing path.
+    """
+
+    def test_vlc_is_the_default(self):
+        from lib.player.backends import DEFAULT_BACKEND
+
+        assert DEFAULT_BACKEND == "vlc"
+
+    def test_default_is_a_real_backend(self):
+        """Not the legacy pseudo-name, which resolves to nothing by itself."""
+        from lib.player.backends import DEFAULT_BACKEND, is_known
+
+        assert is_known(DEFAULT_BACKEND)
+        assert get_backend(DEFAULT_BACKEND) is not None
+
+    def test_unconfigured_install_gets_the_default(self, settings):
+        pl = _Player()
+        with m.patch("lib.player.player.load", return_value={}):
+            from lib.player.vlcproc import VlcProcess
+
+            assert isinstance(pl._player_stage(True, True), VlcProcess)
+            assert isinstance(pl._player_stage(False, False), VlcProcess)
+
+    def test_omxplayer_is_still_selectable_by_name(self, settings):
+        """
+        Deprecated as a default does not mean removed. Anyone still on the old
+        OS can name it explicitly.
+        """
+        from lib.player.omxproc import OmxplayerProcess
+
+        pl = _Player()
+        with m.patch("lib.player.player.load", return_value={"backend": "omxplayer"}):
+            assert isinstance(pl._player_stage(True, True), OmxplayerProcess)
+
+
 class TestLegacyBehaviourPreserved:
     """
-    The registry exists alongside the pre-abstraction behaviour, not instead of
-    it. An unconfigured box must get exactly what it got before.
+    The pre-abstraction choice is still reachable, under the name "legacy", now
+    that a default no longer falls through to it.
     """
 
     @pytest.mark.parametrize(
         "flags",
         [(False, False), (False, True), (True, False), (True, True)],
     )
-    def test_unconfigured_uses_the_historical_choice(self, settings, flags):
+    def test_legacy_name_uses_the_historical_choice(self, settings, flags):
         """
         Compared by class rather than by name: name() is a display name, so
         omxplayer-keys displays as "omxplayer with keys".
@@ -296,27 +341,44 @@ class TestLegacyBehaviourPreserved:
 
         http, dlsrv = flags
         pl = _Player()
-        with m.patch("lib.player.player.load", return_value={}):
+        with m.patch(
+            "lib.player.player.load", return_value={"backend": LEGACY_BACKEND}
+        ):
             stage = pl._player_stage(http, dlsrv)
         # Keys or not: only the plain dbus variant takes this path.
         expected = OmxplayerProcess2 if (http or dlsrv) else OmxplayerProcess
         assert isinstance(stage, expected)
 
-    def test_legacy_choice_does_not_depend_on_the_registry(self, settings):
+    def test_legacy_choice_does_not_consult_the_registry(self, settings):
         """
         The legacy path constructs the classes directly. Guarding that it does
-        not route through the registry keeps an unconfigured box independent of
-        whatever happens to be registered.
+        not route through get_backend keeps it independent of whatever happens
+        to be registered.
         """
         from lib.player.omxproc import OmxplayerProcess
 
         pl = _Player()
-        with m.patch("lib.player.player.load", return_value={}):
+        with m.patch(
+            "lib.player.player.load", return_value={"backend": LEGACY_BACKEND}
+        ):
             with m.patch(
                 "lib.player.backends.get_backend",
-                side_effect=AssertionError("legacy path must not consult the registry"),
+                side_effect=AssertionError("legacy must not consult the registry"),
             ):
                 assert isinstance(pl._player_stage(False, False), OmxplayerProcess)
+
+    def test_legacy_is_selectable_but_is_not_in_the_registry(self):
+        """
+        It is a pseudo-backend: selectable, but there is no class behind it, so
+        get_backend cannot resolve it and describe handles it instead.
+        """
+        from lib.player.backends import BACKENDS, is_known, selectable_names
+
+        assert is_known(LEGACY_BACKEND)
+        assert LEGACY_BACKEND not in BACKENDS
+        assert LEGACY_BACKEND in selectable_names()
+        with pytest.raises(KeyError):
+            get_backend(LEGACY_BACKEND)
 
     def test_configured_backend_overrides_the_flags(self, settings):
         pl = _Player()

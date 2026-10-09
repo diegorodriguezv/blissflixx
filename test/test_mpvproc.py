@@ -31,6 +31,7 @@ from lib.player.backend import (
 from lib.player.backends import (
     BACKENDS,
     DEFAULT_BACKEND,
+    LEGACY_BACKEND,
     backend_names,
     describe,
     get_backend,
@@ -372,6 +373,17 @@ class TestRegistry:
         names = backend_names()
         assert names == sorted(names)
 
+    def test_backend_names_is_the_registry_only(self):
+        """
+        selectable_names() adds the legacy pseudo-backend; backend_names() must
+        stay the registry, because every name in it has to resolve through
+        get_backend().
+        """
+        from lib.player.backends import selectable_names
+
+        assert set(backend_names()) < set(selectable_names())
+        assert LEGACY_BACKEND not in backend_names()
+
     def test_every_registered_backend_is_reachable_by_name(self):
         for name in backend_names():
             assert get_backend(name) is not None
@@ -389,12 +401,13 @@ class TestRegistry:
         with pytest.raises(KeyError):
             get_backend("vlc-ish")
 
-    def test_no_default_configured(self):
+    def test_default_backend_is_vlc(self):
         """
-        DEFAULT_BACKEND being None is what preserves pre-existing installs: an
-        unconfigured box keeps the old http/dlsrv behaviour.
+        omxplayer only runs on obsolete Raspberry Pi OS. VLC is the replacement
+        default; the omxplayer backends remain selectable by name.
         """
-        assert DEFAULT_BACKEND is None
+        assert DEFAULT_BACKEND == "vlc"
+        assert DEFAULT_BACKEND in BACKENDS
 
     def test_describe_reports_name_and_capabilities(self):
         info = describe("mpv")
@@ -422,12 +435,21 @@ class TestBackendSelection:
 
     @pytest.mark.parametrize("http", [False, True])
     @pytest.mark.parametrize("dlsrv", [False, True])
-    def test_unconfigured_matches_the_historical_choice(self, http, dlsrv):
+    def test_unconfigured_uses_the_default_backend(self, http, dlsrv):
         """
-        Before backends existed, the two flags picked one of two omxplayer
-        variants. Unconfigured behaviour must not change.
+        No settings file means the default, which is VLC regardless of the
+        flags: those decide about serving, not about which player runs.
         """
-        stage = self._stage(http, dlsrv)
+        assert self._stage(http, dlsrv).name() == "vlc"
+
+    @pytest.mark.parametrize("http", [False, True])
+    @pytest.mark.parametrize("dlsrv", [False, True])
+    def test_legacy_name_matches_the_historical_choice(self, http, dlsrv):
+        """
+        The pre-abstraction behaviour, still reachable by name: the two flags
+        picked one of two omxplayer variants.
+        """
+        stage = self._stage(http, dlsrv, backend=LEGACY_BACKEND)
         expected = (
             OmxplayerProcess2() if (http or dlsrv) else OmxplayerProcess()
         ).name()

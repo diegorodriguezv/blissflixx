@@ -23,6 +23,7 @@ from lib.player.backend import PlayerBackend
 from lib.player.backends import (
     BACKENDS,
     DEFAULT_BACKEND,
+    LEGACY_BACKEND,
     backend_class,
     backend_names,
     describe,
@@ -208,12 +209,14 @@ class TestRegistryInvariants:
         with pytest.raises(KeyError):
             get_backend("vlc-ish")
 
-    def test_no_default_backend_is_configured(self):
+    def test_default_backend_is_configured(self):
         """
-        DEFAULT_BACKEND being None is what preserves existing installs: an
-        unconfigured box keeps the old http/dlsrv behaviour.
+        Not None any more. omxplayer no longer runs on current Raspberry Pi OS,
+        so an unconfigured install resolves to a real backend rather than falling
+        through to the legacy omxplayer choice.
         """
-        assert DEFAULT_BACKEND is None
+        assert DEFAULT_BACKEND is not None
+        assert DEFAULT_BACKEND != LEGACY_BACKEND
 
     def test_describe_reports_what_will_run(self):
         info = describe("mpv")

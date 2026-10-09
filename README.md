@@ -188,8 +188,8 @@ The second option - RESTART & UPDATE - will restart and also update the server t
 # Player backends
 
 Playback used to go through omxplayer, which no longer runs on current Raspberry
-Pi OS. There are now five backends; omxplayer remains the default so an existing
-install is unaffected.
+Pi OS. VLC is now the default. The omxplayer backends remain selectable by name
+for anyone still on the old OS.
 
 | Backend name | Player | Control | Subtitles | Audio tracks |
 |---|---|---|---|---|
@@ -204,9 +204,9 @@ runner with no IPC, so it cannot be paused, seeked or adjusted. Stopping still
 works, because the player SIGKILLs the process group. It is the most efficient
 by CPU and the least capable.
 
-`vlc` is the recommended player on current Raspberry Pi OS. It decodes H.264 in
-hardware, sends audio to HDMI and burns in subtitles, without the expensive
-GStreamer compositing path.
+`vlc` is the recommended player on current Raspberry Pi OS, and the default. It
+decodes H.264 in hardware, sends audio to HDMI and burns in subtitles, without
+the expensive GStreamer compositing path.
 
 ## Choosing a backend
 
@@ -216,9 +216,31 @@ Which backend is active is a plain JSON file, `data/settings/player`:
 {"backend": "vlc"}
 ```
 
-Delete the file, or leave it out, to go back to the omxplayer default. The
-choice is read on each `play`, so it takes effect from the next item onwards
-rather than needing a restart.
+Delete the file, or leave it out, and the default is used. The choice is read on
+each `play`, so it takes effect from the next item onwards rather than needing a
+restart.
+
+It can also be changed over the API, which writes the same file:
+
+```
+/api/playr?fn=backends                            # every backend, with the active one marked
+/api/playr?fn=backend                             # just the active one
+/api/playr?fn=backend&data={"name":"mpv"}        # describe one without selecting it
+/api/playr?fn=set_backend&data={"name":"mpv"}     # select one
+```
+
+`backends` reports each backend's capabilities. That matters because the playbar
+renders one fixed set of controls whatever is playing: with `gstreamer` active,
+`capabilities` is empty and a `note` says so, so a client can hide the buttons
+that would be dropped rather than offering controls that do nothing.
+
+The special name `legacy` selects the behaviour from before backends existed,
+where the http and dlsrv flags chose between the two omxplayer variants. It is
+reported with a note saying so, because its capabilities depend on those flags
+rather than being fixed.
+
+Switching does not disturb what is already playing: the current item keeps the
+backend it started with.
 
 ## Configuring a backend
 
