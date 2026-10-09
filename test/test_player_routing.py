@@ -17,6 +17,8 @@ dbus accepts the call, and whether the picture appears. Everything up to the
 handover is covered.
 """
 
+import queue
+import threading
 import unittest.mock as m
 import urllib.parse
 
@@ -311,6 +313,112 @@ class TestControlRouting:
         with m.patch.object(player_module._Player, "control") as control:
             playr.control(action="pause")
         control.assert_called_once_with("pause")
+
+
+class TestPlayDoesNotBlockTheCaller:
+    """
+    play() is called from CherryPy request threads, so it must fail rather than
+    wait forever when the loop is not draining messages.
+
+    The queue used to hold exactly two messages and a play costs exactly two, so
+    one stalled play filled it and the next call blocked inside the request
+    thread. That is how a wedged player took the web server with it.
+    """
+
+    def _stalled_player(self):
+        pl = player_module._Player()
+        pl.main_thread = object()  # pretend the loop is already running
+        return pl
+
+    def _play_off_thread(self, pl, timeout=3.0):
+        """
+        Run play() on a thread so a blocking put fails an assertion here instead
+        of hanging the test run. The raised exception, or None, comes back.
+        """
+        caught = []
+
+        def run():
+            try:
+                pl.play("title", LocalFileProcess("/tmp/a.mkv"), http=True)
+            except BaseException as exc:  # noqa: BLE001 - reported, not swallowed
+                caught.append(exc)
+
+        thread = threading.Thread(target=run, daemon=True)
+        thread.start()
+        thread.join(timeout=timeout)
+        return thread, (caught[0] if caught else None)
+
+    def test_a_filling_queue_is_reported_not_waited_on(self, settings, monkeypatch):
+        monkeypatch.setattr(player_module, "_PLAY_ENQUEUE_TIMEOUT", 0.2)
+        pl = self._stalled_player()
+        pl.msgq = queue.Queue(maxsize=2)
+        pl.msgq.put(object())
+
+        thread, raised = self._play_off_thread(pl)
+
+        assert not thread.is_alive(), "play() blocked on a full queue"
+        assert isinstance(raised, RuntimeError)
+        assert "not responding" in str(raised)
+
+    def test_the_queue_holds_more_than_one_play(self, settings):
+        """
+        Pinned because the old capacity was exactly the cost of one play, which
+        is the arithmetic that made a single stall fatal.
+        """
+        pl = player_module._Player()
+        assert pl.msgq.maxsize > 2
+
+    def test_a_refused_play_says_so_on_status(self, settings, monkeypatch):
+        monkeypatch.setattr(player_module, "_PLAY_ENQUEUE_TIMEOUT", 0.2)
+        pl = self._stalled_player()
+        pl.msgq = queue.Queue(maxsize=2)
+        pl.msgq.put(object())
+
+        thread, _raised = self._play_off_thread(pl)
+
+        assert not thread.is_alive()
+        assert "not responding" in pl.status()["Msg"]
+
+    def test_an_ordinary_play_is_not_refused(self, settings):
+        """The guard must not fire when there is room, which is the normal case."""
+        pl = self._stalled_player()
+        pl.play("title", LocalFileProcess("/tmp/a.mkv"), http=True)
+        assert pl.msgq.qsize() == 2
+
+
+class TestErrorBelongsToTheAttemptThatCausedIt:
+    """
+    self.error is cleared when a play is accepted, not only when it starts.
+
+    It used to be cleared inside _play(), which the loop reaches only after the
+    previous pipe has stopped. While the loop was wedged that never happened, so
+    status() went on reporting the previous attempt's failure as though it
+    described the play just requested.
+    """
+
+    def test_a_new_play_clears_the_previous_error(self, settings):
+        pl = player_module._Player()
+        pl.error = "main playlist: end of playlist, exiting"
+        pl.main_thread = object()
+
+        pl.play("title", LocalFileProcess("/tmp/a.mkv"), http=True)
+
+        assert pl.error is None
+
+    def test_the_new_pipe_reports_its_own_failure_afterwards(self, settings):
+        """
+        Clearing on acceptance is not the same as clearing forever: the pipe that
+        actually runs can still fail, and then its error is what shows.
+        """
+        pl = player_module._Player()
+        pl.main_thread = object()
+        pl.play("title", LocalFileProcess("/tmp/a.mkv"), http=True)
+
+        assert pl.msgq.get() == player_module.MSG_PLAYER_PLAY
+        pl._play(pl.msgq.get())
+        pl.error = "disk is full"
+
+        assert pl.status()["Error"] is True
 
 
 class TestStatus:

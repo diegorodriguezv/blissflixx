@@ -24,6 +24,7 @@ import time
 
 import pytest
 
+import lib.player.processpipe as pp
 from lib.player.dlsrvproc import DlsrvProcess
 from lib.player.omxproc import OmxplayerProcess
 from lib.player.omxproc2 import OmxplayerProcess2
@@ -350,6 +351,111 @@ class TestPipeState:
 
         # Must not raise: a downloader cannot be paused.
         assert pipe.control("pause") is None
+
+
+class StubbornProcess(FakeProcess):
+    """
+    A stage that reports ready and then never exits.
+
+    stop() in FakeProcess releases the wait that start() is sitting on, which is
+    what lets an ordinary stage's thread end. This subclass deliberately does
+    neither: start() waits with no timeout at all, and stop() records the request
+    without releasing it. That is the shape of the yt-dlp that was blocked in a
+    network read when this wedged a real player on a Pi.
+
+    The wait is on a daemon thread, so a test that fails against an unbounded
+    join still exits cleanly instead of hanging the run.
+    """
+
+    def start(self, args):
+        self.started_with = args
+        if self.pending_error:
+            self._set_error(self.pending_error)
+        self.msg_ready(self.ready_args)
+        self._release.wait()
+
+    def stop(self):
+        self.stopped = True
+
+
+class TestStopSurvivesAStageThatWillNotExit:
+    """
+    stop() must always report back to the parent.
+
+    This is the liveness property the player loop is built on: it waits for
+    MSG_PLAYER_PIPE_STOPPED and does nothing at all until it arrives. A join
+    with no timeout meant a stage that would not exit could prevent that
+    message from ever being sent, and the loop then dropped every subsequent
+    play without a word -- which is exactly what was observed on hardware.
+    """
+
+    def _stop_within(self, pipe, seconds=3.0):
+        """
+        Call stop() on a thread so that an unbounded join fails an assertion
+        here rather than hanging the test run.
+        """
+        stopper = threading.Thread(target=pipe.stop, daemon=True)
+        stopper.start()
+        stopper.join(timeout=seconds)
+        return stopper
+
+    def test_stop_still_reports_when_a_stage_never_exits(self, monkeypatch):
+        monkeypatch.setattr(pp, "_STOP_JOIN_TIMEOUT", 0.2)
+        pipe = ProcessPipe("title")
+        pipe.add_process(StubbornProcess("stuck"))
+
+        pmsgq, _thread = start_pipe(pipe)
+        stopper = self._stop_within(pipe)
+
+        assert (
+            not stopper.is_alive()
+        ), "stop() never returned; the player loop would be stuck"
+        assert pmsgq.get(timeout=2.0) == MSG_PLAYER_PIPE_STOPPED
+
+    def test_a_stuck_stage_does_not_stop_the_others_being_stopped(self, monkeypatch):
+        """
+        The stuck stage is skipped rather than retried, and the stages after it
+        are still told to stop. Skipping is deliberate: a thread that outlived
+        its stop may still be writing, so there is no safe moment to read its
+        error from.
+        """
+        monkeypatch.setattr(pp, "_STOP_JOIN_TIMEOUT", 0.2)
+        first = StubbornProcess("stuck")
+        second = StubbornProcess("also stuck")
+        pipe = ProcessPipe("title")
+        pipe.add_process(first)
+        pipe.add_process(second)
+
+        pmsgq, _thread = start_pipe(pipe)
+        stopper = self._stop_within(pipe)
+
+        assert not stopper.is_alive()
+        assert first.stopped and second.stopped
+        assert pmsgq.get(timeout=2.0) == MSG_PLAYER_PIPE_STOPPED
+
+    def test_the_join_is_bounded(self):
+        """
+        Pinned as a positive number, because the timeout is the only thing
+        standing between a stuck stage and a permanently dead player.
+        """
+        assert isinstance(pp._STOP_JOIN_TIMEOUT, (int, float))
+        assert 0 < pp._STOP_JOIN_TIMEOUT <= 30
+
+    def test_a_healthy_pipe_still_reports_its_error(self):
+        """
+        The common path must be untouched: a stage that exits promptly still
+        has its error read and handed to the parent.
+        """
+        pipe = ProcessPipe("title")
+        pipe.add_process(
+            FakeProcess("boom", outcome="ready_then_wait", error="disk is full")
+        )
+
+        pmsgq, _thread = start_pipe(pipe)
+        pipe.stop()
+
+        assert pmsgq.get(timeout=2.0) == MSG_PLAYER_PIPE_STOPPED
+        assert pmsgq.get(timeout=2.0) == "disk is full"
 
 
 class TestPipeThreadSafety:

@@ -1,4 +1,4 @@
-from queue import Queue
+from queue import Full, Queue
 
 import cherrypy
 
@@ -26,6 +26,16 @@ ST_NOT_RUNNING = 0
 ST_STARTING = 1
 ST_RUNNING = 3
 
+#: Capacity of the player loop's message queue. A play costs two messages, so a
+#: capacity of two -- which is what this used to be -- held exactly one play.
+#: If the loop stalled, the next play filled the queue and the one after that
+#: blocked forever inside the request thread, so the API stopped responding
+#: instead of reporting a problem.
+_PLAY_QUEUE_SIZE = 32
+
+#: Seconds to wait to hand a play to the loop before giving up.
+_PLAY_ENQUEUE_TIMEOUT = 5
+
 MSG_PLAYER_PLAY = 1
 MSG_PLAYER_STOP = 2
 MSG_PLAYER_QUIT = 3
@@ -33,7 +43,7 @@ MSG_PLAYER_QUIT = 3
 
 class _Player:
     def __init__(self):
-        self.msgq = Queue(2)
+        self.msgq = Queue(_PLAY_QUEUE_SIZE)
         self.play_pipe = None
         self.play_thread = None
         self.main_thread = None
@@ -135,8 +145,34 @@ class _Player:
             # piped, which is what lets the player follow it.
             pipe.add_process(DlsrvProcess())
         pipe.add_process(self._player_stage(http, dlsrv))
-        self.msgq.put(MSG_PLAYER_PLAY)
-        self.msgq.put(pipe)
+        self._enqueue(MSG_PLAYER_PLAY, pipe)
+
+    def _enqueue(self, *items):
+        """
+        Hand items to the player loop, refusing to wait forever.
+
+        Every caller of play() is a CherryPy request thread, so a blocking put
+        here would take the whole web server down rather than just fail one
+        request. A full queue means the loop is not draining messages, which is
+        the wedge this whole path is guarding against, so it is reported rather
+        than absorbed.
+
+        Cleared here rather than in _play() so that a failed attempt does not
+        leave the previous attempt's error on screen. That error used to persist
+        for as long as the loop was wedged, and read as though it described the
+        play that had just been requested.
+        """
+        self.error = None
+        for item in items:
+            try:
+                self.msgq.put(item, timeout=_PLAY_ENQUEUE_TIMEOUT)
+            except Full:
+                self.error = (
+                    "Player is not responding (%d requests queued already)"
+                    % _PLAY_QUEUE_SIZE
+                )
+                cherrypy.log(self.error)
+                raise RuntimeError(self.error)
 
     def playYtdl(self, url, title=None, subs=None):
         if title is None:

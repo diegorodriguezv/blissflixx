@@ -20,6 +20,17 @@ OUT_FILE = "/tmp/blissflixx/bf.out"
 #: Seconds to wait for a finished process's output to be read out of its pipe
 #: before giving up on it.
 _COPY_DRAIN_TIMEOUT = 5
+#: Seconds to wait for a stage's thread to exit after being told to stop.
+#:
+#: This join used to have no timeout, which made stop() capable of never
+#: returning. A stage that will not exit -- a yt-dlp blocked in a network read
+#: is the one that actually turned this up on a Pi being rate-limited -- meant
+#: the join never completed, so the MSG_PLAYER_PIPE_STOPPED below was never
+#: emitted and the player loop waited forever for a message that could not
+#: arrive. Every later play was then dropped without a trace. Bounding the join
+#: makes the stop notification unconditional, which is the whole property the
+#: loop depends on to make progress.
+_STOP_JOIN_TIMEOUT = 5
 
 
 def _start_thread(target, *args):
@@ -206,7 +217,13 @@ class ProcessPipe:
         for idx in range(self.next_proc - 1, -1, -1):
             proc = self.procs[idx]
             proc.stop()
-            self.threads[idx].join()
+            self.threads[idx].join(timeout=_STOP_JOIN_TIMEOUT)
+            if self.threads[idx].is_alive():
+                # Skipped rather than joined again, and its error is not read:
+                # a thread that outlived its stop may still be writing to the
+                # stage, so there is no safe moment at which to read it.
+                cherrypy.log("STAGE DID NOT EXIT: " + proc.name())
+                continue
             if proc.has_error():
                 error = proc.get_errors()[0]
                 cherrypy.log("GOT ERROR: " + error)
