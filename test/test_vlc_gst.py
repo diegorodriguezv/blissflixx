@@ -206,6 +206,107 @@ class TestVlcControl:
         """
         assert VlcProcess().declares(CAP_SUBTITLES) is False
 
+    def test_volume_is_sent_with_the_verb_the_interface_actually_has(self):
+        """
+        "vol" is not a cli verb; "volume" is. An unrecognised command is not
+        rejected loudly -- the interface just echoes the prompt and says nothing,
+        which looks exactly like success. This is what the verb list from
+        `help` on the Pi says, and it is why the spelling is pinned.
+        """
+        proc = VlcProcess()
+        sent = []
+        proc._send = lambda c: sent.append(c) or True
+        proc._set_volume(300)
+        assert sent == ["volume 300"]
+
+    def test_every_verb_sent_is_a_real_cli_verb(self):
+        """
+        Checked against the verb list `help` prints on the Pi, so a typo cannot
+        reach hardware as a silently ignored command.
+        """
+        known = {
+            "add",
+            "achan",
+            "atrack",
+            "chapter",
+            "chapter_n",
+            "chapter_p",
+            "clear",
+            "delete",
+            "description",
+            "enqueue",
+            "faster",
+            "fastforward",
+            "frame",
+            "fullscreen",
+            "get_length",
+            "get_time",
+            "get_title",
+            "goto",
+            "help",
+            "info",
+            "is_playing",
+            "lock",
+            "logout",
+            "longhelp",
+            "loop",
+            "move",
+            "next",
+            "normal",
+            "pause",
+            "play",
+            "playlist",
+            "prev",
+            "quit",
+            "random",
+            "rate",
+            "repeat",
+            "rewind",
+            "sd",
+            "search",
+            "seek",
+            "shutdown",
+            "slower",
+            "snapshot",
+            "sort",
+            "stats",
+            "status",
+            "stop",
+            "strack",
+            "title",
+            "title_n",
+            "title_p",
+            "vcr",
+            "vdeinterlace",
+            "vdeinterlace_mode",
+            "vlm",
+            "voldown",
+            "volume",
+            "volup",
+            "vratio",
+            "vtrack",
+            "vzoom",
+        }
+        proc = VlcProcess()
+        sent = []
+        proc._send = lambda c: sent.append(c) or True
+        for action in (
+            "pause",
+            "resume",
+            "stop",
+            "plus30",
+            "minus30",
+            "plus600",
+            "minus600",
+            "volup",
+            "voldown",
+        ):
+            proc.control(action)
+        assert sent, "nothing was sent at all"
+        for command in sent:
+            verb = command.split()[0]
+            assert verb in known, (command, verb)
+
     def test_still_needs_a_stdin_pipe(self):
         """
         Commands are typed into the process. Without a pipe VLC inherits the
@@ -698,16 +799,16 @@ class TestVlcAgainstALineReader:
         assert cli.wait_for_command() == "quit"
 
     def test_several_commands_in_a_row_are_all_seen(self, proc_for, cli):
-        for action in ("pause", "seek 30", "vol 300"):
+        for action in ("pause", "seek 30", "volume 300"):
             proc_for._send(action)
         deadline = time.time() + 3.0
         while time.time() < deadline and len(cli.commands) < 3:
             time.sleep(0.01)
-        assert cli.commands == ["pause", "seek 30", "vol 300"]
+        assert cli.commands == ["pause", "seek 30", "volume 300"]
 
     def test_volume_command_reaches_the_reader(self, proc_for, cli):
-        proc_for._send("vol 300")
-        assert cli.wait_for_command() == "vol 300"
+        proc_for._send("volume 300")
+        assert cli.wait_for_command() == "volume 300"
 
     def test_payload_is_newline_terminated(self, proc_for, cli):
         """

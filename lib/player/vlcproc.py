@@ -278,7 +278,11 @@ class VlcProcess(PlayerBackend):
     def _set_volume(self, value):
         value = min(value, self.opt("volume_max"))
         self._volume = value
-        return self._send("vol " + str(value))
+        # "volume N", not "vol N": the verb is "volume", and there is no "vol".
+        # The cli interface reports an unrecognised command by echoing the
+        # prompt and saying nothing at all, which is indistinguishable from
+        # success unless you know the verb list.
+        return self._send("volume " + str(value))
 
     def stop(self):
         super().stop()
