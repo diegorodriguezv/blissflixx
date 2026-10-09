@@ -70,7 +70,10 @@ def _is_player_logging(line):
 
 
 #: A track id as printed in a strack/atrack listing, e.g. "2 - English (CC)".
-_TRACK_ID = re.compile(r"^(-?\d+)\s+-")
+#: VLC pipes its listings with a leading "| " on each line, so that is stripped
+#: before matching. This pattern is why track control appeared to do nothing:
+#: every listing arrived, and none of it matched.
+_TRACK_ID = re.compile(r"^\|?\s*(-?\d+)\s+-")
 #: VLC's id for "no subtitles", as printed in the listing.
 _TRACK_DISABLED = -1
 

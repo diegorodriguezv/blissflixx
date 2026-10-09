@@ -214,8 +214,8 @@ class TestVlcControl:
                 l.strip()
                 for l in (
                     "+----[ audio-es ]",
-                    "-1 - Disable",
-                    "1 - English - [English] *",
+                    "| -1 - Disable",
+                    "| 1 - English - [English] *",
                     "+----[ end of audio-es ]",
                 )
             ]
