@@ -102,6 +102,7 @@ class VlcProcess(PlayerBackend):
         # interface shuts down the moment it starts.
         self.stdin_pipe = True
         self._ready_seen = False
+        self._startup_errors = []
         self._replies = Queue()
         # Once the stage is running, the copier feeds every line the player
         # writes -- replies and log output alike -- through here. During startup
@@ -169,8 +170,26 @@ class VlcProcess(PlayerBackend):
                 self._ready_seen = True
                 return
             if any(marker in line for marker in _ERROR_MARKERS):
-                raise ProcessException(line)
-        raise ProcessException("vlc cli interface did not come up")
+                # Defer this one. The interface reads its next command from
+                # stdin, so it does not stop talking when a line is rejected --
+                # it carries on and keeps going, and every later line looks the
+                # same. Treating the first bad line as fatal meant a message
+                # about, say, a missing audio filter ended the stage while the
+                # player was in fact still running and playing.
+                if line not in self._startup_errors:
+                    self._startup_errors.append(line)
+        raise ProcessException(self._did_not_come_up())
+
+    def _did_not_come_up(self):
+        """
+        Say why the interface never appeared, using whatever it complained about
+        on the way. A bare "did not come up" is the one message that helps
+        nobody, and these lines are the only evidence there is.
+        """
+        detail = " | ".join(self._startup_errors[:3])
+        if detail:
+            return "vlc cli interface did not come up: " + detail
+        return "vlc cli interface did not come up"
 
     def _drain_error(self):
         while True:

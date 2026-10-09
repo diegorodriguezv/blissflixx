@@ -459,6 +459,48 @@ class TestVlcReady:
         with pytest.raises(ProcessException):
             proc._ready()
 
+    def test_an_error_line_does_not_end_startup(self):
+        """
+        The cli interface does not stop talking when it rejects a line: it reads
+        its next command from stdin and carries on. So a message about, say, a
+        missing audio filter arrives while the player is still running and still
+        playing, and treating the first bad line as fatal would end the stage on
+        a complaint that changes nothing.
+
+        This is not hypothetical. The player emitted "cannot add user audio
+        filter scaletempo (skipped)" and a stage that acted on the first error
+        line died with its own success banner quoted as the failure.
+        """
+        proc = _running({"start_timeout": 0.2})
+        lines = iter(
+            [
+                "main audio filter error: cannot add user audio filter "
+                '"scaletempo" (skipped)',
+                "Command Line Interface initialized. Type `help' for help.",
+            ]
+        )
+
+        def readline(timeout=None):
+            try:
+                return next(lines)
+            except StopIteration:
+                raise ProcessException("no more output")
+
+        proc._readline = readline
+        proc._ready()
+        assert proc._ready_seen is True
+
+    def test_startup_error_lines_are_kept_for_the_failure_message(self):
+        """
+        They are still recorded, so if the interface genuinely never comes up the
+        reason it gave is not lost. "cannot open" is one of the markers that
+        means this input is unplayable, so it is the realistic case.
+        """
+        proc = _running({"start_timeout": 0.1})
+        proc._readline = lambda timeout=None: "cannot open input.mkv: No such file"
+        with pytest.raises(ProcessException, match="cannot open"):
+            proc._ready()
+
     def test_decoder_error_is_surfaced(self):
         proc = VlcProcess()
         proc.proc = types.SimpleNamespace(poll=lambda: 1)
