@@ -74,6 +74,44 @@ def _is_player_logging(line):
 #: VLC pipes its listings with a leading "| " on each line, so that is stripped
 #: before matching. This pattern is why track control appeared to do nothing:
 #: every listing arrived, and none of it matched.
+#: The language VLC reports for a track, taken from the listing line:
+#:
+#:     | 2 - English (CC) - [English] *
+#:
+#: The bracketed form is the track's own language and is preferred. The plain
+#: form is the fallback for tracks whose language VLC does not know, where the
+#: bracketed part repeats what is already in front of it.
+_TRACK_NAME = re.compile(r"^\|?\s*(-?\d+)\s+-\s*(.*?)\s*(?:-|$)")
+
+
+def _track_language(line):
+    """
+    Pull the language out of one line of a track listing.
+
+        | 2 - English (CC) - [English] *
+
+    The bracketed part is the track's own language and is preferred, since the
+    plain part can be anything -- a forced-narration marker, a title. Where the
+    two are the same, which is what happens when VLC knows nothing more than the
+    language, the brackets are empty of new information and the plain part is
+    used, so a duplicate is not put on the screen.
+
+    Returns None when there is nothing to show, which is what makes the caller
+    fall back to the plain word rather than to an empty "[on] ".
+    """
+    found = _TRACK_NAME.match(line.strip())
+    if not found:
+        return None
+    rest = found.group(2).strip()
+    bracketed = re.search(r"\[([^\]]+)\]\s*\*?\s*$", rest)
+    plain = re.sub(r"\s*\[[^\]]*\]\s*\*?\s*$", "", rest).strip()
+    if bracketed:
+        language = bracketed.group(1).strip()
+        if language and language != plain:
+            return language
+    return plain or None
+
+
 _TRACK_ID = re.compile(r"^\|?\s*(-?\d+)\s+-")
 #: How long to keep asking for a subtitle track once the player is up. The
 #: listing is empty until VLC has opened the media, and a torrent being streamed
@@ -152,17 +190,43 @@ _SEEK_SECONDS = {
 }
 
 
-def _track_label(name, chosen):
+#: VLC's own volume scale. Its maximum is 512, not 100, and its default is
+#: 256 -- which is what the player starts at and what the cli has no command to
+#: read back, so the level is tracked from the last one set.
+_VOLUME_MAX = 512
+
+
+def _volume_percent(level):
+    """
+    VLC's level as a percentage.
+
+    Shown this way because 512 is VLC's internal scale and means nothing to
+    anyone watching. Its default of 256 is 50%, which is also what the player
+    starts at -- so "Volume 50%" is the first thing seen, rather than the 256
+    that used to appear.
+    """
+    return round(level * 100 / _VOLUME_MAX)
+
+
+def _track_label(name, chosen, language=None):
     """
     What the overlay says after a track change.
 
+    "[on] English" rather than "Subtitle English", because that is what it is:
+    the state, then the language. With no language to name -- a track VLC does
+    not describe, or one not yet chosen -- it falls back to the plain word, and
+    never to a number, since "subtitle 0" would be claiming something not known.
+
     -1 is how VLC spells "none", so it reads as "off" rather than as a track
-    numbered minus one. A track nobody has chosen yet reads as just the label,
-    since saying "Subtitle 0" when nothing is known would be a lie.
+    numbered minus one.
     """
     if chosen is None:
         return name
-    return name if chosen >= 0 else "%s off" % name
+    if chosen < 0:
+        return "[off] %s" % name
+    if language:
+        return "[on] %s" % language
+    return "[on] %s" % name
 
 
 #: What the cli interface prints when it is ready for the next command. The only
@@ -291,6 +355,9 @@ class VlcProcess(PlayerBackend):
         # re-read the listing every time. See _step_track.
         self._track_choice = {}
         self._track_listing = {}
+        # Track id to language, from the listing the ids came from; the listing
+        # is the only place a track's language appears.
+        self._track_names = {}
         # Once the stage is running, the copier feeds every line the player
         # writes -- replies and log output alike -- through here. During startup
         # there is no copier yet and _ready() reads stdout itself.
@@ -596,10 +663,15 @@ class VlcProcess(PlayerBackend):
         to move, is answered reliably.
         """
         position = self._read_number("get_time")
-        # A film's length does not change while it plays, so it is asked for
-        # once and remembered.
+        # A film's length does not change while it plays, so once it has answered
+        # it is not asked again. Until then it is asked on every seek, because
+        # VLC cannot report a length for the first moments of a stream: caching
+        # that first failure showed "--" on the confirmations until some later
+        # seek happened to work and correct it by accident.
         if self._length is None:
-            self._length = self._read_number("get_length")
+            length = self._read_number("get_length")
+            if length is not None:
+                self._length = length
         if position is None:
             return None
         self._show_overlay(
@@ -694,30 +766,56 @@ class VlcProcess(PlayerBackend):
             # must not walk the level into negatives.
             level = max(0, self._current_volume() + step)
             self._set_volume(level)
-            self._show_overlay("Volume %d" % level)
+            self._show_overlay("Volume %d%%" % _volume_percent(level))
         elif action == "hide_subtitle":
             # -1 is VLC's "disabled", and it is always in the listing.
             self._send_command("strack " + str(_TRACK_DISABLED))
-            self._show_overlay("Subtitles off")
+            self._show_overlay("[off] subtitle")
         elif action == "show_subtitle":
             self._show_track("strack")
-            self._show_overlay("Subtitles on")
+            self._show_overlay(
+                _track_label(
+                    "subtitle",
+                    self._track_choice.get("strack"),
+                    self._track_language("strack"),
+                )
+            )
         elif action == "next_subtitle":
             self._step_track("strack", +1)
             self._show_overlay(
-                _track_label("Subtitle", self._track_choice.get("strack"))
+                _track_label(
+                    "subtitle",
+                    self._track_choice.get("strack"),
+                    self._track_language("strack"),
+                )
             )
         elif action == "prev_subtitle":
             self._step_track("strack", -1)
             self._show_overlay(
-                _track_label("Subtitle", self._track_choice.get("strack"))
+                _track_label(
+                    "subtitle",
+                    self._track_choice.get("strack"),
+                    self._track_language("strack"),
+                )
             )
         elif action == "next_audio":
             self._step_track("atrack", +1)
-            self._show_overlay(_track_label("Audio", self._track_choice.get("atrack")))
+            self._show_overlay(
+                _track_label(
+                    "audio",
+                    self._track_choice.get("atrack"),
+                    self._track_language("atrack"),
+                )
+            )
         elif action == "prev_audio":
             self._step_track("atrack", -1)
-            self._show_overlay(_track_label("Audio", self._track_choice.get("atrack")))
+            self._show_overlay(
+                _track_label(
+                    "audio",
+                    self._track_choice.get("atrack"),
+                    self._track_language("atrack"),
+                )
+            )
 
     def _show_overlay(self, text):
         """
@@ -886,7 +984,7 @@ class VlcProcess(PlayerBackend):
 
     def _track_ids(self, command):
         """
-        Ask for the track listing and pull the ids out of it.
+        Ask for the track listing and pull the ids and names out of it.
 
         Replies come back on the shared stdout, so this reads the same queue
         _send_command does and filters out the player's own logging.
@@ -895,12 +993,18 @@ class VlcProcess(PlayerBackend):
         if lines is None:
             return []
         ids = []
+        names = {}
         for line in lines:
             found = _TRACK_ID.match(line.strip())
             if found:
-                ids.append(int(found.group(1)))
+                track_id = int(found.group(1))
+                ids.append(track_id)
+                # "Disable" is VLC's name for the -1 entry, not a language.
+                if track_id >= 0:
+                    names[track_id] = _track_language(line)
         if ids:
             self._track_listing[command] = ids
+            self._track_names[command] = names
         # Log the listing whether or not anything matched. A command that was
         # sent but matched nothing looks exactly like one that was never sent --
         # both log nothing at all -- and that is what made the unanchored
@@ -908,6 +1012,15 @@ class VlcProcess(PlayerBackend):
         # being ignored.
         cherrypy.log("VLC CLI: " + command + " -> " + _summarise_reply(lines))
         return self._track_listing.get(command, [])
+
+    def _track_language(self, command):
+        """
+        The language of the chosen track, or None when VLC did not name it.
+        """
+        chosen = self._track_choice.get(command)
+        if chosen is None or chosen < 0:
+            return None
+        return self._track_names.get(command, {}).get(chosen)
 
     def _current_volume(self):
         return self._volume

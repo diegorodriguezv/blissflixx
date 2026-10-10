@@ -1422,6 +1422,105 @@ class TestEmbeddedSubtitlesAreEnabledOnStart:
         assert "-r" not in cmd
 
 
+class TestWhatTheOverlaySays:
+    """
+    The wording of a confirmation, which is the only thing the person watching
+    gets to see. It has to say what actually happened and nothing it does not
+    know.
+    """
+
+    @pytest.mark.parametrize(
+        "line,expected",
+        [
+            ("| 2 - English (CC) - [English] *", "English (CC)"),
+            ("| 1 - English - [English] *", "English"),
+            ("| 3 - Commentary", "Commentary"),
+            # A track VLC describes only by its own language, with no plain
+            # name in front: "[Spaeth]" and not "[English]".
+            ("| 4 - [Spaeth]", "Spaeth"),
+            # Trailing bits that are not part of the name.
+            ("| 5 - Spanish - [Spanish]", "Spanish"),
+        ],
+    )
+    def test_the_language_is_taken_from_the_listing(self, line, expected):
+        from lib.player.vlcproc import _track_language
+
+        assert _track_language(line) == expected
+
+    def test_the_label_says_on_and_off_with_the_language(self):
+        """
+        "[on] English" rather than "Subtitle English": the state first, then
+        what was switched to. The form asked for, and the state is the part
+        that cannot be inferred from the language alone.
+        """
+        from lib.player.vlcproc import _track_label
+
+        assert _track_label("subtitle", 2, "English") == "[on] English"
+        assert _track_label("subtitle", -1, None) == "[off] subtitle"
+
+    def test_no_language_gives_the_plain_word_not_a_number(self):
+        """
+        With nothing to name, it says "subtitle" -- never "subtitle 0", which
+        would be claiming a track id that means nothing to the viewer and may
+        not even be the track.
+        """
+        from lib.player.vlcproc import _track_label
+
+        assert _track_label("subtitle", 2, None) == "[on] subtitle"
+        assert _track_label("subtitle", None, None) == "subtitle"
+
+    @pytest.mark.parametrize(
+        "level,expected", [(0, 0), (128, 25), (256, 50), (512, 100)]
+    )
+    def test_volume_is_shown_as_a_percentage(self, level, expected):
+        """
+        VLC's scale runs to 512 and starts at 256, so the overlay read "Volume
+        261" after one press -- a number that means nothing to a viewer. The
+        default is the halfway mark, so 50% is what the first press is read
+        against.
+        """
+        from lib.player.vlcproc import _volume_percent
+
+        assert _volume_percent(level) == expected
+
+    def test_stepping_a_track_names_the_language_it_landed_on(self):
+        """
+        The end-to-end path: a real VLC listing, a real step, and what the
+        overlay ends up saying. The label and the listing are separate pieces
+        and either could be right while the pair was wrong.
+        """
+        proc = VlcProcess()
+        shown = []
+        proc._show_overlay = shown.append
+        proc._send_command = lambda command: True
+        proc._send_and_collect = lambda verb: [
+            "+----[ spu-es ]",
+            "| -1 - Disable",
+            "| 2 - English (CC) - [English] *",
+            "| 5 - Commentary",
+            "+----[ end of spu-es ]",
+        ]
+
+        # The listing marks English (CC) active, so a step moves to Commentary
+        # -- and it is Commentary that gets named, not the one it came from.
+        proc.control("next_subtitle")
+
+        assert shown == ["[on] Commentary"], shown
+
+    def test_the_overlay_shows_a_percentage_not_vlcs_own_scale(self):
+        proc = _running()
+        shown = []
+        proc._show_overlay = shown.append
+        proc._send_command = lambda command: True
+        proc._current_volume = lambda: 256
+        proc._set_volume = lambda level: True
+
+        # 256 + the default step of 5, which is VLC's 261 of 512.
+        proc.control("volup")
+
+        assert shown == ["Volume 51%"], shown
+
+
 class TestProgressReporting:
     """
     Position and duration, asked of VLC and written to the log.
@@ -1440,8 +1539,11 @@ class TestProgressReporting:
 
     def test_the_length_is_asked_once_and_remembered(self, tmp_path, monkeypatch):
         """
-        A film's length does not change while it plays. Asking every second
-        doubled the traffic and made the duration the fragile half of the pair.
+        A film's length does not change while it plays, so once it has answered
+        it is not asked again. Asking every second doubled the traffic and made
+        the duration the fragile half of the pair.
+
+        Asked on every seek only while it is still unknown -- see below.
         """
         import lib.player.vlcproc as vlc
 
@@ -1454,6 +1556,52 @@ class TestProgressReporting:
         proc._report_progress()
         assert sent.count("get_length") == 1, sent
         assert sent.count("get_time") == 3, sent
+
+    def test_the_length_is_asked_again_until_it_answers(self, tmp_path, monkeypatch):
+        """
+        VLC cannot report a length for the first moments of a stream. It was
+        cached on the first seek whatever came back, so a failure was kept and
+        shown as "--" -- the confirmations read "0:41 / --" until some later
+        seek happened to work and correct it by accident.
+
+        A missing answer is not remembered; a real one is.
+        """
+        import lib.player.vlcproc as vlc
+
+        monkeypatch.setattr(vlc, "MARQ_FILE", str(tmp_path / "marq.txt"))
+        proc, sent = self._proc_answering(
+            {"get_time": ["600"], "get_length": []}, {"osd_overlay": "1"}
+        )
+
+        # Nothing back for the length at all.
+        assert proc._report_progress() == (600.0, None)
+        assert proc._overlay_shown == "10:00 / --"
+
+        # Now it answers, and the answer is kept.
+        proc._send_and_collect = lambda verb: (
+            sent.append(verb) or {"get_time": ["600"], "get_length": ["7142"]}[verb]
+        )
+        assert proc._report_progress() == (600.0, 7142.0)
+        assert proc._overlay_shown == "10:00 / 1:59:02"
+
+    def test_a_known_length_is_not_abandoned_on_a_later_failure(
+        self, tmp_path, monkeypatch
+    ):
+        """
+        Once known, a transient failure must not blank the duration out again.
+        """
+        import lib.player.vlcproc as vlc
+
+        monkeypatch.setattr(vlc, "MARQ_FILE", str(tmp_path / "marq.txt"))
+        proc, sent = self._proc_answering(
+            {"get_time": ["600"], "get_length": ["7142"]}, {"osd_overlay": "1"}
+        )
+        proc._report_progress()
+
+        proc._send_and_collect = lambda verb: (sent.append(verb) or ["600"])
+        proc._report_progress()
+        assert proc._length == 7142.0
+        assert proc._overlay_shown == "10:00 / 1:59:02"
 
     def test_a_missed_position_leaves_the_screen_alone(self, tmp_path, monkeypatch):
         """
@@ -1511,6 +1659,45 @@ class TestProgressReporting:
         proc._report_progress()
 
         assert target.read_text() == "30:34 / 1:59:42"
+
+    def test_the_length_is_asked_again_until_it_answers(self):
+        """
+        VLC cannot report a length for the first moments of a stream. The length
+        was cached on the first seek whatever the answer, so a failure was kept
+        and shown as "--" until some later seek happened to succeed -- so the
+        first few confirmations read "0:41 / --" before correcting themselves.
+
+        A None answer is not remembered; a real one is.
+        """
+        proc = _running()
+        answers = {"get_time": 600.0, "get_length": None}
+        proc._read_number = lambda verb: answers[verb]
+
+        assert proc._report_progress() == (600.0, None)
+        assert proc._overlay_shown == "10:00 / --"
+
+        # The next seek asks again, and now it answers.
+        answers["get_length"] = 7142.0
+        assert proc._report_progress() == (600.0, 7142.0)
+        assert proc._overlay_shown == "10:00 / 1:59:02"
+
+        # And once known it is asked for no more.
+        proc._read_number = lambda verb: pytest.fail("asked " + verb)
+        answers["get_time"] = 900.0
+
+    def test_a_known_length_is_not_abandoned_on_a_later_failure(self):
+        """
+        Once known, a transient failure must not blank it out again.
+        """
+        proc = _running()
+        answers = {"get_time": 600.0, "get_length": 7142.0}
+        proc._read_number = lambda verb: answers[verb]
+        proc._report_progress()
+
+        answers["get_length"] = None
+        proc._report_progress()
+        assert proc._length == 7142.0
+        assert proc._overlay_shown == "10:00 / 1:59:02"
 
     def test_the_file_is_left_alone_when_the_overlay_is_off(
         self, tmp_path, monkeypatch
