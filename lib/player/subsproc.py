@@ -49,9 +49,8 @@ class SubtitlesProcess(ExternalProcess):
                 raise ProcessException("Subtitles died")
 
     def stop(self):
-        if self.subsfile is not None and os.path.exists(self.subsfile):
-            try:
-                os.remove(self.subsfile)
-            except Exception:
-                pass
+        # The subtitle file is kept. It used to be deleted on every stop, which
+        # meant the next play downloaded it all over again -- for a file that is
+        # tiny, over a connection that may well be the reason someone is
+        # watching something at all.
         super().stop()

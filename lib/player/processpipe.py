@@ -447,13 +447,29 @@ class ExternalProcess(Process):
         has to go into that one rather than becoming a second entry that would
         never be read. Without this a player that printed why it could not start
         left the UI with a generic message and no way to act on it.
+
+        Only ever appended to an error that already exists, or invented for a process
+        that died on its own saying why. It is not invented for a deliberate
+        stop, which is what _wait() also passes here.
+
+        That distinction is the whole point of this method. It used to invent an
+        error whenever there was none, so every ordinary stop became a failure.
+        Stopping a torrent produced
+
+            peerflix failed: Verifying downloaded: 0% | server is listening on
+            http://192.168.1.119:9696/
+
+        in the UI: not a failure at all, just the last thing peerflix said before
+        it was asked to stop. But a process that died by itself, having printed
+        the reason and never called _set_error, is a genuine failure and is still
+        reported -- there is nothing else that will ever mention it.
         """
         if not tail:
             return
         output = tail.summary()
         if self.errors:
             self.errors[0] = self.errors[0] + " | " + output
-        else:
+        elif not self.killing:
             self._set_error(self.name() + " failed: " + output)
 
     def _wait(self):
@@ -516,11 +532,11 @@ class ExternalProcess(Process):
             except Exception:
                 pass
 
-        if os.path.exists(OUT_FILE):
-            try:
-                os.remove(OUT_FILE)
-            except Exception:
-                pass
+        # The download is not deleted. It used to be, right here, by removing
+        # OUT_FILE -- so a download that was interrupted, or stopped on purpose,
+        # started again from nothing. Someone on a poor connection or with poor
+        # peers would never finish anything. Clearing this out is a deliberate
+        # user action now, never a side effect of stopping.
 
     @abstractmethod
     def _get_cmd(self, args):

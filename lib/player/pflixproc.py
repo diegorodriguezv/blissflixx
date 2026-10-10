@@ -1,12 +1,15 @@
+import os
 import re
-import shutil
 
 import cherrypy
 
 from ..api.torrent import torrent2magnet
-from .processpipe import ExternalProcess, ProcessException
+from .processpipe import TMP_DIR, ExternalProcess, ProcessException
 
 _PEERFLIX_PORT = "9696"
+#: Where peerflix keeps what it downloads. Told to peerflix with -f; it does not
+#: create the directory itself.
+BUFFER_DIR = os.path.join(TMP_DIR, "torrent-stream")
 
 #: peerflix announces the address it is actually bound to, which is not always
 #: loopback. It picks the first non-internal interface it finds, so on a Pi with
@@ -26,9 +29,18 @@ class PeerflixProcess(ExternalProcess):
         torrent = torrent2magnet(torrent)
         cmd.append(torrent)
         cmd.append("-q")
-        cmd.append("-r")
+        # -r used to be passed here. peerflix spells it --remove, "remove files
+        # on exit", and it meant that every torrent started again from nothing:
+        # the download could not survive being stopped, and someone with poor
+        # peers or a poor connection lost the whole of their progress on every
+        # attempt. Nothing deletes torrent data here now.
         cmd.append("-p")
         cmd.append(_PEERFLIX_PORT)
+        # Keep peerflix's buffer inside our own directory rather than the
+        # default /tmp/torrent-stream, so everything BlissFlixx writes lives in
+        # one place and can be reasoned about -- and cleaned up -- as a unit.
+        cmd.append("-f")
+        cmd.append(BUFFER_DIR)
         if idx is not None and idx >= 0:
             cmd.append("-i")
             cmd.append(str(idx))
@@ -68,8 +80,6 @@ class PeerflixProcess(ExternalProcess):
         return "http://127.0.0.1:" + _PEERFLIX_PORT
 
     def stop(self):
-        try:
-            shutil.rmtree("/tmp/torrent-stream")
-        except Exception:
-            pass
+        # Nothing is deleted here. This used to rmtree the download directory on
+        # every stop, which discarded the whole download each time.
         super().stop()

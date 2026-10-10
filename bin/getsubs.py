@@ -13,7 +13,7 @@ from xmlrpc.client import ServerProxy, Transport
 
 import requests
 
-OUT_DIR = "/tmp"
+OUT_DIR = "/tmp/blissflixx"
 
 langMap = {
     "bul": "bulgarian",

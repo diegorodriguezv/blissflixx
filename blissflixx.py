@@ -20,6 +20,7 @@ import lib.locations as locations
 # rather than eagerly from lib/api/__init__.py. Importing them also attaches
 # them as attributes of the package, so the getattr dispatch below works.
 from lib.api import channels, playlink, playlists, playr, torrent
+from lib.player import processpipe
 
 api_modules = {
     "channels": channels,
@@ -58,6 +59,17 @@ def ensure_data_dirs():
         locations.SETTINGS_PATH,
     ):
         os.makedirs(path, exist_ok=True)
+
+    # The scratch directory as well, and for the same reason. Every temporary
+    # file BlissFlixx or its dependencies produce lives here now -- the peerflix
+    # buffer, downloaded subtitles, the player command fifo, the sockets -- so
+    # that there is one directory to look at, and one to clear deliberately
+    # rather than as a side effect of something stopping.
+    #
+    # It has to exist before any stage runs, because getsubs.py writes into it as
+    # a separate process and peerflix is told to buffer there with -f. Both used
+    # to rely on /tmp simply being there, which is why nothing created it.
+    os.makedirs(processpipe.TMP_DIR, exist_ok=True)
 
 
 def first_time_install():
@@ -136,15 +148,15 @@ class Api:
 
 
 def cleanup():
-    # Cleanup if previously crashed or was killed
-    try:
-        shutil.rmtree("/tmp/torrent-stream")
-    except Exception:
-        pass
-    try:
-        shutil.rmtree("/tmp/blissflixx")
-    except Exception:
-        pass
+    """
+    Clear out stale processes from a previous run.
+
+    Downloads used to be deleted here too -- /tmp/torrent-stream and all of
+    /tmp/blissflixx, on every single start. So nothing survived a restart, let
+    alone a stop: a torrent someone had been waiting ten minutes for would be
+    gone the next time the server came up. Nothing on disk is removed now.
+    Downloads are only ever cleared by the user asking for it.
+    """
     try:
         home = os.path.expanduser("~")
         os.remove(home + "/.swfinfo")

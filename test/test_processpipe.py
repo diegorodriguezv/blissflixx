@@ -827,3 +827,117 @@ class TestOneReaderPerProcess:
         finally:
             writer.close()
             reader.close()
+
+
+class TestDownloadsAreNeverDeleted:
+    """
+    Nothing is removed when a stage stops.
+
+    Every one of these sites used to delete on stop, which meant a download never
+    survived being interrupted -- least of all for someone on a poor connection
+    or with poor seeds, who would wait ten minutes and then start again from
+    nothing. Clearing is a deliberate act now, not a side effect of stopping.
+    """
+
+    def test_stopping_a_stage_leaves_the_download_in_place(self, tmp_path):
+        out = tmp_path / "bf.out"
+        out.write_text("half a film")
+        proc = _StubExternal(never_exits=False, error=True)
+        proc.proc = None
+        with m.patch.object(pp, "OUT_FILE", str(out)):
+            proc.stop()
+        assert out.exists(), "the download was deleted by stopping"
+
+    def test_subtitles_survive_a_stop(self, tmp_path):
+        from lib.player.subsproc import SubtitlesProcess
+
+        subs = tmp_path / "episode.srt"
+        subs.write_text("1\n00:00:01,000 --> 00:00:02,000\nhi\n")
+        proc = SubtitlesProcess({"lang": "en", "title": "x"})
+        proc.subsfile = str(subs)
+        proc.proc = None
+        proc.stop()
+        assert (
+            subs.exists()
+        ), "the subtitle file was deleted, so the next play refetches it"
+
+    def test_peerflix_keeps_its_buffer(self, tmp_path):
+        """
+        peerflix was passed -r, which its own help spells "remove files on
+        exit". That is why no torrent ever kept its download.
+        """
+        from lib.player.pflixproc import PeerflixProcess
+
+        cmd = PeerflixProcess("magnet:?xt=urn:btih:AAAA", -1).cmd
+        assert "-r" not in cmd
+        assert "--remove" not in cmd
+
+    def test_peerflix_buffers_inside_our_own_directory(self):
+        from lib.player.pflixproc import BUFFER_DIR, PeerflixProcess
+
+        assert BUFFER_DIR.startswith(pp.TMP_DIR), BUFFER_DIR
+        cmd = PeerflixProcess("magnet:?xt=urn:btih:AAAA", -1).cmd
+        assert cmd[cmd.index("-f") + 1] == BUFFER_DIR
+
+    def test_the_server_clears_nothing_on_startup(self):
+        """
+        cleanup() ran on every start and removed both /tmp/torrent-stream and all
+        of /tmp/blissflixx, so nothing survived a restart.
+        """
+        import inspect
+
+        import blissflixx
+
+        # The docstring names the paths it stopped deleting, so check the code.
+        source = inspect.getsource(blissflixx.cleanup)
+        parts = source.split('"""')
+        body = parts[2] if len(parts) > 2 else source
+        for gone in ("rmtree", "OUT_FILE", "/tmp/torrent-stream", "/tmp/blissflixx"):
+            assert gone not in body, gone
+
+
+class TestAStopIsNotAFailure:
+    """
+    Stopping something is not something going wrong.
+
+    _wait() calls _add_output_to_error whenever the stage is being killed, and
+    that used to invent an error whenever none existed. So every ordinary stop
+    showed up as a failure whose reason was whatever the player last printed:
+
+        peerflix failed: Verifying downloaded: 0% | server is listening on
+        http://192.168.1.119:9696/
+
+    which is not a failure at all, and was alarming enough to look like a broken
+    torrent.
+    """
+
+    def test_stopping_a_stage_produces_no_error(self):
+        proc = _StubExternal(never_exits=False, error=False)
+        proc.killing = True
+        tail = pp._LineTail()
+        tail.write("Verifying downloaded: 0%")
+        proc._add_output_to_error(tail)
+        assert proc.errors == []
+
+    def test_a_process_that_dies_on_its_own_is_still_reported(self):
+        """
+        The other half, and the reason this cannot simply be "never invent one".
+        A process that printed why it died and never called _set_error would
+        otherwise be reported by nothing at all.
+        """
+        proc = _StubExternal(never_exits=False, error=False)
+        proc.killing = False
+        tail = pp._LineTail()
+        tail.write("your input can't be opened")
+        proc._add_output_to_error(tail)
+        assert len(proc.errors) == 1
+        assert proc.errors[0].startswith("stub failed: ")
+
+    def test_output_still_joins_an_error_that_already_exists(self):
+        proc = _StubExternal(never_exits=False, error=True)
+        proc.killing = True
+        tail = pp._LineTail()
+        tail.write("no suitable decoder")
+        proc._add_output_to_error(tail)
+        assert len(proc.errors) == 1
+        assert proc.errors[0] == "could not start | no suitable decoder"

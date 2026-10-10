@@ -7,7 +7,7 @@ OMX_CMD = "omxplayer.bin --timeout 0 -I "
 # timeout for the first line of text from omxplayer in seconds, None means no timeout
 _START_TIMEOUT = None
 # path to the fifo por IPC
-_CMD_FIFO = "/tmp/cmdfifo"
+_CMD_FIFO = "/tmp/blissflixx/cmdfifo"
 
 
 class OmxplayerProcess2(OmxplayerBackend):
