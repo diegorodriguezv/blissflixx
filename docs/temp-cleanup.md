@@ -27,9 +27,7 @@ in `/tmp/blissflixx`.
 
 ```
 /tmp/blissflixx/
-  torrent-stream/       peerflix's buffer (-f) and its .torrent metadata
-                        (TMPDIR, because the latter comes from os.tmpdir()
-                        and -f does not cover it)
+  torrent-stream/       peerflix's download buffer, told with -f
   <name>.srt            downloaded subtitles, from bin/getsubs.py
   cmdfifo               omxplayer command fifo
   mpv.sock              mpv IPC
@@ -37,6 +35,18 @@ in `/tmp/blissflixx`.
   bf.out                yt-dlp output, while downloading
   omxplayerdbus.$USER   omxplayer dbus socket and pid
 ```
+
+One deliberate exception: peerflix also writes a `<hash>.torrent` metadata file to
+`/tmp/torrent-stream`, and that path cannot be moved. Its torrent-stream library
+computes it as
+
+    var TMP = fs.existsSync('/tmp') ? '/tmp' : (os.tmpdir ...)
+
+which resolves to the literal `/tmp` before any environment is consulted, and
+peerflix has no option for it. `TMPDIR` was tried and does not reach it. A
+symlink was tried and dropped: faking a path peerflix believes is its own is more
+confusing than the file being in the wrong place, and the file is about 21 KB
+per torrent against a download measured in gigabytes.
 
 ## The problem with keeping everything
 

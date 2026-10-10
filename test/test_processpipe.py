@@ -943,27 +943,29 @@ class TestAStopIsNotAFailure:
         assert proc.errors[0] == "could not start | no suitable decoder"
 
 
-class TestChildEnvironmentDefaultsToOurs:
-    """
-    A stage's child inherits this process's environment unless it says otherwise.
-
-    Nothing passed env= before, so this is only a statement that the default is
-    unchanged rather than a new behaviour.
-    """
-
-    def test_no_environment_override_by_default(self):
-        from lib.player.dlsrvproc import DlsrvProcess
-
-        assert DlsrvProcess().env is None
-
-
 class TestPeerflixWritesOnlyUnderOurDirectory:
     """
-    peerflix has two output locations, and -f only moves one of them.
+    peerflix has two output locations and only one of them can be aimed.
 
-    The buffer went where it was told, but the .torrent metadata file still
-    turned up in /tmp/torrent-stream, because that path comes from os.tmpdir()
-    and -f says nothing about it. TMPDIR moves it, since os.tmpdir() reads that.
+    -f sets the buffer path, so the download goes where we want. The .torrent
+    metadata file cannot be moved at all: torrent-stream/index.js builds its path
+    as
+
+        var TMP = fs.existsSync('/tmp') ? '/tmp' : (os.tmpdir ...)
+        var torrentPath = path.join(opts.tmp, opts.name, infoHash + '.torrent')
+
+    with opts.name defaulting to 'torrent-stream'. TMP is resolved to the
+    literal '/tmp' before any environment is consulted, so TMPDIR does not reach
+    it, and peerflix exposes no option for it.
+
+    TMPDIR was tried for this and reverted. It redirected os.tmpdir() users
+    correctly but not this one, so it would have looked like it worked. A symlink
+    from /tmp/torrent-stream was tried next and dropped: peerflix's path is
+    clearer left alone than faked, and the file is about 21 KB per torrent
+    against a download measured in gigabytes.
+
+    So this directory is the one thing outside /tmp/blissflixx, and it is
+    deliberately so.
     """
 
     def test_the_buffer_directory_is_ours(self):
@@ -971,19 +973,21 @@ class TestPeerflixWritesOnlyUnderOurDirectory:
 
         assert BUFFER_DIR.startswith(pp.TMP_DIR)
 
-    def test_tmpdir_points_at_our_directory(self):
+    def test_the_buffer_is_told_where_to_go(self):
         from lib.player.pflixproc import PeerflixProcess
 
-        env = PeerflixProcess("magnet:?xt=urn:btih:AA", -1).env
-        assert env["TMPDIR"] == pp.TMP_DIR
+        cmd = PeerflixProcess("magnet:?xt=urn:btih:AA", -1).cmd
+        assert cmd[cmd.index("-f") + 1] == pp.TMP_DIR + "/torrent-stream"
 
-    def test_the_existing_environment_is_preserved(self):
+    def test_nothing_pretends_to_redirect_peerflixs_hardcoded_path(self):
         """
-        dict(os.environ, TMPDIR=...) rather than a bare dict, so PATH, HOME and
-        the rest still reach the child.
+        Guards against the symlink coming back. It worked, and it was still
+        wrong: making a path peerflix believes is its own into something else
+        is more confusing than a 21 KB file in the wrong directory.
         """
-        from lib.player.pflixproc import PeerflixProcess
+        import inspect
 
-        env = PeerflixProcess("magnet:?xt=urn:btih:AA", -1).env
-        assert env.get("PATH") == os.environ.get("PATH")
-        assert "HOME" in env
+        import blissflixx
+
+        source = inspect.getsource(blissflixx)
+        assert "symlink" not in source, "peerflix's hardcoded path is faked again"
