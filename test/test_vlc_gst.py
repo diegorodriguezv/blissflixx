@@ -1569,10 +1569,10 @@ class TestTheOpeningTitle:
         next action's confirmation replaces it.
         """
         proc, shown = self._playable(length=None)
-        proc._TITLE_WAIT_TIMEOUT = 0.01
-        proc._TITLE_POLL_INTERVAL = 0.001
-
-        proc._show_opening_title()
+        with m.patch("lib.player.vlcproc._TITLE_WAIT_TIMEOUT", 0.01), m.patch(
+            "lib.player.vlcproc._TITLE_POLL_INTERVAL", 0.001
+        ):
+            proc._show_opening_title()
 
         assert shown == ["Lanterns S01E08"], shown
 
@@ -1586,6 +1586,22 @@ class TestTheOpeningTitle:
         proc._show_opening_title()
 
         assert shown == [], shown
+
+    def test_it_keeps_asking_because_the_length_arrives_late(self):
+        """
+        Measured on the player: get_length answers nothing at all for roughly
+        the first fifteen or twenty seconds of a film, then starts answering.
+
+        So the wait cannot be short, and neither can the gap between asks. The
+        announcement is a few seconds of screen at the start of something that
+        runs for hours -- it can afford to arrive at twenty seconds, but it
+        cannot arrive at two, or it would be announcing a film whose duration
+        it had not been told.
+        """
+        import lib.player.vlcproc as vlc
+
+        assert vlc._TITLE_WAIT_TIMEOUT >= 30
+        assert vlc._TITLE_POLL_INTERVAL >= 1
 
     def test_the_title_does_not_outlive_the_player(self):
         """
