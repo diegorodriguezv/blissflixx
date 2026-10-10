@@ -872,10 +872,17 @@ class TestDownloadsAreNeverDeleted:
         assert "-r" not in cmd
         assert "--remove" not in cmd
 
-    def test_peerflix_buffers_inside_our_own_directory(self):
+    def test_peerflix_buffers_on_the_card_not_in_ram(self):
+        """
+        /tmp is a tmpfs sized at half of RAM on any current Pi -- systemd's
+        static tmp.mount -- so it holds 371MB on a 741MB Pi. A film is 2-4GB.
+        The download filled the mount, every later write failed with ENOSPC, and
+        the on-screen confirmation stopped appearing. The buffer has to be on
+        the card.
+        """
         from lib.player.pflixproc import BUFFER_DIR, PeerflixProcess
 
-        assert BUFFER_DIR.startswith(pp.TMP_DIR), BUFFER_DIR
+        assert not BUFFER_DIR.startswith("/tmp"), BUFFER_DIR
         cmd = PeerflixProcess("magnet:?xt=urn:btih:AAAA", -1).cmd
         assert cmd[cmd.index("-f") + 1] == BUFFER_DIR
 
@@ -943,7 +950,7 @@ class TestAStopIsNotAFailure:
         assert proc.errors[0] == "could not start | no suitable decoder"
 
 
-class TestPeerflixWritesOnlyUnderOurDirectory:
+class TestPeerflixsHardcodedMetadataPathIsLeftAlone:
     """
     peerflix has two output locations and only one of them can be aimed.
 
@@ -962,22 +969,16 @@ class TestPeerflixWritesOnlyUnderOurDirectory:
     correctly but not this one, so it would have looked like it worked. A symlink
     from /tmp/torrent-stream was tried next and dropped: peerflix's path is
     clearer left alone than faked, and the file is about 21 KB per torrent
-    against a download measured in gigabytes.
-
-    So this directory is the one thing outside /tmp/blissflixx, and it is
-    deliberately so.
+    against a download measured in gigabytes -- so leaving ~21KB of metadata in
+    RAM costs nothing next to the gigabytes, and the buffer is on the card.
     """
 
-    def test_the_buffer_directory_is_ours(self):
-        from lib.player.pflixproc import BUFFER_DIR
-
-        assert BUFFER_DIR.startswith(pp.TMP_DIR)
-
-    def test_the_buffer_is_told_where_to_go(self):
-        from lib.player.pflixproc import PeerflixProcess
+    def test_the_buffer_is_on_the_card_while_metadata_stays_in_tmp(self):
+        from lib.player.pflixproc import BUFFER_DIR, PeerflixProcess
 
         cmd = PeerflixProcess("magnet:?xt=urn:btih:AA", -1).cmd
-        assert cmd[cmd.index("-f") + 1] == pp.TMP_DIR + "/torrent-stream"
+        assert cmd[cmd.index("-f") + 1] == BUFFER_DIR
+        assert not BUFFER_DIR.startswith("/tmp"), BUFFER_DIR
 
     def test_nothing_pretends_to_redirect_peerflixs_hardcoded_path(self):
         """

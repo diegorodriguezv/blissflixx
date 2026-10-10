@@ -21,6 +21,7 @@ import lib.locations as locations
 # them as attributes of the package, so the getattr dispatch below works.
 from lib.api import channels, playlink, playlists, playr, torrent
 from lib.player import processpipe
+from lib.player.pflixproc import BUFFER_DIR
 
 api_modules = {
     "channels": channels,
@@ -57,18 +58,24 @@ def ensure_data_dirs():
         locations.DATA_PATH,
         os.path.join(locations.DATA_PATH, "playlists"),
         locations.SETTINGS_PATH,
+        os.path.join(locations.DATA_PATH, "downloads"),
     ):
         os.makedirs(path, exist_ok=True)
 
+    # peerflix buffers into data/downloads/torrent-stream on the card, and does
+    # not create it. Without this a torrent fails on the first read with an
+    # unhelpful error rather than at startup.
+    os.makedirs(BUFFER_DIR, exist_ok=True)
+
     # The scratch directory as well, and for the same reason. Every temporary
-    # file BlissFlixx or its dependencies produce lives here now -- the peerflix
-    # buffer, downloaded subtitles, the player command fifo, the sockets -- so
-    # that there is one directory to look at, and one to clear deliberately
-    # rather than as a side effect of something stopping.
+    # file BlissFlixx or its dependencies produce lives here now -- downloaded
+    # subtitles, the player command fifo, the sockets -- so that there is one
+    # directory to look at, and one to clear deliberately rather than as a side
+    # effect of something stopping.
     #
-    # It has to exist before any stage runs, because getsubs.py writes into it as
-    # a separate process and peerflix is told to buffer there with -f. Both used
-    # to rely on /tmp simply being there, which is why nothing created it.
+    # Deliberately small on purpose. /tmp is a tmpfs sized at half of RAM on any
+    # current Pi, so it holds sockets, fifos and ~21KB of peerflix metadata and
+    # nothing else. Downloads live on the card.
     os.makedirs(processpipe.TMP_DIR, exist_ok=True)
 
 

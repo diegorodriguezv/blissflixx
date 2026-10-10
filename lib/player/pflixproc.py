@@ -4,12 +4,23 @@ import re
 import cherrypy
 
 from ..api.torrent import torrent2magnet
+from ..locations import DATA_PATH
 from .processpipe import TMP_DIR, ExternalProcess, ProcessException
 
 _PEERFLIX_PORT = "9696"
 #: Where peerflix keeps what it downloads. Told to peerflix with -f; it does not
 #: create the directory itself.
-BUFFER_DIR = os.path.join(TMP_DIR, "torrent-stream")
+#:
+#: On the SD card, not in /tmp. This used to be /tmp/torrent-stream -- the
+#: hardcoded default -- and moving it under /tmp/blissflixx was still wrong,
+#: because on any current Pi /tmp is a tmpfs sized at half of RAM (systemd's
+#: static tmp.mount, Options=...,size=50%%). A 1080p film is 2-4GB against
+#: 371MB, so the download could not finish; it filled the mount and every
+#: write after it failed with ENOSPC, which is how the on-screen confirmation
+#: stopped appearing. peerflix's own .torrent library stays in /tmp on purpose:
+#: that path is baked into peerflix and the file is ~21KB, so it is not worth
+#: fighting for, and it is the only thing of ours left in RAM.
+BUFFER_DIR = os.path.join(DATA_PATH, "downloads", "torrent-stream")
 
 #: peerflix announces the address it is actually bound to, which is not always
 #: loopback. It picks the first non-internal interface it finds, so on a Pi with
@@ -36,9 +47,9 @@ class PeerflixProcess(ExternalProcess):
         # attempt. Nothing deletes torrent data here now.
         cmd.append("-p")
         cmd.append(_PEERFLIX_PORT)
-        # Keep peerflix's buffer inside our own directory rather than the
-        # default /tmp/torrent-stream, so everything BlissFlixx writes lives in
-        # one place and can be reasoned about -- and cleaned up -- as a unit.
+        # Keep peerflix's buffer on the card rather than in /tmp, which on a
+        # current Pi is a tmpfs of half of RAM and cannot hold a film. See
+        # BUFFER_DIR.
         cmd.append("-f")
         cmd.append(BUFFER_DIR)
         if idx is not None and idx >= 0:

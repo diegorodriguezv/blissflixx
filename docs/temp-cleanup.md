@@ -20,20 +20,24 @@ slow connection or with poor seeds — which is exactly who is watching somethin
 in the first place — a torrent could never finish, and a subtitle file was
 refetched on every play.
 
-Deleting is now never a side effect of stopping or restarting. All of it lives
-in `/tmp/blissflixx`.
+Deleting is now never a side effect of stopping or restarting. Ephemeral files
+live in `/tmp/blissflixx`; downloads live on the card.
 
 ## What is in there
 
 ```
 /tmp/blissflixx/
-  torrent-stream/       peerflix's download buffer, told with -f
   <name>.srt            downloaded subtitles, from bin/getsubs.py
   cmdfifo               omxplayer command fifo
   mpv.sock              mpv IPC
   vlc.sock              VLC, unused: this VLC has no rc module
   bf.out                yt-dlp output, while downloading
   omxplayerdbus.$USER   omxplayer dbus socket and pid
+```
+
+```
+data/downloads/
+  torrent-stream/       peerflix's download buffer, told with -f
 ```
 
 One deliberate exception: peerflix also writes a `<hash>.torrent` metadata file to
@@ -46,13 +50,27 @@ which resolves to the literal `/tmp` before any environment is consulted, and
 peerflix has no option for it. `TMPDIR` was tried and does not reach it. A
 symlink was tried and dropped: faking a path peerflix believes is its own is more
 confusing than the file being in the wrong place, and the file is about 21 KB
-per torrent against a download measured in gigabytes.
+per torrent against a download measured in gigabytes — so leaving that much
+metadata in RAM costs nothing.
 
-## The problem with keeping everything
+## Why downloads are not in /tmp
 
-`/tmp` is tmpfs on a Raspberry Pi, so retained downloads consume **RAM**, not
-disk. A few 1080p torrents is enough to matter on a 1 GB Pi. Nothing here should
-be cleaned up automatically by default, but it cannot stay unbounded either.
+This was not a theory. The buffer sat in `/tmp/blissflixx/torrent-stream` and a
+torrent filled it to 100% (371 MB of 371 MB), after which every write failed with
+`ENOSPC` — including the file the on-screen confirmation is written to, so the
+overlay silently disappeared. The subtitle overlay stopped too.
+
+`/tmp` is a tmpfs here, and not by Debian policy: `tmp.mount` is a **static
+systemd unit** shipped with `Options=mode=1777,...,size=50%%`, so it mounts
+`tmpfs` on `/tmp` sized at half of RAM on any system where `/tmp` is a real
+directory. On a 741 MB Pi that is 371 MB. There is no fstab entry and nothing
+custom — a fresh install gets it too.
+
+A 1080p film is 2–4 GB. Against 371 MB of RAM it cannot finish, and no amount
+of tuning makes it fit. Downloads therefore go on the card, which has ~22 GB free.
+
+The card is slower than tmpfs, but the comparison was never real: the alternative
+is not a faster disk, it is not finishing the film.
 
 ## Proposed behaviour
 

@@ -70,7 +70,7 @@ class TestVlcCommand:
             "--sub-text-scale=95",
             # Lifts the subtitles off the bottom edge so the overlay can sit
             # just above them instead of over them.
-            "--sub-margin=150",
+            "--sub-margin=220",
             "--osd",
             "--no-video-title-show",
             "--play-and-exit",
@@ -89,27 +89,48 @@ class TestVlcCommand:
         assert "--marq-refresh=1" in cmd
         assert not [a for a in cmd if a.startswith("--video-filter=marq")]
 
-    def test_the_overlay_is_big_and_high_enough_to_read_and_not_collide(self):
+    def test_the_overlay_is_big_enough_to_read_from_a_sofa(self):
         """
-        At 28px and position 8 the message was too small to read from a sofa and
-        sat over the subtitle band. VLC sizes marquee text in pixels of the source
-        frame, so 84px is roughly triple and scales with resolution; position 2
-        is near the top, well clear of subtitles at the bottom.
+        At 28px it was unreadable from where you sit. VLC sizes marquee text in
+        pixels of the source frame, so 84px is roughly triple and scales with
+        resolution.
         """
         cmd = vlc({"outfile": FILE_OUT})
         size = int([a for a in cmd if a.startswith("--marq-size=")][0].split("=")[1])
-        pos = int([a for a in cmd if a.startswith("--marq-position=")][0].split("=")[1])
         assert size >= 84, size
-        assert pos <= 2, pos
+
+    def test_the_overlay_is_at_the_top_not_the_right(self):
+        """
+        marq-position is not a 1-10 scale. marq passes it straight through as the
+        subpicture region's i_align, and the values it offers are 0 center,
+        1 left, 2 right, 4 top, 8 bottom. Guessing a scale put the message on
+        the right of the screen; 4 is the top edge.
+
+        Pinned against the enum rather than a range, because "between 1 and 2"
+        was satisfied by the wrong answer.
+        """
+        cmd = vlc({"outfile": FILE_OUT})
+        pos = int([a for a in cmd if a.startswith("--marq-position=")][0].split("=")[1])
+        assert pos == 4, pos
+
+    def test_subtitles_are_lifted_off_the_bottom_edge(self):
+        """
+        VLC applies sub-margin to the subtitle region alone -- vout_subpictures
+        lifts the region by y_margin -- which is the only way to stop the text
+        sitting flush against the border.
+        """
+        cmd = vlc({"outfile": FILE_OUT})
+        margin = int([a for a in cmd if a.startswith("--sub-margin=")][0].split("=")[1])
+        assert margin >= 200, margin
 
     def test_subtitles_are_lifted_to_leave_room_below_them(self):
         """
-        The message goes in the subtitle band so a change of subtitle and its
-        confirmation are in one place, and marq draws from the frame's edge --
-        which is how it stays above them.
+        The message moved to the top of the frame, so the subtitles no longer
+        have to be pushed up to make room for it -- but they should still not
+        sit flush against the bottom border.
         """
         cmd = vlc({"outfile": FILE_OUT})
-        assert "--sub-margin=150" in cmd
+        assert "--sub-margin=220" in cmd
 
     def test_the_overlay_reads_its_text_from_a_file(self):
         """

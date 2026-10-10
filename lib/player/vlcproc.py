@@ -257,12 +257,17 @@ class VlcProcess(PlayerBackend):
         # How long a message stays on screen, in milliseconds. Zero would leave
         # it there for ever, which would be worse than not showing it at all.
         "osd_timeout": "3000",
-        # marq draws from this edge instead of the frame's own, which is what
-        # lets the message sit clear of the subtitles rather than over them.
-        "sub_margin": "150",
-        # 1-10, counting down from the top. 2 sits well clear of the subtitle
-        # band, which is the bottom of the picture -- at 8 it overlapped.
-        "osd_position": "2",
+        # How far the subtitles sit above the bottom edge, in destination pixels.
+        # VLC applies this to the subtitle region alone (vout_subpictures.c lifts
+        # the region by y_margin), so it is the way to stop them sitting flush
+        # against the border.
+        "sub_margin": "220",
+        # An alignment enum, not a 1-10 scale: marq passes this straight
+        # through as the subpicture region's i_align. The values marq offers are
+        # 0 center, 1 left, 2 right, 4 top, 8 bottom. Guessing at a scale put
+        # the message on the right of the screen; 4 is the top edge, which is
+        # what a confirmation belongs at and well clear of the subtitles.
+        "osd_position": "4",
         # Big enough to read from a sofa. VLC measures this in pixels of the
         # source frame, so it scales with resolution: at 1080p 28px was small.
         "osd_size": "84",
