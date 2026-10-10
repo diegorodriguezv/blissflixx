@@ -51,6 +51,25 @@ def gst(args, **config):
     return GStreamerProcess(config).build_command(args)
 
 
+def on_screen_proc():
+    """
+    A VlcProcess put in the state a running one is in: commands are captured
+    rather than sent, and the overlay file exists with a message on it, so
+    control() can be exercised without a player.
+    """
+    proc = VlcProcess()
+    proc._send_command = lambda command: True
+    proc._current_volume = lambda: 100
+    proc._set_volume = lambda level: True
+    proc._show_track = lambda verb: True
+    proc._step_track = lambda verb, direction: True
+    proc._track_choice = {"strack": -1, "atrack": -1}
+    with open(MARQ_FILE, "w", encoding="utf-8") as handle:
+        handle.write("Paused")
+    proc._overlay_shown = "Paused"
+    return proc
+
+
 class TestVlcCommand:
     def test_matches_the_verified_pi_invocation(self):
         """
@@ -77,7 +96,11 @@ class TestVlcCommand:
             # just above them instead of over them.
             "--sub-margin=24",
             "--osd",
-            "--no-video-title-show",
+            # VLC's own title, for the first few seconds. Not written by us:
+            # the thread that used to do it polled the player, and polling is
+            # what silences the cli interface.
+            "--video-title-show",
+            "--video-title-timeout=3000",
             "--play-and-exit",
             FILE_OUT,
         ]
@@ -118,25 +141,6 @@ class TestVlcCommand:
         pos = int([a for a in cmd if a.startswith("--marq-position=")][0].split("=")[1])
         assert pos == 4, pos
 
-    def _on_screen_proc(self):
-        """
-        A VlcProcess that has been put in the state a running one is in: commands
-        are captured rather than sent, and the overlay file exists with a message
-        on it. control() is otherwise free to write to the real MARQ_FILE.
-        """
-        proc = VlcProcess()
-        proc._send_command = lambda command: True
-        proc._current_volume = lambda: 100
-        proc._set_volume = lambda level: True
-        proc._report_progress = lambda: True
-        proc._show_track = lambda verb: True
-        proc._step_track = lambda verb, direction: True
-        proc._track_choice = {"strack": -1, "atrack": -1}
-        with open(MARQ_FILE, "w", encoding="utf-8") as handle:
-            handle.write("Paused")
-        proc._overlay_shown = "Paused"
-        return proc
-
     def test_the_overlay_file_exists_before_the_player_starts(self):
         """
         marq logs "cannot open ...: No such file or directory" once per refresh
@@ -162,7 +166,7 @@ class TestVlcCommand:
         Whichever gets there first, the user is first from then on: the search
         is only worth more than them while they are still watching the title.
         """
-        proc = self._on_screen_proc()
+        proc = on_screen_proc()
         proc._acted = False
         proc._send_command = lambda command: True
 
@@ -207,7 +211,7 @@ class TestVlcCommand:
         than just resume, because "" was written by one and the next could do
         the same.
         """
-        proc = self._on_screen_proc()
+        proc = on_screen_proc()
         proc.control(action)
         assert os.path.getsize(MARQ_FILE) > 0, action
 
@@ -1560,122 +1564,88 @@ class TestWhatTheOverlaySays:
 
 class TestTheOpeningTitle:
     """
-    What is said when a film starts, and how soon.
+    What is said when a film starts, and how it is obtained.
+
+    It used to be written by us: a background thread polling get_length until
+    the player would answer, then writing the title and the duration to the
+    marquee. That polling is what stopped VLC's cli answering anything at all
+    -- the interface goes quiet within about twenty seconds of playback -- so
+    seeks stopped getting a time on their confirmation, which is what it was
+    meant to be fixing.
     """
 
-    def _playable(self, length="7142"):
-        proc = VlcProcess()
-        shown = []
-        proc._show_overlay = shown.append
-        proc._read_number = lambda verb: (
-            float(length) if verb == "get_length" and length else None
+    def test_vlc_is_asked_to_show_its_own_title(self):
+        """
+        It already knows the duration without being asked, and does not need to
+        be spoken to. Asking it in its own words cannot silence it.
+        """
+        cmd = vlc({"outfile": FILE_OUT})
+
+        assert "--video-title-show" in cmd
+        assert "--video-title-timeout=3000" in cmd
+        assert "--no-video-title-show" not in cmd
+
+    def test_nothing_polls_the_player_for_the_duration(self):
+        """
+        The regression that has to stay fixed: anything asking the player a
+        question on a timer is what takes the reply away from the user's own
+        commands.
+        """
+        import inspect
+
+        from lib.player.vlcproc import VlcProcess
+
+        source = inspect.getsource(VlcProcess)
+        assert "_show_opening_title" not in source
+        assert (
+            "get_length"
+            not in inspect.getsource(VlcProcess._read_position).split(
+                "if self._length is None"
+            )[0]
         )
-        proc.proc = m.Mock(poll=lambda: None)
-        proc.build_command({"outfile": "/tmp/a.mkv", "title": "Lanterns S01E08"})
-        return proc, shown
 
-    def test_the_title_and_its_duration_are_shown_once_up(self):
+    def test_a_seek_confirmation_still_asks_once_when_it_must(self):
         """
-        Both together, because the duration is what says the file that opened is
-        the whole film rather than a fragment of it.
+        Unlike the title thread, this is one question at the moment the user
+        asked something -- not a poll -- so it is safe to ask again if the
+        answer has not arrived yet.
         """
-        proc, shown = self._playable()
+        proc = _running()
+        asked = []
+        answers = {"get_time": None, "get_length": None}
+        proc._read_number = lambda verb: (asked.append(verb), answers[verb])[1]
 
-        proc._show_opening_title()
+        proc._report_progress()
+        proc._report_progress()
 
-        assert shown == ["Lanterns S01E08 (1:59:02)"], shown
+        assert asked.count("get_length") == 2, asked
 
-    def test_nothing_is_shown_when_there_is_no_title(self):
+    def test_pausing_and_playing_both_say_where_the_film_is(self):
         """
-        A stream with no title says nothing, rather than an empty line.
+        Pausing is for stopping to do something and coming back to where you
+        stopped, so "Paused" on its own left out the part that matters. Same
+        for the un-pause.
         """
-        proc = VlcProcess()
-        shown = []
-        proc._show_overlay = shown.append
-        proc.proc = m.Mock(poll=lambda: None)
-        proc.build_command({"outfile": "/tmp/a.mkv"})
+        proc = on_screen_proc()
+        proc._read_position = lambda: (6144.0, 7742.0)
 
-        proc._show_opening_title()
+        proc.control("pause")
+        assert proc._overlay_shown == "Paused 1:42:24 / 2:09:02"
 
-        assert shown == [], shown
+        proc.control("resume")
+        assert proc._overlay_shown == "Play 1:42:24 / 2:09:02"
 
-    def test_the_title_is_shown_alone_when_the_duration_never_arrives(self):
+    def test_pausing_still_says_something_when_the_player_will_not(self):
         """
-        A torrent that has not opened yet answers nothing for the length. The
-        film is still playing, so saying what it is beats saying nothing; the
-        next action's confirmation replaces it.
+        The label on its own, rather than no message at all -- a missing
+        confirmation is what this is replacing.
         """
-        proc, shown = self._playable(length=None)
-        with m.patch("lib.player.vlcproc._TITLE_WAIT_TIMEOUT", 0.01), m.patch(
-            "lib.player.vlcproc._TITLE_POLL_INTERVAL", 0.001
-        ):
-            proc._show_opening_title()
+        proc = on_screen_proc()
+        proc._read_position = lambda: None
 
-        assert shown == ["Lanterns S01E08"], shown
+        proc.control("pause")
 
-    def test_nothing_is_shown_when_the_overlay_is_off(self):
-        proc = VlcProcess({"osd_overlay": "0"})
-        shown = []
-        proc._show_overlay = shown.append
-        proc.proc = m.Mock(poll=lambda: None)
-        proc.build_command({"outfile": "/tmp/a.mkv", "title": "Lanterns"})
-
-        proc._show_opening_title()
-
-        assert shown == [], shown
-
-    def test_it_keeps_asking_because_the_length_arrives_late(self):
-        """
-        Measured on the player: get_length answers nothing at all for roughly
-        the first fifteen or twenty seconds of a film, then starts answering.
-
-        So the wait cannot be short, and neither can the gap between asks. The
-        announcement is a few seconds of screen at the start of something that
-        runs for hours -- it can afford to arrive at twenty seconds, but it
-        cannot arrive at two, or it would be announcing a film whose duration
-        it had not been told.
-        """
-        import lib.player.vlcproc as vlc
-
-        assert vlc._TITLE_WAIT_TIMEOUT >= 30
-        assert vlc._TITLE_POLL_INTERVAL >= 1
-
-    def test_the_title_does_not_outlive_the_player(self):
-        """
-        Stopping while the length has not arrived leaves nothing behind and does
-        not wait out the window doing it.
-        """
-        proc, shown = self._playable(length=None)
-        proc.killing = True
-
-        proc._show_opening_title()
-
-        assert shown == [], shown
-
-    def test_the_title_travels_down_the_pipe_with_the_args(self):
-        """
-        What is being played is known to ProcessPipe and nowhere else, so it is
-        put in the args the pipe already passes between stages. On the backend
-        rather than on the instance, because the backend is shared between plays
-        and would carry one film's name into the next.
-        """
-        from lib.player.processpipe import ProcessPipe
-
-        pipe = ProcessPipe("Lanterns S01E08")
-        pipe.procs = [m.Mock()]
-
-        assert pipe._with_title({"outfile": "/tmp/a.mkv"}) == {
-            "outfile": "/tmp/a.mkv",
-            "title": "Lanterns S01E08",
-        }
-
-    def test_an_existing_title_is_not_overwritten(self):
-        from lib.player.processpipe import ProcessPipe
-
-        pipe = ProcessPipe("Lanterns")
-        assert pipe._with_title({"title": "something else"}) == {
-            "title": "something else"
-        }
+        assert proc._overlay_shown == "Paused"
 
 
 class TestProgressReporting:

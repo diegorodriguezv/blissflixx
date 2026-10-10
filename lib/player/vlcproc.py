@@ -134,12 +134,6 @@ _TRACK_ID = re.compile(r"^\|?\s*(-?\d+)\s+-")
 #: listing is empty until VLC has opened the media, and a torrent being streamed
 #: over http can take a while to start producing.
 _SUBTITLE_WAIT_TIMEOUT = 60
-#: How long to wait for the media to be open enough to know how long it is, and
-#: how often to ask while waiting. Generous because a torrent being streamed
-#: over http can take a while to start producing at all, and the same applies to
-#: how long it takes to learn the duration.
-_TITLE_WAIT_TIMEOUT = 60
-_TITLE_POLL_INTERVAL = 2
 #: Where the marquee reads its text from. VLC re-reads it every --marq-refresh
 #: seconds, so writing to it is how the position gets on the screen.
 MARQ_FILE = os.path.join(TMP_DIR, "marq.txt")
@@ -388,17 +382,14 @@ class VlcProcess(PlayerBackend):
         # Track id to language, from the listing the ids came from; the listing
         # is the only place a track's language appears.
         self._track_names = {}
-        # What is being played, for the opening title. See build_command.
-        self._title = ""
-        # Set the moment the user asks for anything. The background searches --
-        # for a subtitle track, for the duration -- give up when it is set.
+        # Set the moment the user asks for anything; the subtitle search gives
+        # up when it is set.
         #
         # They and the user want the same thing: one command at a time on one
-        # stdin, with the reply that comes back matched to the command that was
-        # sent. So a search polling every second or two was swallowing the reply
-        # to somebody's ffwd, and the confirmation said nothing at all. The
-        # search is only ever more useful than the user while they are still
-        # watching the title, so it stops as soon as they are not.
+        # stdin, with the reply matched to the command that was sent. A search
+        # polling in the background was swallowing the reply to somebody's ffwd,
+        # so the confirmation said nothing. It is only ever more useful than the
+        # user while they are still waiting for playback to start.
         self._acted = False
         # Once the stage is running, the copier feeds every line the player
         # writes -- replies and log output alike -- through here. During startup
@@ -465,10 +456,6 @@ class VlcProcess(PlayerBackend):
         return self.opt("start_timeout")
 
     def build_command(self, args):
-        # Remembered for the opening title. Taken here because this is where
-        # the args arrive, and build_command has to stay pure -- a stage that
-        # read it any later could pick up the previous film's name.
-        self._title = args.get("title") or ""
         cmd = [self.opt("binary")]
         cmd += list(self.opt("extra_args"))
         cmd += self._osd_args()
@@ -484,9 +471,20 @@ class VlcProcess(PlayerBackend):
             # pause or a seek is invisible on the screen, so the only feedback
             # is whatever the log says, which nobody watching a film can see.
             "--osd",
-            # The startup title overlay is not wanted: it covers the picture
-            # while the film begins and is not what --osd is for.
-            "--no-video-title-show",
+            # VLC's own title, for the first few seconds of the film.
+            #
+            # This was --no-video-title-show, and the title was written by us
+            # instead: a background thread polling get_length until the player
+            # would answer. That was the one thing that stopped the cli
+            # interface answering anything -- it went quiet within twenty seconds
+            # of playback, taking the reply to every seek with it, which is why a
+            # seek's confirmation so often had no time on it.
+            #
+            # VLC already does this, knows the duration without being asked, and
+            # does not need to be spoken to. Asking it in its own words costs
+            # nothing and cannot silence it.
+            "--video-title-show",
+            "--video-title-timeout=" + str(self.opt("osd_timeout")),
             "--play-and-exit",
         ]
         if "subtitles" in args:
@@ -537,7 +535,6 @@ class VlcProcess(PlayerBackend):
                 # reporting the startup banner as if it were its own answer.
                 self._reset_replies()
                 self._enable_embedded_subtitles()
-                _start_thread(self._show_opening_title)
                 return
             if any(marker in line for marker in _ERROR_MARKERS):
                 # Defer this one. The interface reads its next command from
@@ -980,45 +977,6 @@ class VlcProcess(PlayerBackend):
         if "subtitles" in args:
             return
         _start_thread(self._wait_for_subtitles, args)
-
-    def _show_opening_title(self):
-        """
-        Say what started, with how long it is, once the film is actually up.
-
-        Waiting is needed for the same reason the subtitle search waits: at
-        readiness VLC has printed its banner but has not opened the media, so
-        get_length answers nothing and the duration would read "--". Polled on a
-        background thread for the same reason -- blocking here would hold up the
-        whole pipeline for as long as the media takes to open.
-
-        Shown without the "now playing" chrome, just the title and the length,
-        because that is what answers "did it start the right thing".
-
-        Given up on after the window, and then the title is shown alone: a title
-        with no duration is useful, silence is not. The next action's own
-        confirmation replaces it -- marq's timeout takes it away on its own.
-        """
-        if not self._overlay_wanted():
-            return
-        title = self._title
-        if not title:
-            return
-        deadline = time.time() + _TITLE_WAIT_TIMEOUT
-        while time.time() < deadline:
-            if self.killing or self._acted:
-                return
-            proc = getattr(self, "proc", None)
-            if proc is None or proc.poll() is not None:
-                return
-            length = self._read_number("get_length")
-            if length is not None and length > 0:
-                self._length = length
-                self._show_overlay("%s (%s)" % (title, _format_clock(length)))
-                return
-            time.sleep(_TITLE_POLL_INTERVAL)
-        # Nothing answered for the length, but the film is playing: say what it
-        # is rather than leaving the screen to say nothing.
-        self._show_overlay(title)
 
     def _wait_for_subtitles(self, args):
         deadline = time.time() + _SUBTITLE_WAIT_TIMEOUT
