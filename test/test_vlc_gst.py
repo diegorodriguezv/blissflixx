@@ -1521,6 +1521,110 @@ class TestWhatTheOverlaySays:
         assert shown == ["Volume 51%"], shown
 
 
+class TestTheOpeningTitle:
+    """
+    What is said when a film starts, and how soon.
+    """
+
+    def _playable(self, length="7142"):
+        proc = VlcProcess()
+        shown = []
+        proc._show_overlay = shown.append
+        proc._read_number = lambda verb: (
+            float(length) if verb == "get_length" and length else None
+        )
+        proc.proc = m.Mock(poll=lambda: None)
+        proc.build_command({"outfile": "/tmp/a.mkv", "title": "Lanterns S01E08"})
+        return proc, shown
+
+    def test_the_title_and_its_duration_are_shown_once_up(self):
+        """
+        Both together, because the duration is what says the file that opened is
+        the whole film rather than a fragment of it.
+        """
+        proc, shown = self._playable()
+
+        proc._show_opening_title()
+
+        assert shown == ["Lanterns S01E08 (1:59:02)"], shown
+
+    def test_nothing_is_shown_when_there_is_no_title(self):
+        """
+        A stream with no title says nothing, rather than an empty line.
+        """
+        proc = VlcProcess()
+        shown = []
+        proc._show_overlay = shown.append
+        proc.proc = m.Mock(poll=lambda: None)
+        proc.build_command({"outfile": "/tmp/a.mkv"})
+
+        proc._show_opening_title()
+
+        assert shown == [], shown
+
+    def test_the_title_is_shown_alone_when_the_duration_never_arrives(self):
+        """
+        A torrent that has not opened yet answers nothing for the length. The
+        film is still playing, so saying what it is beats saying nothing; the
+        next action's confirmation replaces it.
+        """
+        proc, shown = self._playable(length=None)
+        proc._TITLE_WAIT_TIMEOUT = 0.01
+        proc._TITLE_POLL_INTERVAL = 0.001
+
+        proc._show_opening_title()
+
+        assert shown == ["Lanterns S01E08"], shown
+
+    def test_nothing_is_shown_when_the_overlay_is_off(self):
+        proc = VlcProcess({"osd_overlay": "0"})
+        shown = []
+        proc._show_overlay = shown.append
+        proc.proc = m.Mock(poll=lambda: None)
+        proc.build_command({"outfile": "/tmp/a.mkv", "title": "Lanterns"})
+
+        proc._show_opening_title()
+
+        assert shown == [], shown
+
+    def test_the_title_does_not_outlive_the_player(self):
+        """
+        Stopping while the length has not arrived leaves nothing behind and does
+        not wait out the window doing it.
+        """
+        proc, shown = self._playable(length=None)
+        proc.killing = True
+
+        proc._show_opening_title()
+
+        assert shown == [], shown
+
+    def test_the_title_travels_down_the_pipe_with_the_args(self):
+        """
+        What is being played is known to ProcessPipe and nowhere else, so it is
+        put in the args the pipe already passes between stages. On the backend
+        rather than on the instance, because the backend is shared between plays
+        and would carry one film's name into the next.
+        """
+        from lib.player.processpipe import ProcessPipe
+
+        pipe = ProcessPipe("Lanterns S01E08")
+        pipe.procs = [m.Mock()]
+
+        assert pipe._with_title({"outfile": "/tmp/a.mkv"}) == {
+            "outfile": "/tmp/a.mkv",
+            "title": "Lanterns S01E08",
+        }
+
+    def test_an_existing_title_is_not_overwritten(self):
+        from lib.player.processpipe import ProcessPipe
+
+        pipe = ProcessPipe("Lanterns")
+        assert pipe._with_title({"title": "something else"}) == {
+            "title": "something else"
+        }
+
+
 class TestProgressReporting:
     """
     Position and duration, asked of VLC and written to the log.

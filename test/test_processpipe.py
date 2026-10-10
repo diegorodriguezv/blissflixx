@@ -140,6 +140,10 @@ class TestPipeHappyPath:
         """
         Each process reports READY with the arguments the next one needs, so the
         downloader hands a path to the player, which hands on the final details.
+
+        The title rides along with them. What is playing is known only to the
+        pipe -- it is constructed with it -- and the player stage wants it to
+        announce what started, so every stage is handed a "title" as well.
         """
         first = FakeProcess("first", args={"outfile": "/tmp/a"})
         second = FakeProcess("second", outcome="ready_then_finished", args={"final": 1})
@@ -150,8 +154,22 @@ class TestPipeHappyPath:
         collected, _ = drain(pipe)
 
         assert first.started_with == {}
-        assert second.started_with == {"outfile": "/tmp/a"}
+        assert second.started_with == {"outfile": "/tmp/a", "title": "title"}
         assert collected[0] == MSG_PLAYER_PIPE_STOPPED
+
+    def test_the_args_passed_on_are_not_edited_in_place(self):
+        """
+        The dict goes from stage to stage and the last one keeps it. Adding the
+        title to it directly would leave the downloader's own args carrying a
+        title it never asked for.
+        """
+        stage = FakeProcess("first", args={"outfile": "/tmp/a"})
+        pipe = ProcessPipe("title")
+        pipe.add_process(stage)
+        args = {"outfile": "/tmp/a"}
+
+        assert pipe._with_title(args) == {"outfile": "/tmp/a", "title": "title"}
+        assert args == {"outfile": "/tmp/a"}, args
 
     def test_reports_stopped_once_the_last_process_finishes(self):
         pipe = ProcessPipe("title")

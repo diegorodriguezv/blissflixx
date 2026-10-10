@@ -236,6 +236,21 @@ class ProcessPipe:
                 self.stop()
                 break
 
+    def _with_title(self, args):
+        """
+        The title travels with the args down the pipe.
+
+        What is being played is known here and nowhere else -- ProcessPipe is
+        constructed with it -- and the player stage would like it, to say what
+        started once the film is up. Adding it to the args dict rather than
+        setting it on the backend keeps build_command() pure, which is what lets
+        it be tested without the player installed, and keeps the backend
+        reusable between plays rather than carrying one film into the next.
+        """
+        if not args or "title" in args:
+            return args
+        return dict(args, title=self.title)
+
     def _last_proc(self):
         return self.procs[len(self.procs) - 1]
 
@@ -246,7 +261,7 @@ class ProcessPipe:
         proc = self.procs[self.next_proc]
         cherrypy.log("STARTING: " + proc.name() + ' "' + repr(proc) + '"')
         proc.set_msgq(self.msgq, self.next_proc)
-        self.threads.append(_start_thread(proc.start, args))
+        self.threads.append(_start_thread(proc.start, self._with_title(args)))
         self.next_proc = self.next_proc + 1
 
     def stop(self):
