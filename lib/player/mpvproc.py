@@ -87,12 +87,17 @@ class MpvProcess(PlayerBackend):
         "audio_device": "alsa/hdmi:CARD=vc4hdmi,DEV=0",
         "socket": _SOCKET_PATH,
         "start_timeout": _START_TIMEOUT,
+        # How far one press of the subtitle-delay buttons moves the timing.
+        # Quarter of a second, to match what those buttons are for.
+        "subtitle_delay_step": 0.25,
     }
 
     def __init__(self, config=None):
         # shell=False: argv with no shell metacharacters.
         super().__init__(config=config)
         self.shell = False
+        # mpv's sub-delay is absolute, so the running offset is kept here.
+        self._subtitle_delay = 0.0
 
     @property
     def socket_path(self):
@@ -197,6 +202,22 @@ class MpvProcess(PlayerBackend):
             self._set_property("sub-visibility", action == "show_subtitle")
         elif action in ("next_audio", "prev_audio"):
             self._cycle("audio")
+        elif action in ("subplus", "subminus"):
+            self._shift_subtitle_delay(+1 if action == "subplus" else -1)
+
+    def _shift_subtitle_delay(self, direction):
+        """
+        Nudge subtitle timing, the way omxplayer's f and d keys do.
+
+        mpv's sub-delay is an absolute offset in seconds, so it is tracked here
+        and moved from the last value set rather than sent as a relative nudge.
+        That keeps subplus then subminus returning to no offset, which is what
+        pressing a pair of keys in a row does on omxplayer.
+        """
+        self._subtitle_delay = round(
+            self._subtitle_delay + direction * self.opt("subtitle_delay_step"), 3
+        )
+        return self._set_property("sub-delay", self._subtitle_delay)
 
     def stop(self):
         if os.path.exists(self.socket_path):

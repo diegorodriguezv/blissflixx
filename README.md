@@ -240,8 +240,16 @@ is ever created. Subtitles and audio tracks are selected through `strack` and `a
 which list the available tracks and mark the active one with an asterisk,
 so visibility can be turned off with `-1` and back on with a real id. VLC
 therefore declares the same capabilities as `mpv` and `omxplayer-keys`.
-`--osd` is enabled so a pause or a seek is visible on screen: without it
-the only feedback is a log line nobody watching a film can see.
+`--osd` is enabled so a volume change or a seek is visible on screen: without
+it the only feedback is a log line nobody watching a film can see. VLC's own
+OSD cannot be sent text, because that needs `marq`, which this build does not
+have; setting `report_progress` to a number of seconds logs position and
+duration instead, via the `get_time` and `get_length` commands. It is off by
+default.
+
+Subtitle delay is a separate capability from subtitle selection. `mpv` and
+`omxplayer-keys` can nudge the timing; VLC cannot through its cli interface, so
+it does not advertise the capability and the buttons are hidden for it.
 
 ## Choosing a backend
 
@@ -295,8 +303,8 @@ The full set of keys, and their defaults, is each backend's `defaults` dict:
 
 | Backend | Keys |
 |---|---|
-| `vlc` | `binary`, `extra_args`, `audio_device`, `video_output`, `video_output_module`, `subtitle_text_scale`, `start_timeout`, `volume_step`, `volume_max` |
-| `mpv` | `binary`, `extra_args`, `audio_device`, `socket`, `start_timeout` |
+| `vlc` | `binary`, `extra_args`, `audio_device`, `video_output`, `video_output_module`, `subtitle_text_scale`, `start_timeout`, `report_progress`, `volume_step`, `volume_max` |
+| `mpv` | `binary`, `extra_args`, `audio_device`, `socket`, `start_timeout`, `subtitle_delay_step` |
 | `gstreamer` | `binary`, `pipeline`, `http_source`, `plane_id`, `connector_id`, `audio_device`, `video_decoder`, `audio_decoder`, `start_timeout` |
 | `omxplayer` | `binary`, `extra_args`, `start_timeout`, `input_timeout`, `dbus_path` |
 | `omxplayer-keys` | `binary`, `extra_args`, `start_timeout`, `fifo` |

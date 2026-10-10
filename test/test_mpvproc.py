@@ -64,6 +64,8 @@ ACTIONS = {
     "hide_subtitle",
     "next_audio",
     "prev_audio",
+    "subplus",
+    "subminus",
 }
 
 
@@ -216,6 +218,37 @@ class TestMpvControl:
 
     def test_unknown_action_sends_nothing(self):
         assert self._sent("nonsense") is None
+
+    @pytest.mark.parametrize(
+        "action,expected",
+        [
+            ("subplus", ("sub-delay", 0.25)),
+            ("subminus", ("sub-delay", -0.25)),
+        ],
+    )
+    def test_subtitle_delay_moves_by_a_quarter_second(self, action, expected):
+        proc = MpvProcess()
+        sent = []
+        proc._set_property = lambda n, v: sent.append((n, v)) or True
+        proc.control(action)
+        assert sent == [expected]
+
+    def test_subtitle_delay_accumulates_and_returns_to_the_start(self):
+        """
+        Two presses forward then one back must land on the first step, not on
+        zero: mpv's sub-delay is absolute, so it is tracked rather than nudged.
+        Pressing a pair of keys in a row behaves this way on omxplayer.
+        """
+        proc = MpvProcess()
+        sent = []
+        proc._set_property = lambda n, v: sent.append((n, v)) or True
+        proc.control("subplus")
+        proc.control("subplus")
+        proc.control("subminus")
+        assert [v for _, v in sent] == [0.25, 0.5, 0.25]
+
+    def test_subtitle_delay_is_reset_for_a_new_process(self):
+        assert MpvProcess()._subtitle_delay == 0.0
 
     def test_every_action_is_covered_by_a_test(self):
         """

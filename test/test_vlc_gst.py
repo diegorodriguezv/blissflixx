@@ -156,14 +156,30 @@ class TestVlcControl:
             ("pause", "pause"),
             ("resume", "play"),
             ("stop", "quit"),
-            ("plus30", "seek 30"),
+            ("plus30", "seek +30"),
             ("minus30", "seek -30"),
-            ("plus600", "seek 600"),
+            ("plus600", "seek +600"),
             ("minus600", "seek -600"),
         ],
     )
     def test_action_maps_to_a_cli_command(self, action, expected):
         assert self._sent(action) == expected
+
+    @pytest.mark.parametrize("action", ["plus30", "plus600", "minus30", "minus600"])
+    def test_every_seek_carries_an_explicit_sign(self, action):
+        """
+        VLC's common.lua decides relative-vs-absolute on the first character:
+
+            if string.sub(value,1,1) == "+" or ... == "-" then  -- relative
+            else                                                     -- absolute
+
+        So "seek 30" is an absolute jump to 00:30 and "seek +30" is 30 seconds
+        from here. These were sent unsigned, so plus30 took you to the start of
+        the film -- which reads like an action mapping bug rather than the syntax
+        it was. Pinned so the sign cannot be dropped by tidying.
+        """
+        sent = self._sent(action)
+        assert sent.split()[1][0] in "+-", sent
 
     def test_volume_up_steps_the_level(self):
         """
@@ -422,22 +438,29 @@ class TestVlcControl:
         """
         assert VlcProcess().stdin_pipe is True
 
-    def test_vlc_declares_exactly_what_it_can_do(self):
+    def test_vlc_declares_everything_except_subtitle_delay(self):
         """
-        The set is pinned rather than compared as a length, so gaining or losing
-        a capability has to be a deliberate edit here. It matched mpv's set and
-        omxplayer-keys' before strack and atrack made that true; the FIFO
-        variant declares the same, the dbus one less because it cannot cycle
-        tracks at all.
+        Pinned as an explicit set rather than a length, so gaining or losing a
+        capability has to be a deliberate edit here.
+
+        VLC is now exactly one behind mpv and omxplayer-keys. The gap is
+        subtitle delay: this VLC's cli interface has no verb for it. The whole
+        command table, read from the source, has no sub-delay and no marq --
+        only the desktop GUI has a control, and there is no GUI on a headless
+        box. Declared honestly so the UI can hide the buttons rather than
+        offering ones that do nothing.
         """
-        from lib.player.backend import ALL_CAPABILITIES
+        from lib.player.backend import ALL_CAPABILITIES, CAP_SUBTITLE_DELAY
         from lib.player.mpvproc import MpvProcess
         from lib.player.omxproc import OmxplayerProcess
         from lib.player.omxproc2 import OmxplayerProcess2
 
-        assert VlcProcess().capabilities == ALL_CAPABILITIES
-        assert VlcProcess().capabilities == MpvProcess().capabilities
-        assert VlcProcess().capabilities == OmxplayerProcess2().capabilities
+        missing = ALL_CAPABILITIES - VlcProcess().capabilities
+        assert missing == {CAP_SUBTITLE_DELAY}, missing
+        assert VlcProcess().capabilities == MpvProcess().capabilities - {
+            CAP_SUBTITLE_DELAY
+        }
+        assert MpvProcess().capabilities == OmxplayerProcess2().capabilities
         assert len(OmxplayerProcess().capabilities) < len(ALL_CAPABILITIES)
 
 
@@ -1227,3 +1250,73 @@ class TestEmbeddedSubtitlesAreEnabledOnStart:
 
         cmd = PeerflixProcess("magnet:?xt=urn:btih:AAAA", -1).cmd
         assert "-r" not in cmd
+
+
+class TestProgressReporting:
+    """
+    Position and duration, asked of VLC and written to the log.
+
+    The cli answers get_time and get_length with one line each -- "( time:
+    1834.221 )" -- and that is the only way to learn either on this build.
+    Drawing text on the picture needs marq, which is absent, so this is the log
+    and not the screen.
+    """
+
+    def _proc_answering(self, replies, config=None):
+        proc = _running(config)
+        sent = []
+        proc._send_and_collect = lambda c: (sent.append(c) or replies.get(c, []))
+        return proc, sent
+
+    def test_it_asks_for_both_and_reports_them(self, caplog):
+        proc, sent = self._proc_answering(
+            {
+                "get_time": ["( time: 1834.221 )"],
+                "get_length": ["( length: 7182.429 )"],
+            }
+        )
+        with caplog.at_level("INFO"):
+            assert proc._report_progress() == (1834.221, 7182.429)
+        assert sent == ["get_time", "get_length"]
+        assert "position 0:30:34, length 1:59:42" in caplog.text
+
+    def test_a_player_that_answers_nothing_is_not_a_failure(self):
+        """
+        A film that has not opened its media has no time to report, and that is
+        not an error. Returns None rather than raising into the pipe.
+        """
+        proc, _sent = self._proc_answering({})
+        assert proc._report_progress() is None
+
+    def test_one_missing_answer_does_not_lose_the_other(self):
+        proc, _sent = self._proc_answering({"get_time": ["( time: 12.000 )"]})
+        assert proc._report_progress() == (12.0, None)
+
+    def test_its_own_logging_is_not_mistaken_for_a_number(self):
+        proc, _sent = self._proc_answering(
+            {
+                "get_time": ["[0a1b2c3d] some audio error 60.5"],
+                "get_length": ["( length: 100.0 )"],
+            }
+        )
+        assert proc._report_progress() == (None, 100.0)
+
+    def test_progress_is_off_by_default(self):
+        """
+        Two extra commands per report, and nobody watches the log while a film
+        plays. Off unless report_progress says how often, in seconds.
+        """
+        assert VlcProcess().opt("report_progress") == "0"
+
+    def test_a_non_numeric_interval_is_treated_as_off(self):
+        proc = _running({"report_progress": "often"})
+        proc._report_progress = lambda: None
+        proc._start_progress_reporter()  # must not raise or spawn
+
+    def test_seconds_are_shown_the_way_a_person_reads_them(self):
+        from lib.player.vlcproc import _format_seconds
+
+        assert _format_seconds(0) == "0:00:00"
+        assert _format_seconds(61.5) == "0:01:01"
+        assert _format_seconds(3661) == "1:01:01"
+        assert _format_seconds(None) == "--:--"

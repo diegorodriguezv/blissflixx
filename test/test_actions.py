@@ -92,4 +92,6 @@ class TestBackendCapabilityReporting:
         from lib.player.backend import ALL_CAPABILITIES
 
         assert len(SERVER_ACTIONS) > len(ALL_CAPABILITIES)
-        assert len(ALL_CAPABILITIES) == 6
+        # Not a constant: this is a floor to catch actions losing their
+        # capability, so adding one legitimately moves it.
+        assert len(ALL_CAPABILITIES) >= 6

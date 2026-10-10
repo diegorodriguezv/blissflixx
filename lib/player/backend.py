@@ -51,9 +51,26 @@ CAP_SEEK = "seek"
 CAP_VOLUME = "volume"
 CAP_SUBTITLES = "subtitles"
 CAP_AUDIO_TRACK = "audio_track"
+#: Nudging subtitles earlier or later, for when the audio and the subtitles
+#: drift apart. Distinct from CAP_SUBTITLES, which is about which track is
+#: showing at all.
+#:
+#: omxplayer-keys does this with its f and d keys. mpv does it over IPC. VLC's
+#: cli interface has no verb for it -- the whole command table, read from the
+#: source, has no sub-delay and no marq -- so VLC does not declare this even
+#: though its desktop GUI has a control for it.
+CAP_SUBTITLE_DELAY = "subtitle_delay"
 
 ALL_CAPABILITIES = frozenset(
-    {CAP_PAUSE, CAP_STOP, CAP_SEEK, CAP_VOLUME, CAP_SUBTITLES, CAP_AUDIO_TRACK}
+    {
+        CAP_PAUSE,
+        CAP_STOP,
+        CAP_SEEK,
+        CAP_VOLUME,
+        CAP_SUBTITLES,
+        CAP_AUDIO_TRACK,
+        CAP_SUBTITLE_DELAY,
+    }
 )
 
 

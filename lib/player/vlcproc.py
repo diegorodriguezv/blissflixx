@@ -78,6 +78,22 @@ _TRACK_ID = re.compile(r"^\|?\s*(-?\d+)\s+-")
 #: listing is empty until VLC has opened the media, and a torrent being streamed
 #: over http can take a while to start producing.
 _SUBTITLE_WAIT_TIMEOUT = 60
+#: "( time: 1834.221 )" and "( length: 7182.429 )" -- what get_time and
+#: get_length answer with. Matched strictly, including the label, so a number
+#: inside the player's own logging cannot be read as an answer.
+_NUMBER_IN_PARENS = re.compile(r"\(\s*(?:time|length)\s*:\s*([0-9.]+)\s*\)")
+
+
+def _format_seconds(value):
+    """
+    Seconds as h:mm:ss, which is how a person reads a position.
+    """
+    if value is None:
+        return "--:--"
+    total = int(value)
+    return "%d:%02d:%02d" % (total // 3600, (total % 3600) // 60, total % 60)
+
+
 #: VLC's id for "no subtitles", as printed in the listing.
 _TRACK_DISABLED = -1
 
@@ -161,6 +177,9 @@ class VlcProcess(PlayerBackend):
         # read at typical viewing distance. 95 rather than 60 because of the
         # text rendering bug at this resolution.
         "subtitle_text_scale": "95",
+        # Off by default: get_time and get_length are two extra commands per
+        # report, and most people are not watching the log while a film plays.
+        "report_progress": "0",
         "start_timeout": _START_TIMEOUT,
         "volume_step": 5,
         "volume_max": 512,
@@ -267,6 +286,7 @@ class VlcProcess(PlayerBackend):
                 # reporting the startup banner as if it were its own answer.
                 self._reset_replies()
                 self._enable_embedded_subtitles()
+                self._start_progress_reporter()
                 return
             if any(marker in line for marker in _ERROR_MARKERS):
                 # Defer this one. The interface reads its next command from
@@ -391,8 +411,72 @@ class VlcProcess(PlayerBackend):
             collected.append(line)
         return collected
 
+    def _report_progress(self):
+        """
+        Log where the film is and how long it is.
+
+        VLC's cli answers get_time and get_length with a line each:
+
+            ( time: 1834.221 )
+            ( length: 7182.429 )
+
+        which is the only way to see either on this build. There is no verb for
+        drawing text on screen -- marq is absent -- so this goes to the log and
+        not to the picture. VLC's own --osd still covers volume and seek targets;
+        it just cannot be told what to say.
+
+        Best-effort and bounded like every other command here: a player that
+        answers nothing must not hold up the pipe that asked.
+        """
+        position = self._read_number("get_time")
+        length = self._read_number("get_length")
+        if position is None and length is None:
+            return None
+        cherrypy.log(
+            "VLC progress: position %s, length %s"
+            % (_format_seconds(position), _format_seconds(length))
+        )
+        return position, length
+
+    def _read_number(self, verb):
+        """
+        Send a query and pull the number out of its reply.
+
+        The reply is attributed the same way a control command's is: take the
+        lines that arrive and pick the one that parses, ignoring the player's
+        own logging. "no reply" comes back as None rather than raising, because
+        a player that has not opened its media yet has no time to report and
+        that is not a failure.
+        """
+        for line in self._send_and_collect(verb) or []:
+            found = _NUMBER_IN_PARENS.search(line.strip())
+            if found:
+                try:
+                    return float(found.group(1))
+                except ValueError:
+                    return None
+        return None
+
     def _seek(self, seconds):
-        return self._send_command("seek " + str(seconds))
+        """
+        Seek forwards or backwards from wherever the film is now.
+
+        The sign is not decoration and omitting it is a real bug. VLC's cli
+        routes seek through common.seek in share/lua/modules/common.lua:
+
+            if string.sub(value,1,1) == "+" or string.sub(value,1,1) == "-" then
+                vlc.var.set(input,"time",vlc.var.get(input,"time") + pos)
+            else
+                vlc.var.set(input,"time",pos)
+            end
+
+        Without a leading sign that is an absolute seek, so "plus30" jumped to
+        00:30 of the film instead of moving 30 seconds on from wherever you were.
+        Every other backend takes a plain signed number, which is why only VLC
+        misbehaved and why it looked like a mapping error rather than a syntax
+        one.
+        """
+        return self._send_command("seek %+d" % seconds)
 
     def control(self, action):
         """
@@ -431,6 +515,28 @@ class VlcProcess(PlayerBackend):
             self._step_track("atrack", +1)
         elif action == "prev_audio":
             self._step_track("atrack", -1)
+
+    def _start_progress_reporter(self):
+        """
+        Report position and length periodically, if configured to.
+
+        Off unless report_progress is set to a positive number of seconds, which
+        is the interval. Nothing is spawned otherwise.
+        """
+        try:
+            interval = int(self.opt("report_progress"))
+        except (TypeError, ValueError):
+            interval = 0
+        if interval <= 0:
+            return
+        _start_thread(self._progress_loop, interval)
+
+    def _progress_loop(self, interval):
+        while not self.killing:
+            time.sleep(interval)
+            if self.killing:
+                return
+            self._report_progress()
 
     def _enable_embedded_subtitles(self):
         """
