@@ -252,6 +252,8 @@ class VlcProcess(PlayerBackend):
         self._volume = 256
         self._overlay_shown = None
         self._overlay_warned = False
+        # Remembered once learned; see _report_progress.
+        self._length = None
         # One command at a time. Two threads ask this player things at once --
         # the overlay reporter polls get_time every second, and the subtitle
         # waiter polls strack for up to a minute -- and they share one stdin and
@@ -509,7 +511,19 @@ class VlcProcess(PlayerBackend):
         answers nothing must not hold up the pipe that asked.
         """
         position = self._read_number("get_time")
-        length = self._read_number("get_length")
+        # The length of a film does not change while it plays, so it is asked
+        # for once and then remembered. Querying it every second doubled the
+        # commands sent to a player that answers only intermittently -- and the
+        # duration, being the second of the two queries, was the one that kept
+        # coming back empty. An overlay reading "0:08 / --" is worse than one
+        # that takes a second longer to appear.
+        if self._length is None:
+            self._length = self._read_number("get_length")
+        length = self._length
+        if position is None:
+            # Nothing read this time. Leave what is on screen rather than
+            # replacing a position with "--" because one query was missed.
+            return None
         self._write_overlay(position, length)
         if position is None and length is None:
             return None
@@ -661,7 +675,7 @@ class VlcProcess(PlayerBackend):
     def _progress_loop(self, interval):
         # Write the file before VLC first reads it, so the overlay shows the
         # time rather than sitting empty until the first tick.
-        self._write_overlay(None, None)
+        self._write_overlay(0.0, None)
         while not self.killing:
             time.sleep(interval)
             if self.killing:

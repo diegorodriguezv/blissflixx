@@ -1304,6 +1304,43 @@ class TestProgressReporting:
         proc._send_and_collect = lambda c: (sent.append(c) or replies.get(c, []))
         return proc, sent
 
+    def test_the_length_is_asked_once_and_remembered(self, tmp_path, monkeypatch):
+        """
+        A film's length does not change while it plays. Asking every second
+        doubled the traffic and made the duration the fragile half of the pair.
+        """
+        import lib.player.vlcproc as vlc
+
+        monkeypatch.setattr(vlc, "MARQ_FILE", str(tmp_path / "marq.txt"))
+        proc, sent = self._proc_answering(
+            {"get_time": ["10"], "get_length": ["900"]}, {"osd_overlay": "1"}
+        )
+        proc._report_progress()
+        proc._report_progress()
+        proc._report_progress()
+        assert sent.count("get_length") == 1, sent
+        assert sent.count("get_time") == 3, sent
+
+    def test_a_missed_position_leaves_the_screen_alone(self, tmp_path, monkeypatch):
+        """
+        An overlay reading "0:08 / --" is worse than one showing 0:08 for a
+        moment longer. One query missed must not replace a good position with
+        "--".
+        """
+        import lib.player.vlcproc as vlc
+
+        target = tmp_path / "marq.txt"
+        monkeypatch.setattr(vlc, "MARQ_FILE", str(target))
+        proc, _sent = self._proc_answering(
+            {"get_time": ["10"], "get_length": ["900"]}, {"osd_overlay": "1"}
+        )
+        proc._report_progress()
+        assert target.read_text() == "0:10 / 15:00"
+
+        proc._send_and_collect = lambda c: []
+        proc._report_progress()
+        assert target.read_text() == "0:10 / 15:00", "a missed read blanked the overlay"
+
     def test_it_asks_for_both_and_reports_them(self, caplog, tmp_path, monkeypatch):
         # Bare numbers, which is what the real player answers with. An earlier
         # version of this expected "( time: 1834.221 )" and matched nothing,
@@ -1417,9 +1454,12 @@ class TestProgressReporting:
             {
                 "get_time": ["[0a1b2c3d] some audio error 60.5"],
                 "get_length": ["100.0"],
-            }
+            },
+            {"osd_overlay": "1"},
         )
-        assert proc._report_progress() == (None, 100.0)
+        # The log line carrying a number must not be read as an answer.
+        assert proc._read_number("get_time") is None
+        assert proc._read_number("get_length") == 100.0
 
     def test_progress_is_off_by_default(self):
         """
@@ -1437,11 +1477,17 @@ class TestProgressReporting:
         """
         The format assumed and then disproved on the Pi. Pinned so it cannot be
         reintroduced as though it were what the player sends.
+
+        The length is still reported when the position is not parsed, because it
+        is a separate query; only the *overlay* is left alone, since replacing a
+        good position with "--" would be worse than showing nothing new.
         """
         proc, _sent = self._proc_answering(
-            {"get_time": ["( time: 1834.221 )"], "get_length": ["7182.429"]}
+            {"get_time": ["( time: 1834.221 )"], "get_length": ["7182.429"]},
+            {"osd_overlay": "1"},
         )
-        assert proc._report_progress() == (None, 7182.429)
+        assert proc._read_number("get_length") == 7182.429
+        assert proc._read_number("get_time") is None
 
     def test_seconds_are_shown_the_way_a_person_reads_them(self):
         from lib.player.vlcproc import _format_seconds
