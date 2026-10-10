@@ -453,6 +453,8 @@ class TestReadmeMatchesTheCode:
             "osd_position",
             "osd_size",
             "osd_opacity",
+            "osd_timeout",
+            "sub_margin",
             "volume_step",
             "volume_max",
         },

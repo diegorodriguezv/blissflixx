@@ -243,9 +243,18 @@ therefore declares the same capabilities as `mpv` and `omxplayer-keys`.
 `--osd` is enabled so a volume change or a seek is visible on screen: without
 it the only feedback is a log line nobody watching a film can see. VLC's own
 OSD cannot be sent text, because that needs `marq`, which this build does not
-have; The position and duration are shown on screen with the `marq` marquee, enabled
-through `osd_overlay` and placed with `osd_position`, `osd_size` and
-`osd_opacity`. VLC has no command for setting a marquee's text, so it is given
+have; Every control action says what it did on the picture, for `osd_timeout`
+milliseconds: where a seek landed, that the film is paused, which subtitle or
+audio track is now selected, and the new volume level. It is driven by the
+actions themselves rather than a timer, because polling the player once a second
+is what stopped it answering anything at all a few seconds into playback -- and
+because a person watching a film needs to know the button worked, not to read a
+clock. The position is shown when a seek happens, not every second.
+
+The messages are drawn with VLC's `marq` marquee, enabled through `osd_overlay`,
+placed and sized with `osd_position`, `osd_size` and `osd_opacity`. It sits just
+above the subtitles, which are lifted off the bottom edge by `sub_margin` so the
+two do not collide. VLC has no command for setting a marquee's text, so it is given
 a file and re-reads it every `osd_refresh` seconds; that file is what
 `get_time` and `get_length` feed. Setting `report_progress` to a number of
 seconds also writes the same figures to the log, which is off by default.

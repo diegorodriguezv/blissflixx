@@ -68,6 +68,9 @@ class TestVlcCommand:
             "--vout=drm_vout",
             "--drm-vout-module=vc4",
             "--sub-text-scale=95",
+            # Lifts the subtitles off the bottom edge so the overlay can sit
+            # just above them instead of over them.
+            "--sub-margin=150",
             "--osd",
             "--no-video-title-show",
             "--play-and-exit",
@@ -85,6 +88,28 @@ class TestVlcCommand:
         assert "--sub-source=marq" in cmd
         assert "--marq-refresh=1" in cmd
         assert not [a for a in cmd if a.startswith("--video-filter=marq")]
+
+    def test_the_overlay_is_big_and_high_enough_to_read_and_not_collide(self):
+        """
+        At 28px and position 8 the message was too small to read from a sofa and
+        sat over the subtitle band. VLC sizes marquee text in pixels of the source
+        frame, so 84px is roughly triple and scales with resolution; position 2
+        is near the top, well clear of subtitles at the bottom.
+        """
+        cmd = vlc({"outfile": FILE_OUT})
+        size = int([a for a in cmd if a.startswith("--marq-size=")][0].split("=")[1])
+        pos = int([a for a in cmd if a.startswith("--marq-position=")][0].split("=")[1])
+        assert size >= 84, size
+        assert pos <= 2, pos
+
+    def test_subtitles_are_lifted_to_leave_room_below_them(self):
+        """
+        The message goes in the subtitle band so a change of subtitle and its
+        confirmation are in one place, and marq draws from the frame's edge --
+        which is how it stays above them.
+        """
+        cmd = vlc({"outfile": FILE_OUT})
+        assert "--sub-margin=150" in cmd
 
     def test_the_overlay_reads_its_text_from_a_file(self):
         """
@@ -1424,18 +1449,26 @@ class TestProgressReporting:
         assert target.exists()
         assert not (tmp_path / "marq.txt.tmp").exists(), "left a temporary file"
 
-    def test_the_overlay_runs_with_the_reporter_off(self, monkeypatch):
+    def test_the_overlay_writes_without_any_ticker(self, tmp_path, monkeypatch):
         """
-        report_progress is 0 by default, but the position still has to update or
-        the overlay would sit frozen on whatever it first read.
+        No background thread is involved in showing position any more.
+
+        Polling once a second is what stopped this player answering anything at
+        all, ten or twenty seconds into playback. The overlay is written by the
+        actions themselves instead, so there is nothing running in the
+        background to keep the clock ticking -- which was the stated goal.
         """
-        proc = _running({"osd_overlay": "1", "osd_refresh": "2"})
-        started = []
-        monkeypatch.setattr(
-            "lib.player.vlcproc._start_thread", lambda fn, *a: started.append(a)
-        )
-        proc._start_progress_reporter()
-        assert started, "nothing was started, so the overlay would never update"
+        import lib.player.vlcproc as vlc
+
+        target = tmp_path / "marq.txt"
+        monkeypatch.setattr(vlc, "MARQ_FILE", str(target))
+        proc = _running({"osd_overlay": "1"})
+        proc._send_and_collect = lambda c: {"get_time": ["61"]}.get(c, [])
+        assert not hasattr(proc, "_progress_loop"), "a ticker is still attached"
+
+        proc._show_overlay("0:01")
+
+        assert target.read_text() == "0:01"
 
     def test_a_player_that_answers_nothing_is_not_a_failure(self):
         """
@@ -1468,10 +1501,25 @@ class TestProgressReporting:
         """
         assert VlcProcess().opt("report_progress") == "0"
 
-    def test_a_non_numeric_interval_is_treated_as_off(self):
-        proc = _running({"report_progress": "often"})
-        proc._report_progress = lambda: None
-        proc._start_progress_reporter()  # must not raise or spawn
+    def test_progress_is_only_logged_when_asked(self, caplog, tmp_path, monkeypatch):
+        """
+        report_progress stays as a way of writing the figures to the log for
+        debugging, but it no longer drives anything on its own.
+        """
+        import lib.player.vlcproc as vlc
+
+        monkeypatch.setattr(vlc, "MARQ_FILE", str(tmp_path / "marq.txt"))
+        proc = _running({"osd_overlay": "1", "report_progress": "0"})
+        proc._send_and_collect = lambda c: {
+            "get_time": ["61"],
+            "get_length": ["1297"],
+        }.get(c, [])
+
+        with caplog.at_level("INFO"):
+            proc._report_progress()
+
+        assert "VLC progress" not in caplog.text
+        assert (tmp_path / "marq.txt").read_text() == "1:01 / 21:37"
 
     def test_a_label_in_parentheses_is_not_mistaken_for_a_number(self):
         """

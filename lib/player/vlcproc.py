@@ -143,6 +143,28 @@ def _summarise_reply(lines):
     return " / ".join(lines)[:_REPLY_MAX_CHARS]
 
 
+#: How far each seek action moves, in seconds.
+_SEEK_SECONDS = {
+    "plus30": 30,
+    "minus30": -30,
+    "plus600": 600,
+    "minus600": -600,
+}
+
+
+def _track_label(name, chosen):
+    """
+    What the overlay says after a track change.
+
+    -1 is how VLC spells "none", so it reads as "off" rather than as a track
+    numbered minus one. A track nobody has chosen yet reads as just the label,
+    since saying "Subtitle 0" when nothing is known would be a lie.
+    """
+    if chosen is None:
+        return name
+    return name if chosen >= 0 else "%s off" % name
+
+
 #: What the cli interface prints when it is ready for the next command. The only
 #: reliable end-of-exchange marker: the reply cannot be attributed by its echo,
 #: and the output never goes quiet on a playing film.
@@ -229,10 +251,21 @@ class VlcProcess(PlayerBackend):
         # not a video filter, so --video-filter fails to load it -- and it is
         # the only component here that can put text on the picture.
         "osd_overlay": "1",
+        # marq re-reads the file on this interval, so a new message appears
+        # within about a second of the action that caused it.
         "osd_refresh": "1",
-        # 1-10, counting down from the top. 8 sits above the subtitle area.
-        "osd_position": "8",
-        "osd_size": "28",
+        # How long a message stays on screen, in milliseconds. Zero would leave
+        # it there for ever, which would be worse than not showing it at all.
+        "osd_timeout": "3000",
+        # marq draws from this edge instead of the frame's own, which is what
+        # lets the message sit clear of the subtitles rather than over them.
+        "sub_margin": "150",
+        # 1-10, counting down from the top. 2 sits well clear of the subtitle
+        # band, which is the bottom of the picture -- at 8 it overlapped.
+        "osd_position": "2",
+        # Big enough to read from a sofa. VLC measures this in pixels of the
+        # source frame, so it scales with resolution: at 1080p 28px was small.
+        "osd_size": "84",
         "osd_opacity": "220",
         "start_timeout": _START_TIMEOUT,
         "volume_step": 5,
@@ -269,7 +302,7 @@ class VlcProcess(PlayerBackend):
         # set point. VLC treats 256 of 512 as its default level.
         self._volume = 256
         self._overlay_shown = None
-        self._overlay_warned = False
+        self._overlay_failures = 0
         # Remembered once learned; see _report_progress.
         self._length = None
         # One command at a time. Two threads ask this player things at once --
@@ -298,6 +331,7 @@ class VlcProcess(PlayerBackend):
             "--vout=" + self.opt("video_output"),
             "--drm-vout-module=" + self.opt("video_output_module"),
             "--sub-text-scale=" + self.opt("subtitle_text_scale"),
+            "--sub-margin=" + self.opt("sub_margin"),
             # A run that must not stop on its own.
             # OSD is what tells the user their action landed. Without it a
             # pause or a seek is invisible on the screen, so the only feedback
@@ -356,7 +390,6 @@ class VlcProcess(PlayerBackend):
                 # reporting the startup banner as if it were its own answer.
                 self._reset_replies()
                 self._enable_embedded_subtitles()
-                self._start_progress_reporter()
                 return
             if any(marker in line for marker in _ERROR_MARKERS):
                 # Defer this one. The interface reads its next command from
@@ -513,6 +546,7 @@ class VlcProcess(PlayerBackend):
             "--sub-source=marq",
             "--marq-file=" + MARQ_FILE,
             "--marq-refresh=" + str(self.opt("osd_refresh")),
+            "--marq-timeout=" + str(self.opt("osd_timeout")),
             "--marq-position=" + str(self.opt("osd_position")),
             "--marq-size=" + str(self.opt("osd_size")),
             "--marq-opacity=" + str(self.opt("osd_opacity")),
@@ -520,78 +554,29 @@ class VlcProcess(PlayerBackend):
 
     def _report_progress(self):
         """
-        Log where the film is and how long it is.
+        Ask where we are and show it.
 
-        VLC's cli answers get_time and get_length with a line each:
-
-            ( time: 1834.221 )
-            ( length: 7182.429 )
-
-        which is the only way to see either on this build. There is no verb for
-        drawing text on screen -- marq is absent -- so this goes to the log and
-        not to the picture. VLC's own --osd still covers volume and seek targets;
-        it just cannot be told what to say.
-
-        Best-effort and bounded like every other command here: a player that
-        answers nothing must not hold up the pipe that asked.
+        One shot, called after a seek rather than on a timer. Reading the clock
+        continuously is what stopped this player answering anything at all after
+        a few seconds of playback; reading it once, when the user has just asked
+        to move, is answered reliably.
         """
         position = self._read_number("get_time")
-        # The length of a film does not change while it plays, so it is asked
-        # for once and then remembered. Querying it every second doubled the
-        # commands sent to a player that answers only intermittently -- and the
-        # duration, being the second of the two queries, was the one that kept
-        # coming back empty. An overlay reading "0:08 / --" is worse than one
-        # that takes a second longer to appear.
+        # A film's length does not change while it plays, so it is asked for
+        # once and remembered.
         if self._length is None:
             self._length = self._read_number("get_length")
-        length = self._length
         if position is None:
-            # Nothing read this time. Leave what is on screen rather than
-            # replacing a position with "--" because one query was missed.
             return None
-        self._write_overlay(position, length)
-        if position is None and length is None:
-            return None
+        self._show_overlay(
+            "%s / %s" % (_format_clock(position), _format_clock(self._length))
+        )
         if str(self.opt("report_progress")).lower() not in ("0", "", "false"):
             cherrypy.log(
                 "VLC progress: position %s, length %s"
-                % (_format_seconds(position), _format_seconds(length))
+                % (_format_seconds(position), _format_seconds(self._length))
             )
-        return position, length
-
-    def _write_overlay(self, position, length):
-        """
-        Put the position on the screen by rewriting the file marq reads.
-
-        That is the whole mechanism: marq re-reads --marq-file on every refresh
-        tick, so there is nothing to tell VLC -- only a file to keep current.
-        Written atomically via a temporary file and a rename, because marq reads
-        it on a timer and a half-written file would show a truncated position.
-        """
-        if not self._overlay_wanted():
-            return
-        text = "%s / %s" % (
-            _format_clock(position),
-            _format_clock(length),
-        )
-        if text == self._overlay_shown:
-            return
-        try:
-            os.makedirs(os.path.dirname(MARQ_FILE), exist_ok=True)
-            tmp = MARQ_FILE + ".tmp"
-            with open(tmp, "w", encoding="utf-8") as handle:
-                handle.write(text)
-            os.replace(tmp, MARQ_FILE)
-            self._overlay_shown = text
-        except OSError:
-            # An overlay that cannot be written is worth a line once, not once
-            # a second.
-            if not self._overlay_warned:
-                self._overlay_warned = True
-                cherrypy.log("could not write the VLC overlay file: " + MARQ_FILE)
-
-    def _overlay_wanted(self):
-        return str(self.opt("osd_overlay")).lower() not in ("0", "false", "", "none")
+        return position, self._length
 
     def _read_number(self, verb):
         """
@@ -635,77 +620,112 @@ class VlcProcess(PlayerBackend):
 
     def control(self, action):
         """
-        Map a BlissFlixx action onto a cli verb.
+        Map a BlissFlixx action onto a cli verb, and confirm it on screen.
 
-        Subtitle visibility is toggled rather than set, so show_subtitle and
-        hide_subtitle share one command and the caller tracks which state it
-        believes is current. That matches how omxplayer's key map behaves.
+        Every action says what it did, in the player's own overlay, for a few
+        seconds. That is the point: someone watching a film cannot read the log,
+        and without any visible response there is no way to tell a button that
+        worked from one that did nothing.
+
+        It is driven by the actions themselves rather than by a timer. Polling
+        once a second to keep a clock up to date turned out to be what stopped
+        VLC's cli answering at all -- it went quiet within ten or twenty seconds
+        of playback -- so a ticker was asking the player a question it could not
+        keep answering. Asking once, right after the user does something, is
+        both cheaper and answered far more reliably.
+
+        The time does not tick. Showing the position when a seek happens says
+        the seek landed, which is what it is for.
         """
         if action in ("pause", "resume"):
             self._send_command("pause" if action == "pause" else "play")
+            self._show_overlay("Paused" if action == "pause" else "")
         elif action == "stop":
             self._send_command("quit")
-        elif action == "plus30":
-            self._seek(30)
-        elif action == "minus30":
-            self._seek(-30)
-        elif action == "plus600":
-            self._seek(600)
-        elif action == "minus600":
-            self._seek(-600)
-        elif action == "volup":
-            self._set_volume(self._current_volume() + self.opt("volume_step"))
-        elif action == "voldown":
-            self._set_volume(max(0, self._current_volume() - self.opt("volume_step")))
+        elif action in ("plus30", "minus30", "plus600", "minus600"):
+            self._seek(_SEEK_SECONDS[action])
+            self._report_progress()
+        elif action in ("volup", "voldown"):
+            step = self.opt("volume_step")
+            if action == "voldown":
+                step = -step
+            # Floored at zero, as it always was: repeatedly holding voldown
+            # must not walk the level into negatives.
+            level = max(0, self._current_volume() + step)
+            self._set_volume(level)
+            self._show_overlay("Volume %d" % level)
         elif action == "hide_subtitle":
             # -1 is VLC's "disabled", and it is always in the listing.
             self._send_command("strack " + str(_TRACK_DISABLED))
+            self._show_overlay("Subtitles off")
         elif action == "show_subtitle":
             self._show_track("strack")
+            self._show_overlay("Subtitles on")
         elif action == "next_subtitle":
             self._step_track("strack", +1)
+            self._show_overlay(
+                _track_label("Subtitle", self._track_choice.get("strack"))
+            )
         elif action == "prev_subtitle":
             self._step_track("strack", -1)
+            self._show_overlay(
+                _track_label("Subtitle", self._track_choice.get("strack"))
+            )
         elif action == "next_audio":
             self._step_track("atrack", +1)
+            self._show_overlay(_track_label("Audio", self._track_choice.get("atrack")))
         elif action == "prev_audio":
             self._step_track("atrack", -1)
+            self._show_overlay(_track_label("Audio", self._track_choice.get("atrack")))
 
-    def _start_progress_reporter(self):
+    def _show_overlay(self, text):
         """
-        Keep the overlay, and optionally the log, up to date.
+        Put a line of text on the picture, for a few seconds.
 
-        Runs whenever the on-screen overlay is on, because that is what makes
-        the position live. report_progress only decides whether the same numbers
-        are also written to the log, for which it is the interval instead.
-
-        On when the overlay is off and report_progress is 0, nothing is spawned.
+        An empty string clears it. Nothing here is timed or polled: the message is
+        written when the user does something, and marq's own timeout takes it away
+        again, so the screen is not left littered with confirmation of a pause
+        from a quarter of an hour ago.
         """
-        interval = 0
-        if self._overlay_wanted():
-            try:
-                interval = int(self.opt("osd_refresh"))
-            except (TypeError, ValueError):
-                interval = 0
-        try:
-            log_interval = int(self.opt("report_progress"))
-        except (TypeError, ValueError):
-            log_interval = 0
-        if log_interval > 0:
-            interval = log_interval if interval <= 0 else min(interval, log_interval)
-        if interval <= 0:
+        if not self._overlay_wanted():
             return
-        _start_thread(self._progress_loop, max(1, interval))
+        self._write_overlay(text)
 
-    def _progress_loop(self, interval):
-        # Write the file before VLC first reads it, so the overlay shows the
-        # time rather than sitting empty until the first tick.
-        self._write_overlay(0.0, None)
-        while not self.killing:
-            time.sleep(interval)
-            if self.killing:
-                return
-            self._report_progress()
+    def _write_overlay(self, text):
+        """
+        Rewrite the file marq re-reads, atomically.
+
+        marq reads it on a timer, so a half-written file would show a truncated
+        message. Written to a temporary file and renamed, which is atomic on the
+        same filesystem.
+
+        A failed write is retried rather than given up on. It used to warn once
+        and then stay silent for the rest of the session, so a single early
+        failure -- the directory not existing yet, most likely -- left the
+        overlay permanently dead while everything carried on looking healthy. The
+        warning is throttled instead of latched.
+        """
+        if text == self._overlay_shown:
+            return
+        try:
+            os.makedirs(os.path.dirname(MARQ_FILE), exist_ok=True)
+            tmp = MARQ_FILE + ".tmp"
+            with open(tmp, "w", encoding="utf-8") as handle:
+                handle.write(text)
+            os.replace(tmp, MARQ_FILE)
+            self._overlay_shown = text
+            self._overlay_failures = 0
+        except OSError as exc:
+            self._overlay_failures += 1
+            # Warn early and then occasionally, not every time: this runs on
+            # every action, and a line a second would be its own noise.
+            if self._overlay_failures in (1, 60):
+                cherrypy.log(
+                    "could not write the VLC overlay file: %s (%s)" % (MARQ_FILE, exc)
+                )
+
+    def _overlay_wanted(self):
+        return str(self.opt("osd_overlay")).lower() not in ("0", "false", "", "none")
 
     def _enable_embedded_subtitles(self):
         """
