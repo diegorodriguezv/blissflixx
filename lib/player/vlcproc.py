@@ -40,7 +40,7 @@ from .backend import (
     CAP_VOLUME,
     PlayerBackend,
 )
-from .processpipe import ProcessException
+from .processpipe import ProcessException, _start_thread
 
 VLC_BIN = "cvlc"
 _START_TIMEOUT = 30
@@ -74,6 +74,10 @@ def _is_player_logging(line):
 #: before matching. This pattern is why track control appeared to do nothing:
 #: every listing arrived, and none of it matched.
 _TRACK_ID = re.compile(r"^\|?\s*(-?\d+)\s+-")
+#: How long to keep asking for a subtitle track once the player is up. The
+#: listing is empty until VLC has opened the media, and a torrent being streamed
+#: over http can take a while to start producing.
+_SUBTITLE_WAIT_TIMEOUT = 60
 #: VLC's id for "no subtitles", as printed in the listing.
 _TRACK_DISABLED = -1
 
@@ -442,24 +446,46 @@ class VlcProcess(PlayerBackend):
         language, they arrive as --sub-file and VLC selects them itself, and
         overriding that would be second-guessing an explicit choice.
 
-        A file with no subtitle tracks has nothing to turn on, and the listing
-        comes back with only -1, so nothing is sent.
+        Done on a background thread, and retried, because none of it can happen
+        yet. Asking for the track listing at readiness returns nothing at all:
+        VLC has printed its banner but has not opened the media, so there are no
+        tracks to list, and "no subtitle track in this file" is the truth at that
+        moment rather than a fact about the file. Waiting here instead would
+        delay readiness -- and with it the whole pipeline -- by however long the
+        media takes to open, for a subtitle track that may not even exist.
+
+        So readiness returns immediately and this waits in the background for the
+        tracks to appear, the way a player would once it knows what it is
+        playing. If none turn up within the window, nothing is sent.
         """
         # args is set by _get_cmd on the normal start path. Absent when _ready
         # is exercised on its own, which is treated as "no external subs".
         args = getattr(self, "args", None) or {}
         if "subtitles" in args:
             return
-        tracks = self._track_ids("strack")
-        real = [t for t in tracks if t != _TRACK_DISABLED]
-        if not real:
-            cherrypy.log("no subtitle track in this file")
-            return
-        cherrypy.log(
-            "enabling subtitle track %s (omxplayer does this on every start)" % real[0]
-        )
-        self._track_choice["strack"] = real[0]
-        self._send_command("strack " + str(real[0]))
+        _start_thread(self._wait_for_subtitles, args)
+
+    def _wait_for_subtitles(self, args):
+        deadline = time.time() + _SUBTITLE_WAIT_TIMEOUT
+        while time.time() < deadline:
+            if self.killing:
+                return
+            proc = getattr(self, "proc", None)
+            if proc is None or proc.poll() is not None:
+                return
+            tracks = [t for t in self._track_ids("strack") if t != _TRACK_DISABLED]
+            if tracks:
+                cherrypy.log(
+                    "enabling subtitle track %s "
+                    "(omxplayer does this on every start)" % tracks[0]
+                )
+                self._track_choice["strack"] = tracks[0]
+                self._send_command("strack " + str(tracks[0]))
+                return
+            # The listing is empty because the media is not open yet, not because
+            # there is nothing there. Give it a moment before asking again.
+            time.sleep(1.0)
+        cherrypy.log("no subtitle track appeared in this file")
 
     def _show_track(self, command):
         """

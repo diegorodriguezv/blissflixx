@@ -1157,12 +1157,37 @@ class TestEmbeddedSubtitlesAreEnabledOnStart:
         proc._ready_seen = True
         return proc, sent
 
+    def test_starting_the_wait_does_not_block_readiness(self):
+        """
+        Readiness must not wait on this. The listing is empty until VLC has
+        opened the media, so blocking here would hold up the whole pipeline for
+        however long a torrent takes to start, for a subtitle track that may not
+        even exist.
+        """
+        proc, sent = self._proc_with_listing(
+            ["+----[ spu-es ]", "| -1 - Disable", "| 2 - English (CC)"]
+        )
+        started = time.time()
+        proc._enable_embedded_subtitles()
+        assert time.time() - started < 0.5
+
     def test_the_first_real_track_is_turned_on(self):
         proc, sent = self._proc_with_listing(
             ["+----[ spu-es ]", "| -1 - Disable", "| 2 - English (CC)"]
         )
-        proc._enable_embedded_subtitles()
+        proc._wait_for_subtitles({})
         assert sent == ["strack 2"]
+
+    def test_the_wait_gives_up_when_tracks_never_appear(self, monkeypatch):
+        """
+        Asking once is not enough: at readiness the listing is always empty,
+        because VLC has printed its banner but not opened the media. The wait is
+        what turns that into a real answer.
+        """
+        monkeypatch.setattr("lib.player.vlcproc._SUBTITLE_WAIT_TIMEOUT", 0)
+        proc, sent = self._proc_with_listing(["+----[ spu-es ]", "| -1 - Disable"])
+        proc._wait_for_subtitles({})
+        assert sent == []
 
     def test_a_file_with_no_subtitle_track_sends_nothing(self):
         proc, sent = self._proc_with_listing(["+----[ spu-es ]", "| -1 - Disable"])
@@ -1180,7 +1205,7 @@ class TestEmbeddedSubtitlesAreEnabledOnStart:
         )
         proc.args = {"subtitles": "/tmp/blissflixx/episode.srt"}
         proc._enable_embedded_subtitles()
-        assert sent == []
+        assert sent == [], "an explicit subtitle choice was overridden"
 
     def test_the_chosen_track_is_remembered_for_a_later_show(self):
         """
@@ -1190,7 +1215,7 @@ class TestEmbeddedSubtitlesAreEnabledOnStart:
         proc, sent = self._proc_with_listing(
             ["+----[ spu-es ]", "| -1 - Disable", "| 2 - English (CC)"]
         )
-        proc._enable_embedded_subtitles()
+        proc._wait_for_subtitles({})
         assert proc._track_choice["strack"] == 2
 
     def test_the_start_command_never_carries_peerflixs_remove_flag(self):
