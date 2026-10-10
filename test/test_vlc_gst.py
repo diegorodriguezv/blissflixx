@@ -30,7 +30,12 @@ from lib.player.backend import (
 )
 from lib.player.gstproc import GStreamerProcess
 from lib.player.processpipe import ProcessException
-from lib.player.vlcproc import _REPLY_TIMEOUT, MARQ_FILE, VlcProcess
+from lib.player.vlcproc import (
+    _REPLY_TIMEOUT,
+    MARQ_FILE,
+    VlcProcess,
+    _volume_percent,
+)
 
 FILE_OUT = "/home/diego/testfiles/h264_1080p.mkv"
 HTTP_OUT = "http://127.0.0.1:9696/movie.mkv"
@@ -70,7 +75,7 @@ class TestVlcCommand:
             "--sub-text-scale=95",
             # Lifts the subtitles off the bottom edge so the overlay can sit
             # just above them instead of over them.
-            "--sub-margin=220",
+            "--sub-margin=24",
             "--osd",
             "--no-video-title-show",
             "--play-and-exit",
@@ -143,6 +148,28 @@ class TestVlcCommand:
         VlcProcess()
         assert os.path.exists(MARQ_FILE), MARQ_FILE
 
+    def test_the_background_search_gives_up_when_the_user_acts(self):
+        """
+        This is what stopped a seek from ever showing its time.
+
+        The opening title and the subtitle search both poll the player on a
+        background thread, and both go through the same lock and the same
+        reply queue as the user's own commands. So a poll was swallowing the
+        reply to somebody's ffwd, and the confirmation said nothing at all --
+        the seek worked, the film moved, and the screen showed the title from
+        startup instead.
+
+        Whichever gets there first, the user is first from then on: the search
+        is only worth more than them while they are still watching the title.
+        """
+        proc = self._on_screen_proc()
+        proc._acted = False
+        proc._send_command = lambda command: True
+
+        proc.control("plus30")
+
+        assert proc._acted is True
+
     def test_the_overlay_file_is_never_zero_bytes_at_startup(self):
         """
         It is created holding a space, not empty: getline() returns -1 at end of
@@ -152,23 +179,6 @@ class TestVlcCommand:
         os.remove(MARQ_FILE)
         VlcProcess()
         assert os.path.getsize(MARQ_FILE) > 0, MARQ_FILE
-
-    def test_resuming_does_not_write_an_empty_overlay_file(self):
-        """
-        Un-pausing used to write "" to clear the message. That leaves a zero-byte
-        file, and marq reads it with getline(), which returns -1 at end of file --
-        so marq logs
-
-            cannot read /tmp/blissflixx/marq.txt: Invalid argument
-
-        on every refresh tick for as long as playback lasts, which looks like
-        VLC falling over rather than a blank line. Its own --marq-timeout clears
-        the message after a few seconds, so nothing has to be written to clear
-        it.
-        """
-        proc = self._on_screen_proc()
-        proc.control("resume")
-        assert open(MARQ_FILE, encoding="utf-8").read() == "Paused"
 
     @pytest.mark.parametrize(
         "action",
@@ -201,24 +211,27 @@ class TestVlcCommand:
         proc.control(action)
         assert os.path.getsize(MARQ_FILE) > 0, action
 
-    def test_subtitles_are_lifted_off_the_bottom_edge(self):
+    def test_subtitles_sit_near_the_bottom_edge(self):
         """
         VLC applies sub-margin to the subtitle region alone -- vout_subpictures
-        lifts the region by y_margin -- which is the only way to stop the text
-        sitting flush against the border.
+        lifts the region by y_margin -- which is the only thing that moves them.
+
+        Kept small. At 220 they sat about 40% up the picture, which is nowhere
+        near where subtitles belong; it had been raised to clear the overlay,
+        which no longer needs it now the overlay is at the top.
         """
         cmd = vlc({"outfile": FILE_OUT})
         margin = int([a for a in cmd if a.startswith("--sub-margin=")][0].split("=")[1])
-        assert margin >= 200, margin
+        assert 0 < margin <= 60, margin
 
-    def test_subtitles_are_lifted_to_leave_room_below_them(self):
+    def test_subtitles_are_lifted_a_little_off_the_bottom_border(self):
         """
         The message moved to the top of the frame, so the subtitles no longer
-        have to be pushed up to make room for it -- but they should still not
-        sit flush against the bottom border.
+        have to be pushed up to make room for it -- only far enough to keep the
+        descenders off the edge.
         """
         cmd = vlc({"outfile": FILE_OUT})
-        assert "--sub-margin=220" in cmd
+        assert "--sub-margin=24" in cmd
 
     def test_the_overlay_reads_its_text_from_a_file(self):
         """
@@ -351,19 +364,43 @@ class TestVlcControl:
         sent = self._sent(action)
         assert sent.split()[1][0] in "+-", sent
 
-    def test_volume_up_steps_the_level(self):
+    def test_the_volume_buttons_step_the_level_by_five_percent(self):
         """
         The level is tracked from the last known set point, starting at VLC's
         mid-scale default of 256. The cli interface has no query for it either.
+
+        5% of VLC's 0-512 scale is about 26 units. The step used to be 5 units,
+        which is about one percent, so the button looked like it did nothing --
+        and the confirmation said "Volume 51%" one press after "Volume 50%".
         """
         proc = VlcProcess()
         proc._send_command = lambda c: True
+
+        proc.control("volup")
+        assert proc._volume == 282  # 256 + 26
         proc.control("voldown")
-        assert proc._volume == 251
-        proc.control("volup")
         assert proc._volume == 256
+
+    def test_the_volume_step_is_a_percentage_not_vlcs_own_units(self):
+        """
+        So that "5" in the settings means 5% to whoever edits it, rather than
+        5 of 512 -- which is what it used to mean, and looked like a typo.
+        """
+        proc = VlcProcess()
+        proc._send_command = lambda c: True
+
         proc.control("volup")
-        assert proc._volume == 261
+        assert _volume_percent(proc._volume) == 55
+
+    def test_the_volume_does_not_walk_outside_its_range(self):
+        proc = VlcProcess()
+        proc._send_command = lambda c: True
+        for _ in range(60):
+            proc.control("voldown")
+        assert proc._volume == 0
+        for _ in range(60):
+            proc.control("volup")
+        assert proc._volume == 512
 
     def test_volume_never_goes_below_zero(self):
         proc = VlcProcess()
@@ -1515,10 +1552,10 @@ class TestWhatTheOverlaySays:
         proc._current_volume = lambda: 256
         proc._set_volume = lambda level: True
 
-        # 256 + the default step of 5, which is VLC's 261 of 512.
+        # 256 + a step of 5 percent, which is VLC's 282 of 512.
         proc.control("volup")
 
-        assert shown == ["Volume 51%"], shown
+        assert shown == ["Volume 55%"], shown
 
 
 class TestTheOpeningTitle:

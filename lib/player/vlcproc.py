@@ -346,9 +346,13 @@ class VlcProcess(PlayerBackend):
         "osd_timeout": "3000",
         # How far the subtitles sit above the bottom edge, in destination pixels.
         # VLC applies this to the subtitle region alone (vout_subpictures.c lifts
-        # the region by y_margin), so it is the way to stop them sitting flush
-        # against the border.
-        "sub_margin": "220",
+        # the region by y_margin), so it is the only thing that moves them.
+        #
+        # Small on purpose. At 220 they sat about 40% up the picture, which is
+        # nowhere near the bottom where subtitles belong -- it had been raised to
+        # clear the overlay, which no longer needs it now the overlay is at the
+        # top. Just enough to keep the descenders off the edge of the frame.
+        "sub_margin": "24",
         # An alignment enum, not a 1-10 scale: marq passes this straight
         # through as the subpicture region's i_align. The values marq offers are
         # 0 center, 1 left, 2 right, 4 top, 8 bottom. Guessing at a scale put
@@ -360,6 +364,9 @@ class VlcProcess(PlayerBackend):
         "osd_size": "84",
         "osd_opacity": "220",
         "start_timeout": _START_TIMEOUT,
+        # As a percentage of VLC's 0-512 scale, not a number of its units: the
+        # step used to be 5, which is 5 of 512 -- about one percent, so the
+        # button appeared to do nothing at all. It is converted on the way out.
         "volume_step": 5,
         "volume_max": 512,
     }
@@ -383,6 +390,16 @@ class VlcProcess(PlayerBackend):
         self._track_names = {}
         # What is being played, for the opening title. See build_command.
         self._title = ""
+        # Set the moment the user asks for anything. The background searches --
+        # for a subtitle track, for the duration -- give up when it is set.
+        #
+        # They and the user want the same thing: one command at a time on one
+        # stdin, with the reply that comes back matched to the command that was
+        # sent. So a search polling every second or two was swallowing the reply
+        # to somebody's ffwd, and the confirmation said nothing at all. The
+        # search is only ever more useful than the user while they are still
+        # watching the title, so it stops as soon as they are not.
+        self._acted = False
         # Once the stage is running, the copier feeds every line the player
         # writes -- replies and log output alike -- through here. During startup
         # there is no copier yet and _ready() reads stdout itself.
@@ -683,18 +700,41 @@ class VlcProcess(PlayerBackend):
             "--marq-opacity=" + str(self.opt("osd_opacity")),
         ]
 
-    def _report_progress(self):
+    def _where(self, label):
         """
-        Ask where we are and show it.
+        The confirmation text with the position and duration on it.
 
-        One shot, called after a seek rather than on a timer. Reading the clock
-        continuously is what stopped this player answering anything at all after
-        a few seconds of playback; reading it once, when the user has just asked
-        to move, is answered reliably.
+        "Paused 1:43 / 21:37" rather than "Paused". Falls back to the bare label
+        when the player will not say, so a confirmation is never missing
+        altogether -- which is the case this replaced, where a refused read left
+        the previous message on screen and looked like the action had done
+        nothing.
+        """
+        # _read_position rather than _report_progress: that one writes to the
+        # overlay itself, and this is the text _where is going to hand it, so
+        # using it would write twice and the second write would win with no
+        # label on it.
+        reported = self._read_position()
+        if not reported:
+            return label
+        position, length = reported
+        return "%s %s / %s" % (
+            label,
+            _format_clock(position),
+            _format_clock(length),
+        )
+
+    def _read_position(self):
+        """
+        Where we are and how long the film is, or None if the player will not say.
+
+        Split out of _report_progress so that a caller supplying its own text --
+        "Paused 1:43 / 21:37" -- can use the numbers without also being written
+        over by the plain ones.
         """
         position = self._read_number("get_time")
         # A film's length does not change while it plays, so once it has answered
-        # it is not asked again. Until then it is asked on every seek, because
+        # it is not asked again. Until then it is asked on every read, because
         # VLC cannot report a length for the first moments of a stream: caching
         # that first failure showed "--" on the confirmations until some later
         # seek happened to work and correct it by accident.
@@ -704,15 +744,28 @@ class VlcProcess(PlayerBackend):
                 self._length = length
         if position is None:
             return None
-        self._show_overlay(
-            "%s / %s" % (_format_clock(position), _format_clock(self._length))
-        )
+        return position, self._length
+
+    def _report_progress(self):
+        """
+        Ask where we are and show it.
+
+        One shot, called after a seek rather than on a timer. Reading the clock
+        continuously is what stopped this player answering anything at all after
+        a few seconds of playback; reading it once, when the user has just asked
+        to move, is answered reliably.
+        """
+        reported = self._read_position()
+        if reported is None:
+            return None
+        position, length = reported
+        self._show_overlay("%s / %s" % (_format_clock(position), _format_clock(length)))
         if str(self.opt("report_progress")).lower() not in ("0", "", "false"):
             cherrypy.log(
                 "VLC progress: position %s, length %s"
-                % (_format_seconds(position), _format_seconds(self._length))
+                % (_format_seconds(position), _format_seconds(length))
             )
-        return position, self._length
+        return reported
 
     def _read_number(self, verb):
         """
@@ -773,23 +826,22 @@ class VlcProcess(PlayerBackend):
         The time does not tick. Showing the position when a seek happens says
         the seek landed, which is what it is for.
         """
+        # Anything the user does ends the background searching. See _acted.
+        self._acted = True
         if action in ("pause", "resume"):
             self._send_command("pause" if action == "pause" else "play")
-            # Un-pausing says nothing rather than writing an empty file. marq
-            # reads it with getline(), which returns -1 on a zero-byte file, and
-            # marq reports that as "cannot read ...: Invalid argument" -- every
-            # refresh tick, for as long as playback lasts. Its own --marq-timeout
-            # takes the message away after a few seconds, so there is nothing to
-            # clear by hand.
-            if action == "pause":
-                self._show_overlay("Paused")
+            # With the time on it, because that is what pausing and un-pausing
+            # is for: you stop to do something and come back to where you
+            # stopped. "Paused" on its own said nothing about where.
+            self._show_overlay(self._where("Paused" if action == "pause" else "Play"))
         elif action == "stop":
             self._send_command("quit")
         elif action in ("plus30", "minus30", "plus600", "minus600"):
             self._seek(_SEEK_SECONDS[action])
             self._report_progress()
         elif action in ("volup", "voldown"):
-            step = self.opt("volume_step")
+            # The step is a percentage; VLC counts in its own units.
+            step = round(_VOLUME_MAX * int(self.opt("volume_step")) / 100)
             if action == "voldown":
                 step = -step
             # Floored at zero, as it always was: repeatedly holding voldown
@@ -953,7 +1005,7 @@ class VlcProcess(PlayerBackend):
             return
         deadline = time.time() + _TITLE_WAIT_TIMEOUT
         while time.time() < deadline:
-            if self.killing:
+            if self.killing or self._acted:
                 return
             proc = getattr(self, "proc", None)
             if proc is None or proc.poll() is not None:
@@ -971,7 +1023,7 @@ class VlcProcess(PlayerBackend):
     def _wait_for_subtitles(self, args):
         deadline = time.time() + _SUBTITLE_WAIT_TIMEOUT
         while time.time() < deadline:
-            if self.killing:
+            if self.killing or self._acted:
                 return
             proc = getattr(self, "proc", None)
             if proc is None or proc.poll() is not None:
