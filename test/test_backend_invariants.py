@@ -454,7 +454,6 @@ class TestReadmeMatchesTheCode:
             "osd_size",
             "osd_opacity",
             "osd_timeout",
-            "osd_title_timeout",
             "sub_margin",
             "volume_step",
             "volume_max",

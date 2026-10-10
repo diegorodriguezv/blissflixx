@@ -24,11 +24,8 @@ Not implemented: audio track cycling and subtitle visibility. Neither has a cli
 command equivalent, so they are declared absent rather than silently dropped.
 """
 
-import fcntl
 import os
 import re
-import socket
-import struct
 import threading
 import time
 from queue import Empty, Queue
@@ -248,35 +245,6 @@ def _volume_percent(level):
     return round(level * 100 / _VOLUME_MAX)
 
 
-#: The ioctl that asks an interface for its address. SIOCGIFADDR.
-_SIOCGIFADDR = 0x8915
-
-
-def _lan_address():
-    """
-    The first non-loopback IPv4 address this machine has.
-
-    Asked of the interfaces directly. Connecting a UDP socket to somewhere
-    unreachable would pick the same address without asking, but that is a
-    network call, and the test suite rightly refuses those.
-    """
-    try:
-        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as probe:
-            for _, name in socket.if_nameindex():
-                try:
-                    packed = struct.pack("256s", name[:15].encode())
-                    address = socket.inet_ntoa(
-                        fcntl.ioctl(probe.fileno(), _SIOCGIFADDR, packed)[20:24]
-                    )
-                except OSError:
-                    continue
-                if not address.startswith("127."):
-                    return address
-    except OSError:
-        return None
-    return None
-
-
 def _track_label(name, chosen, language=None):
     """
     What the overlay says after a track change.
@@ -397,9 +365,6 @@ class VlcProcess(PlayerBackend):
         # How long a message stays on screen, in milliseconds. Zero would leave
         # it there for ever, which would be worse than not showing it at all.
         "osd_timeout": "3000",
-        # The opening title outlives the confirmations by a second, so the two
-        # are not fading at the same moment while a film starts.
-        "osd_title_timeout": "4000",
         # How far the subtitles sit above the bottom edge, in destination pixels.
         # VLC applies this to the subtitle region alone (vout_subpictures.c lifts
         # the region by y_margin), so it is the only thing that moves them.
@@ -1093,31 +1058,6 @@ class VlcProcess(PlayerBackend):
         # No length, but something is playing: say what it is rather than
         # leaving the screen to say nothing.
         self._show_overlay(title)
-
-    @staticmethod
-    def _interface_address():
-        """
-        Where this player can be reached from, as host:port.
-
-        The port is the one actually being served on rather than the default,
-        since they differ once the service runs on 80.
-
-        The host comes from asking each interface for its address, rather than
-        from resolving this machine's name -- which answers 127.0.1.1 on a Pi,
-        and is only reachable from the Pi itself. Asking the interface is also
-        what skips loopback, so a machine with both says the address another
-        device would use.
-        """
-        try:
-            # Raises when nothing is serving, which is true in tests and briefly
-            # true during startup. The address is not worth showing without it.
-            port = cherrypy.server.socket_port
-        except AttributeError:
-            return None
-        host = _lan_address()
-        if host is None:
-            return None
-        return "%s:%s" % (host, port)
 
     def _wait_for_subtitles(self, args):
         deadline = time.time() + _SUBTITLE_WAIT_TIMEOUT

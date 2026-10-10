@@ -261,10 +261,9 @@ re-reads it every `osd_refresh` seconds; that file is what `get_time` and
 `get_length` feed. Setting `report_progress` to a number of seconds also writes
 the same figures to the log, which is off by default.
 
-What is on screen when a film starts is VLC's own title, from
-`--video-title-show`, lasting `osd_title_timeout` -- it knows the duration
-without being asked. The web interface's address is shown underneath it at the
-same time, since that is how a second device reaches the player.
+When a film starts, what is on screen is its name and how long it is, drawn by
+the same overlay -- the total length, not the position, which at the start is
+0:00. Nothing is shown if there is no name to show.
 
 Nothing here polls the player on a timer. That is what stops its cli interface
 answering at all, and the reply is taken within a second or so of the action
@@ -326,7 +325,7 @@ The full set of keys, and their defaults, is each backend's `defaults` dict:
 
 | Backend | Keys |
 |---|---|
-| `vlc` | `binary`, `extra_args`, `audio_device`, `video_output`, `video_output_module`, `subtitle_text_scale`, `start_timeout`, `report_progress`, `osd_overlay`, `osd_refresh`, `osd_position`, `osd_size`, `osd_opacity`, `osd_timeout`, `osd_title_timeout`, `sub_margin`, `volume_step`, `volume_max` |
+| `vlc` | `binary`, `extra_args`, `audio_device`, `video_output`, `video_output_module`, `subtitle_text_scale`, `start_timeout`, `report_progress`, `osd_overlay`, `osd_refresh`, `osd_position`, `osd_size`, `osd_opacity`,  `sub_margin`, `volume_step`, `volume_max` |
 | `mpv` | `binary`, `extra_args`, `audio_device`, `socket`, `start_timeout`, `subtitle_delay_step` |
 | `gstreamer` | `binary`, `pipeline`, `http_source`, `plane_id`, `connector_id`, `audio_device`, `video_decoder`, `audio_decoder`, `start_timeout` |
 | `omxplayer` | `binary`, `extra_args`, `start_timeout`, `input_timeout`, `dbus_path` |
