@@ -1269,11 +1269,11 @@ class TestProgressReporting:
         return proc, sent
 
     def test_it_asks_for_both_and_reports_them(self, caplog):
+        # Bare numbers, which is what the real player answers with. An earlier
+        # version of this expected "( time: 1834.221 )" and matched nothing,
+        # so progress was silently never reported.
         proc, sent = self._proc_answering(
-            {
-                "get_time": ["( time: 1834.221 )"],
-                "get_length": ["( length: 7182.429 )"],
-            }
+            {"get_time": ["1834.221"], "get_length": ["7182.429"]}
         )
         with caplog.at_level("INFO"):
             assert proc._report_progress() == (1834.221, 7182.429)
@@ -1289,14 +1289,14 @@ class TestProgressReporting:
         assert proc._report_progress() is None
 
     def test_one_missing_answer_does_not_lose_the_other(self):
-        proc, _sent = self._proc_answering({"get_time": ["( time: 12.000 )"]})
+        proc, _sent = self._proc_answering({"get_time": ["12.000"]})
         assert proc._report_progress() == (12.0, None)
 
     def test_its_own_logging_is_not_mistaken_for_a_number(self):
         proc, _sent = self._proc_answering(
             {
                 "get_time": ["[0a1b2c3d] some audio error 60.5"],
-                "get_length": ["( length: 100.0 )"],
+                "get_length": ["100.0"],
             }
         )
         assert proc._report_progress() == (None, 100.0)
@@ -1312,6 +1312,16 @@ class TestProgressReporting:
         proc = _running({"report_progress": "often"})
         proc._report_progress = lambda: None
         proc._start_progress_reporter()  # must not raise or spawn
+
+    def test_a_label_in_parentheses_is_not_mistaken_for_a_number(self):
+        """
+        The format assumed and then disproved on the Pi. Pinned so it cannot be
+        reintroduced as though it were what the player sends.
+        """
+        proc, _sent = self._proc_answering(
+            {"get_time": ["( time: 1834.221 )"], "get_length": ["7182.429"]}
+        )
+        assert proc._report_progress() == (None, 7182.429)
 
     def test_seconds_are_shown_the_way_a_person_reads_them(self):
         from lib.player.vlcproc import _format_seconds

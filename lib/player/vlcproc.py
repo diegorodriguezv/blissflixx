@@ -78,10 +78,14 @@ _TRACK_ID = re.compile(r"^\|?\s*(-?\d+)\s+-")
 #: listing is empty until VLC has opened the media, and a torrent being streamed
 #: over http can take a while to start producing.
 _SUBTITLE_WAIT_TIMEOUT = 60
-#: "( time: 1834.221 )" and "( length: 7182.429 )" -- what get_time and
-#: get_length answer with. Matched strictly, including the label, so a number
-#: inside the player's own logging cannot be read as an answer.
-_NUMBER_IN_PARENS = re.compile(r"\(\s*(?:time|length)\s*:\s*([0-9.]+)\s*\)")
+#: What get_time and get_length answer with: a bare number on a line of its own,
+#: e.g. "1297". Not "( length: 1297 )" -- that was assumed, tested against the
+#: real player and wrong, which is why nothing was ever reported.
+#:
+#: Anchored to the whole line so a number appearing inside the player's own
+#: logging cannot be read as an answer. Those lines are already dropped as
+#: logging before this is applied; this is the second line of defence.
+_NUMBER_ALONE = re.compile(r"^\(?\s*(\d+(?:\.\d+)?)\s*\)?$")
 
 
 def _format_seconds(value):
@@ -449,7 +453,7 @@ class VlcProcess(PlayerBackend):
         that is not a failure.
         """
         for line in self._send_and_collect(verb) or []:
-            found = _NUMBER_IN_PARENS.search(line.strip())
+            found = _NUMBER_ALONE.match(line.strip())
             if found:
                 try:
                     return float(found.group(1))
