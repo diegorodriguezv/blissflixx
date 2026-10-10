@@ -70,6 +70,23 @@ def _is_player_logging(line):
     return bool(_VLC_LOG_PREFIX.match(line.strip()))
 
 
+#: Noise the interface prints in place of an answer, on its own, with none of
+#: the bracketed thread id that marks the player's own logging. It arrives as
+#: the entire reply to get_length, so the number never reaches the caller and
+#: every duration reads as unknown:
+#:
+#:     error: XDG_RUNTIME_DIR is invalid or not set in the environment.
+#:
+#: Harmless -- it is about the environment the interface is running in, not the
+#: film -- but it occupies the reply window, so it has to be recognised as what
+#: it is rather than taken for the answer.
+_NOISE_REPLY = re.compile(r"^(error:\s*XDG_RUNTIME_DIR|\s*$)", re.IGNORECASE)
+
+
+def _is_noise(line):
+    return bool(_NOISE_REPLY.match(line.strip()))
+
+
 #: A track id as printed in a strack/atrack listing, e.g. "2 - English (CC)".
 #: VLC pipes its listings with a leading "| " on each line, so that is stripped
 #: before matching. This pattern is why track control appeared to do nothing:
@@ -631,7 +648,7 @@ class VlcProcess(PlayerBackend):
                     break
                 continue
             last_line_at = time.time()
-            if _is_player_logging(line) or _is_echo(line):
+            if _is_player_logging(line) or _is_echo(line) or _is_noise(line):
                 continue
             collected.append(line)
         return collected

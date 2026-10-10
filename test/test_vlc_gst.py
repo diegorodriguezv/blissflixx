@@ -2057,6 +2057,31 @@ class TestWaitingForARealAnswer:
     the wait was cut short by a line of noise before the number arrived.
     """
 
+    def test_the_xdg_runtime_error_is_not_taken_for_the_answer(self):
+        """
+        This is what the opening title was reading as the duration.
+
+        get_length replies with this and nothing else -- it has no bracketed
+        thread id, so the noise filter did not recognise it, and it took the
+        whole reply window:
+
+            error: XDG_RUNTIME_DIR is invalid or not set in the environment.
+
+        Every duration therefore read as unknown, and the announcement fell back
+        to the title alone even though the film knew perfectly well how long it
+        was. Harmless to the film -- it is about the environment the interface
+        runs in -- but it is not an answer.
+        """
+        proc = _running()
+        proc._send_command = lambda c: True
+        proc._replies.put(
+            "error: XDG_RUNTIME_DIR is invalid or not set in the environment."
+        )
+
+        lines = proc._collect_reply(settle=0.2)
+
+        assert lines == [], lines
+
     def test_a_gap_after_noise_does_not_cut_the_reply_short(self):
         """
         The real shape of the bug, with the gap that makes it bite.
