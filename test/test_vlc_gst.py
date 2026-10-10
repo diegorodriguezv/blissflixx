@@ -1132,3 +1132,73 @@ class TestTrackListingIsLogged:
         with caplog.at_level("INFO"):
             assert proc._track_ids("strack") == []
         assert "VLC CLI: strack -> something unexpected" in caplog.text
+
+
+class TestEmbeddedSubtitlesAreEnabledOnStart:
+    """
+    A file with subtitles in it should show them without being asked.
+
+    VLC starts with no subtitle track selected, so a file with embedded
+    subtitles played silently until somebody pressed the subtitle button. VLC
+    being the default backend made that the common case rather than the edge
+    one.
+
+    OmxplayerProcess2.start() has always called show_subtitle, so this brings VLC
+    to the behaviour the project already had, which is what "subtitles are
+    mandatory" means in practice.
+    """
+
+    def _proc_with_listing(self, lines):
+        proc = _running()
+        proc.args = {}
+        proc._send_and_collect = lambda c: lines
+        sent = []
+        proc._send_command = lambda c: sent.append(c) or True
+        proc._ready_seen = True
+        return proc, sent
+
+    def test_the_first_real_track_is_turned_on(self):
+        proc, sent = self._proc_with_listing(
+            ["+----[ spu-es ]", "| -1 - Disable", "| 2 - English (CC)"]
+        )
+        proc._enable_embedded_subtitles()
+        assert sent == ["strack 2"]
+
+    def test_a_file_with_no_subtitle_track_sends_nothing(self):
+        proc, sent = self._proc_with_listing(["+----[ spu-es ]", "| -1 - Disable"])
+        proc._enable_embedded_subtitles()
+        assert sent == []
+
+    def test_an_explicitly_chosen_subtitle_file_is_left_alone(self):
+        """
+        When the UI asked for subtitles by language they arrive as --sub-file and
+        VLC selects them itself. Enabling a different embedded track over the top
+        would be second-guessing an explicit choice.
+        """
+        proc, sent = self._proc_with_listing(
+            ["+----[ spu-es ]", "| -1 - Disable", "| 2 - English (CC)"]
+        )
+        proc.args = {"subtitles": "/tmp/blissflixx/episode.srt"}
+        proc._enable_embedded_subtitles()
+        assert sent == []
+
+    def test_the_chosen_track_is_remembered_for_a_later_show(self):
+        """
+        So hiding subtitles and showing them again returns to this one rather
+        than picking whichever track happens to be first.
+        """
+        proc, sent = self._proc_with_listing(
+            ["+----[ spu-es ]", "| -1 - Disable", "| 2 - English (CC)"]
+        )
+        proc._enable_embedded_subtitles()
+        assert proc._track_choice["strack"] == 2
+
+    def test_the_start_command_never_carries_peerflixs_remove_flag(self):
+        """
+        Belt and braces on the deletion change: -r is "--remove, remove files on
+        exit" and is why downloads never survived.
+        """
+        from lib.player.pflixproc import PeerflixProcess
+
+        cmd = PeerflixProcess("magnet:?xt=urn:btih:AAAA", -1).cmd
+        assert "-r" not in cmd

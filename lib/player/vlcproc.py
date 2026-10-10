@@ -262,6 +262,7 @@ class VlcProcess(PlayerBackend):
                 # they just sat there: the first control action came back
                 # reporting the startup banner as if it were its own answer.
                 self._reset_replies()
+                self._enable_embedded_subtitles()
                 return
             if any(marker in line for marker in _ERROR_MARKERS):
                 # Defer this one. The interface reads its next command from
@@ -426,6 +427,39 @@ class VlcProcess(PlayerBackend):
             self._step_track("atrack", +1)
         elif action == "prev_audio":
             self._step_track("atrack", -1)
+
+    def _enable_embedded_subtitles(self):
+        """
+        Turn on a subtitle track when the file has one.
+
+        VLC starts with none selected -- sub-track=-1 -- so a file with embedded
+        subtitles played silently unless somebody pressed the subtitle button
+        first. omxplayer never had that problem because OmxplayerProcess2.start()
+        has always called show_subtitle; this brings VLC to the same behaviour,
+        which is what "subtitles are mandatory" means in practice.
+
+        Only for tracks inside the file. When the UI asked for subtitles by
+        language, they arrive as --sub-file and VLC selects them itself, and
+        overriding that would be second-guessing an explicit choice.
+
+        A file with no subtitle tracks has nothing to turn on, and the listing
+        comes back with only -1, so nothing is sent.
+        """
+        # args is set by _get_cmd on the normal start path. Absent when _ready
+        # is exercised on its own, which is treated as "no external subs".
+        args = getattr(self, "args", None) or {}
+        if "subtitles" in args:
+            return
+        tracks = self._track_ids("strack")
+        real = [t for t in tracks if t != _TRACK_DISABLED]
+        if not real:
+            cherrypy.log("no subtitle track in this file")
+            return
+        cherrypy.log(
+            "enabling subtitle track %s (omxplayer does this on every start)" % real[0]
+        )
+        self._track_choice["strack"] = real[0]
+        self._send_command("strack " + str(real[0]))
 
     def _show_track(self, command):
         """
