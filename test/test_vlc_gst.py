@@ -94,13 +94,13 @@ class TestVlcCommand:
             "--sub-text-scale=95",
             # Lifts the subtitles off the bottom edge so the overlay can sit
             # just above them instead of over them.
-            "--sub-margin=24",
+            "--sub-margin=0",
             "--osd",
             # VLC's own title, for the first few seconds. Not written by us:
             # the thread that used to do it polled the player, and polling is
             # what silences the cli interface.
             "--video-title-show",
-            "--video-title-timeout=3000",
+            "--video-title-timeout=4000",
             "--play-and-exit",
             FILE_OUT,
         ]
@@ -215,27 +215,26 @@ class TestVlcCommand:
         proc.control(action)
         assert os.path.getsize(MARQ_FILE) > 0, action
 
-    def test_subtitles_sit_near_the_bottom_edge(self):
+    def test_subtitles_sit_at_the_bottom_edge(self):
         """
         VLC applies sub-margin to the subtitle region alone -- vout_subpictures
         lifts the region by y_margin -- which is the only thing that moves them.
 
-        Kept small. At 220 they sat about 40% up the picture, which is nowhere
-        near where subtitles belong; it had been raised to clear the overlay,
-        which no longer needs it now the overlay is at the top.
+        At 220 they sat about 40% up the picture and at 24 there was still a
+        gap under them. Nothing clears them any more -- the overlay is at the
+        top -- so they go where VLC puts them by default: as low as they go.
         """
         cmd = vlc({"outfile": FILE_OUT})
         margin = int([a for a in cmd if a.startswith("--sub-margin=")][0].split("=")[1])
-        assert 0 < margin <= 60, margin
+        assert margin == 0, margin
 
-    def test_subtitles_are_lifted_a_little_off_the_bottom_border(self):
+    def test_subtitles_are_not_lifted_at_all(self):
         """
-        The message moved to the top of the frame, so the subtitles no longer
-        have to be pushed up to make room for it -- only far enough to keep the
-        descenders off the edge.
+        The message is at the top of the frame now, so nothing has to be pushed
+        up to make room for it.
         """
         cmd = vlc({"outfile": FILE_OUT})
-        assert "--sub-margin=24" in cmd
+        assert "--sub-margin=0" in cmd
 
     def test_the_overlay_reads_its_text_from_a_file(self):
         """
@@ -368,33 +367,33 @@ class TestVlcControl:
         sent = self._sent(action)
         assert sent.split()[1][0] in "+-", sent
 
-    def test_the_volume_buttons_step_the_level_by_five_percent(self):
+    def test_the_volume_buttons_step_the_level_by_ten_percent(self):
         """
         The level is tracked from the last known set point, starting at VLC's
         mid-scale default of 256. The cli interface has no query for it either.
 
-        5% of VLC's 0-512 scale is about 26 units. The step used to be 5 units,
-        which is about one percent, so the button looked like it did nothing --
-        and the confirmation said "Volume 51%" one press after "Volume 50%".
+        Ten percent of VLC's 0-512 scale is about 51 units. The step was 5
+        units, about one percent, so the button looked like it did nothing; then
+        five percent, which from a sofa still read as no change at all.
         """
         proc = VlcProcess()
         proc._send_command = lambda c: True
 
         proc.control("volup")
-        assert proc._volume == 282  # 256 + 26
+        assert proc._volume == 307  # 256 + 51
         proc.control("voldown")
         assert proc._volume == 256
 
     def test_the_volume_step_is_a_percentage_not_vlcs_own_units(self):
         """
-        So that "5" in the settings means 5% to whoever edits it, rather than
-        5 of 512 -- which is what it used to mean, and looked like a typo.
+        So that "10" in the settings means 10% to whoever edits it, rather than
+        10 of 512 -- which is what it used to mean, and looked like a typo.
         """
         proc = VlcProcess()
         proc._send_command = lambda c: True
 
         proc.control("volup")
-        assert _volume_percent(proc._volume) == 55
+        assert _volume_percent(proc._volume) == 60
 
     def test_the_volume_does_not_walk_outside_its_range(self):
         proc = VlcProcess()
@@ -1556,10 +1555,10 @@ class TestWhatTheOverlaySays:
         proc._current_volume = lambda: 256
         proc._set_volume = lambda level: True
 
-        # 256 + a step of 5 percent, which is VLC's 282 of 512.
+        # 256 + a step of 10 percent, which is VLC's 307 of 512.
         proc.control("volup")
 
-        assert shown == ["Volume 55%"], shown
+        assert shown == ["Volume 60%"], shown
 
 
 class TestWhatCountsAsAnAnswer:
@@ -1628,7 +1627,7 @@ class TestTheOpeningTitle:
         cmd = vlc({"outfile": FILE_OUT})
 
         assert "--video-title-show" in cmd
-        assert "--video-title-timeout=3000" in cmd
+        assert "--video-title-timeout=4000" in cmd
         assert "--no-video-title-show" not in cmd
 
     def test_nothing_polls_the_player_for_the_duration(self):
@@ -1675,8 +1674,10 @@ class TestTheOpeningTitle:
         proc = on_screen_proc()
         proc._read_position = lambda: (6144.0, 7742.0)
 
+        # "Pause" rather than "Paused": it is the name of the key pressed, and
+        # what the button on the remote says.
         proc.control("pause")
-        assert proc._overlay_shown == "Paused 1:42:24 / 2:09:02"
+        assert proc._overlay_shown == "Pause 1:42:24 / 2:09:02"
 
         proc.control("resume")
         assert proc._overlay_shown == "Play 1:42:24 / 2:09:02"
@@ -1691,7 +1692,65 @@ class TestTheOpeningTitle:
 
         proc.control("pause")
 
-        assert proc._overlay_shown == "Paused"
+        assert proc._overlay_shown == "Pause"
+
+
+class TestTheAddressShownAtTheStart:
+    """
+    Where this player can be reached from, shown as a film starts.
+
+    Useful while something is playing on the television: it is how a second
+    device reaches the same player, and it is written nowhere a person would
+    look for it while a film is running.
+    """
+
+    def test_it_is_the_address_another_device_would_use(self):
+        """
+        Not this machine's own name, which answers 127.0.1.1 on a Pi -- an
+        address only the Pi itself can reach.
+        """
+        from lib.player.vlcproc import _lan_address
+
+        address = _lan_address()
+
+        assert address is not None
+        assert not address.startswith("127.")
+
+    def test_it_carries_the_port_actually_being_served_on(self):
+        """
+        Not the default, which is not the one in use once the service runs on
+        80 -- an address that does not work is worse than none.
+        """
+        import lib.player.vlcproc as vlc
+
+        with m.patch.object(vlc.cherrypy.server, "socket_port", 80):
+            assert vlc.VlcProcess._interface_address().endswith(":80")
+
+    def test_nothing_is_shown_when_the_port_is_not_known(self):
+        """
+        True in tests and briefly true during startup. An address without a port
+        cannot be reached, so there is nothing worth saying.
+        """
+        import lib.player.vlcproc as vlc
+
+        with m.patch.object(vlc.cherrypy, "server", m.Mock(spec=[])):
+            assert vlc.VlcProcess._interface_address() is None
+
+    def test_it_is_shown_when_a_film_starts(self):
+        proc = on_screen_proc()
+        proc._interface_address = lambda: "192.168.1.119:6969"
+
+        proc._show_address()
+
+        assert proc._overlay_shown == "192.168.1.119:6969"
+
+    def test_nothing_is_shown_when_the_overlay_is_off(self):
+        proc = VlcProcess({"osd_overlay": "0"})
+        proc._interface_address = lambda: "192.168.1.119:6969"
+
+        proc._show_address()
+
+        assert proc._overlay_shown is None
 
 
 class TestProgressReporting:

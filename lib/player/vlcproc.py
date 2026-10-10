@@ -24,8 +24,11 @@ Not implemented: audio track cycling and subtitle visibility. Neither has a cli
 command equivalent, so they are declared absent rather than silently dropped.
 """
 
+import fcntl
 import os
 import re
+import socket
+import struct
 import threading
 import time
 from queue import Empty, Queue
@@ -134,6 +137,10 @@ _TRACK_ID = re.compile(r"^\|?\s*(-?\d+)\s+-")
 #: listing is empty until VLC has opened the media, and a torrent being streamed
 #: over http can take a while to start producing.
 _SUBTITLE_WAIT_TIMEOUT = 60
+#: How long the address stays on screen as a film starts. Matches the opening
+#: title's own timeout, so the two fade together rather than one outliving the
+#: other.
+_ADDRESS_HOLD = 3.5
 #: Where the marquee reads its text from. VLC re-reads it every --marq-refresh
 #: seconds, so writing to it is how the position gets on the screen.
 MARQ_FILE = os.path.join(TMP_DIR, "marq.txt")
@@ -233,6 +240,35 @@ def _volume_percent(level):
     that used to appear.
     """
     return round(level * 100 / _VOLUME_MAX)
+
+
+#: The ioctl that asks an interface for its address. SIOCGIFADDR.
+_SIOCGIFADDR = 0x8915
+
+
+def _lan_address():
+    """
+    The first non-loopback IPv4 address this machine has.
+
+    Asked of the interfaces directly. Connecting a UDP socket to somewhere
+    unreachable would pick the same address without asking, but that is a
+    network call, and the test suite rightly refuses those.
+    """
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as probe:
+            for _, name in socket.if_nameindex():
+                try:
+                    packed = struct.pack("256s", name[:15].encode())
+                    address = socket.inet_ntoa(
+                        fcntl.ioctl(probe.fileno(), _SIOCGIFADDR, packed)[20:24]
+                    )
+                except OSError:
+                    continue
+                if not address.startswith("127."):
+                    return address
+    except OSError:
+        return None
+    return None
 
 
 def _track_label(name, chosen, language=None):
@@ -355,15 +391,17 @@ class VlcProcess(PlayerBackend):
         # How long a message stays on screen, in milliseconds. Zero would leave
         # it there for ever, which would be worse than not showing it at all.
         "osd_timeout": "3000",
+        # The opening title outlives the confirmations by a second, so the two
+        # are not fading at the same moment while a film starts.
+        "osd_title_timeout": "4000",
         # How far the subtitles sit above the bottom edge, in destination pixels.
         # VLC applies this to the subtitle region alone (vout_subpictures.c lifts
         # the region by y_margin), so it is the only thing that moves them.
         #
-        # Small on purpose. At 220 they sat about 40% up the picture, which is
-        # nowhere near the bottom where subtitles belong -- it had been raised to
-        # clear the overlay, which no longer needs it now the overlay is at the
-        # top. Just enough to keep the descenders off the edge of the frame.
-        "sub_margin": "24",
+        # Nothing. VLC's default, and the lowest they can sit -- at 220 they
+        # were about 40% up the picture, and at 24 still had a gap under them.
+        # The overlay is at the top now, so nothing needs clearing below.
+        "sub_margin": "0",
         # An alignment enum, not a 1-10 scale: marq passes this straight
         # through as the subpicture region's i_align. The values marq offers are
         # 0 center, 1 left, 2 right, 4 top, 8 bottom. Guessing at a scale put
@@ -378,7 +416,11 @@ class VlcProcess(PlayerBackend):
         # As a percentage of VLC's 0-512 scale, not a number of its units: the
         # step used to be 5, which is 5 of 512 -- about one percent, so the
         # button appeared to do nothing at all. It is converted on the way out.
-        "volume_step": 5,
+        #
+        # Ten rather than five because five was still too small to see from a
+        # sofa: the confirmation went from "Volume 50%" to "Volume 55%" and
+        # read as no change at all.
+        "volume_step": 10,
         "volume_max": 512,
     }
 
@@ -501,7 +543,7 @@ class VlcProcess(PlayerBackend):
             # does not need to be spoken to. Asking it in its own words costs
             # nothing and cannot silence it.
             "--video-title-show",
-            "--video-title-timeout=" + str(self.opt("osd_timeout")),
+            "--video-title-timeout=" + str(self.opt("osd_title_timeout")),
             "--play-and-exit",
         ]
         if "subtitles" in args:
@@ -552,6 +594,7 @@ class VlcProcess(PlayerBackend):
                 # reporting the startup banner as if it were its own answer.
                 self._reset_replies()
                 self._enable_embedded_subtitles()
+                _start_thread(self._show_address)
                 return
             if any(marker in line for marker in _ERROR_MARKERS):
                 # Defer this one. The interface reads its next command from
@@ -846,8 +889,11 @@ class VlcProcess(PlayerBackend):
             self._send_command("pause" if action == "pause" else "play")
             # With the time on it, because that is what pausing and un-pausing
             # is for: you stop to do something and come back to where you
-            # stopped. "Paused" on its own said nothing about where.
-            self._show_overlay(self._where("Paused" if action == "pause" else "Play"))
+            # stopped. "Pause" on its own said nothing about where.
+            #
+            # "Pause" rather than "Paused": it is the name of the key that was
+            # pressed, and what the button on the remote says.
+            self._show_overlay(self._where("Pause" if action == "pause" else "Play"))
         elif action == "stop":
             self._send_command("quit")
         elif action in ("plus30", "minus30", "plus600", "minus600"):
@@ -994,6 +1040,51 @@ class VlcProcess(PlayerBackend):
         if "subtitles" in args:
             return
         _start_thread(self._wait_for_subtitles, args)
+
+    def _show_address(self):
+        """
+        The web interface's address, shown as a film starts.
+
+        Handy while playing something on the television: it is how a second
+        device reaches the same player, and it is not written anywhere a person
+        would look for it while a film is running.
+
+        Shown once, for as long as the opening title stays up, and not tied to
+        the media opening -- it is true from the moment the player does, so
+        waiting for a duration would only delay something already correct.
+        """
+        if not self._overlay_wanted():
+            return
+        address = self._interface_address()
+        if not address:
+            return
+        self._show_overlay(address)
+        time.sleep(_ADDRESS_HOLD)
+
+    @staticmethod
+    def _interface_address():
+        """
+        Where this player can be reached from, as host:port.
+
+        The port is the one actually being served on rather than the default,
+        since they differ once the service runs on 80.
+
+        The host comes from asking each interface for its address, rather than
+        from resolving this machine's name -- which answers 127.0.1.1 on a Pi,
+        and is only reachable from the Pi itself. Asking the interface is also
+        what skips loopback, so a machine with both says the address another
+        device would use.
+        """
+        try:
+            # Raises when nothing is serving, which is true in tests and briefly
+            # true during startup. The address is not worth showing without it.
+            port = cherrypy.server.socket_port
+        except AttributeError:
+            return None
+        host = _lan_address()
+        if host is None:
+            return None
+        return "%s:%s" % (host, port)
 
     def _wait_for_subtitles(self, args):
         deadline = time.time() + _SUBTITLE_WAIT_TIMEOUT

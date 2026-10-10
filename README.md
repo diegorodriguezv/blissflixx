@@ -252,12 +252,23 @@ because a person watching a film needs to know the button worked, not to read a
 clock. The position is shown when a seek happens, not every second.
 
 The messages are drawn with VLC's `marq` marquee, enabled through `osd_overlay`,
-placed and sized with `osd_position`, `osd_size` and `osd_opacity`. It sits just
-above the subtitles, which are lifted off the bottom edge by `sub_margin` so the
-two do not collide. VLC has no command for setting a marquee's text, so it is given
-a file and re-reads it every `osd_refresh` seconds; that file is what
-`get_time` and `get_length` feed. Setting `report_progress` to a number of
-seconds also writes the same figures to the log, which is off by default.
+placed and sized with `osd_position`, `osd_size` and `osd_opacity`. It sits at the
+top of the frame, well clear of the subtitles, which are left where VLC puts them
+by default -- `sub_margin` is there if you want to lift them, and is 0.
+
+VLC has no command for setting a marquee's text, so it is given a file and
+re-reads it every `osd_refresh` seconds; that file is what `get_time` and
+`get_length` feed. Setting `report_progress` to a number of seconds also writes
+the same figures to the log, which is off by default.
+
+What is on screen when a film starts is VLC's own title, from
+`--video-title-show`, lasting `osd_title_timeout` -- it knows the duration
+without being asked. The web interface's address is shown underneath it at the
+same time, since that is how a second device reaches the player.
+
+Nothing here polls the player on a timer. That is what stops its cli interface
+answering at all, and the reply is taken within a second or so of the action
+that wanted it, rather than continuously.
 
 Subtitle delay is a separate capability from subtitle selection. `mpv` and
 `omxplayer-keys` can nudge the timing; VLC cannot through its cli interface, so
@@ -315,7 +326,7 @@ The full set of keys, and their defaults, is each backend's `defaults` dict:
 
 | Backend | Keys |
 |---|---|
-| `vlc` | `binary`, `extra_args`, `audio_device`, `video_output`, `video_output_module`, `subtitle_text_scale`, `start_timeout`, `report_progress`, `osd_overlay`, `osd_refresh`, `osd_position`, `osd_size`, `osd_opacity`, `volume_step`, `volume_max` |
+| `vlc` | `binary`, `extra_args`, `audio_device`, `video_output`, `video_output_module`, `subtitle_text_scale`, `start_timeout`, `report_progress`, `osd_overlay`, `osd_refresh`, `osd_position`, `osd_size`, `osd_opacity`, `osd_timeout`, `osd_title_timeout`, `sub_margin`, `volume_step`, `volume_max` |
 | `mpv` | `binary`, `extra_args`, `audio_device`, `socket`, `start_timeout`, `subtitle_delay_step` |
 | `gstreamer` | `binary`, `pipeline`, `http_source`, `plane_id`, `connector_id`, `audio_device`, `video_decoder`, `audio_decoder`, `start_timeout` |
 | `omxplayer` | `binary`, `extra_args`, `start_timeout`, `input_timeout`, `dbus_path` |
