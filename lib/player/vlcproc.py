@@ -26,6 +26,7 @@ command equivalent, so they are declared absent rather than silently dropped.
 
 import os
 import re
+import threading
 import time
 from queue import Empty, Queue
 
@@ -40,7 +41,7 @@ from .backend import (
     CAP_VOLUME,
     PlayerBackend,
 )
-from .processpipe import ProcessException, _start_thread
+from .processpipe import TMP_DIR, ProcessException, _start_thread
 
 VLC_BIN = "cvlc"
 _START_TIMEOUT = 30
@@ -78,6 +79,9 @@ _TRACK_ID = re.compile(r"^\|?\s*(-?\d+)\s+-")
 #: listing is empty until VLC has opened the media, and a torrent being streamed
 #: over http can take a while to start producing.
 _SUBTITLE_WAIT_TIMEOUT = 60
+#: Where the marquee reads its text from. VLC re-reads it every --marq-refresh
+#: seconds, so writing to it is how the position gets on the screen.
+MARQ_FILE = os.path.join(TMP_DIR, "marq.txt")
 #: What get_time and get_length answer with: a bare number on a line of its own,
 #: e.g. "1297". Not "( length: 1297 )" -- that was assumed, tested against the
 #: real player and wrong, which is why nothing was ever reported.
@@ -96,6 +100,24 @@ def _format_seconds(value):
         return "--:--"
     total = int(value)
     return "%d:%02d:%02d" % (total // 3600, (total % 3600) // 60, total % 60)
+
+
+def _format_clock(value):
+    """
+    Shorter form for the screen: m:ss under an hour, h:mm:ss over it.
+
+    A position is glanced at, not read, so the leading zero hour is dropped and
+    the hours are left off entirely when there are none. An unknown length shows
+    as "--" rather than "--:--", which is needlessly long for a glance.
+    """
+    if value is None:
+        return "--"
+    total = int(value)
+    hours, rest = divmod(total, 3600)
+    minutes, seconds = divmod(rest, 60)
+    if hours:
+        return "%d:%02d:%02d" % (hours, minutes, seconds)
+    return "%d:%02d" % (minutes, seconds)
 
 
 #: VLC's id for "no subtitles", as printed in the listing.
@@ -183,7 +205,17 @@ class VlcProcess(PlayerBackend):
         "subtitle_text_scale": "95",
         # Off by default: get_time and get_length are two extra commands per
         # report, and most people are not watching the log while a film plays.
+        # Also log position and duration, not just show them on screen.
         "report_progress": "0",
+        # The on-screen position overlay. marq is a "sub source" in VLC 3 --
+        # not a video filter, so --video-filter fails to load it -- and it is
+        # the only component here that can put text on the picture.
+        "osd_overlay": "1",
+        "osd_refresh": "1",
+        # 1-10, counting down from the top. 8 sits above the subtitle area.
+        "osd_position": "8",
+        "osd_size": "28",
+        "osd_opacity": "220",
         "start_timeout": _START_TIMEOUT,
         "volume_step": 5,
         "volume_max": 512,
@@ -218,6 +250,19 @@ class VlcProcess(PlayerBackend):
         # The cli interface has no volume query, so it is tracked from the last
         # set point. VLC treats 256 of 512 as its default level.
         self._volume = 256
+        self._overlay_shown = None
+        self._overlay_warned = False
+        # One command at a time. Two threads ask this player things at once --
+        # the overlay reporter polls get_time every second, and the subtitle
+        # waiter polls strack for up to a minute -- and they share one stdin and
+        # one reply queue. So a strack reply could be taken as the answer to
+        # get_length, which is why the duration never appeared, and their
+        # commands could interleave mid-line on stdin.
+        #
+        # Serialised rather than given separate reply paths, because separate
+        # paths would mean separate readers on one pipe -- the buffered-reader
+        # bug all over again.
+        self._command_lock = threading.Lock()
 
     @property
     def start_timeout(self):
@@ -226,6 +271,7 @@ class VlcProcess(PlayerBackend):
     def build_command(self, args):
         cmd = [self.opt("binary")]
         cmd += list(self.opt("extra_args"))
+        cmd += self._osd_args()
         cmd += [
             "--aout=alsa",
             "--alsa-audio-device=" + self.opt("audio_device"),
@@ -369,15 +415,16 @@ class VlcProcess(PlayerBackend):
         command's reply, and the listing was gone. Both callers need the lines
         rather than a string, so this is the shared part.
         """
-        proc = getattr(self, "proc", None)
-        if proc is None or proc.poll() is not None:
-            return None
-        try:
-            proc.stdin.write((command + "\n").encode("utf-8"))
-            proc.stdin.flush()
-        except (OSError, ValueError):
-            return None
-        return self._collect_reply()
+        with self._command_lock:
+            proc = getattr(self, "proc", None)
+            if proc is None or proc.poll() is not None:
+                return None
+            try:
+                proc.stdin.write((command + "\n").encode("utf-8"))
+                proc.stdin.flush()
+            except (OSError, ValueError):
+                return None
+            return self._collect_reply()
 
     def _collect_reply(self, settle=_REPLY_SETTLE):
         """
@@ -415,6 +462,35 @@ class VlcProcess(PlayerBackend):
             collected.append(line)
         return collected
 
+    def _osd_args(self):
+        """
+        Arguments for the on-screen position overlay.
+
+        marq is a "sub source" in VLC 3, not a video filter -- passing it to
+        --video-filter fails with "Failed to create video filter 'marq'" -- so
+        it is added as a sub source, which is what lets it draw over the picture
+        alongside real subtitles rather than replacing them.
+
+        The text is not given on the command line because VLC has no cli
+        command to change it. It is given as a file, and marq re-reads that file
+        every --marq-refresh seconds, so the reporter writing to it is what keeps
+        the position live. Verified on the Pi: modules/spu/marq.c calls
+        MarqueeReadFile() from its Filter() on every refresh.
+
+        Returned empty when osd_overlay is off, so the arguments are not merely
+        ignored -- marq is never asked for.
+        """
+        if str(self.opt("osd_overlay")).lower() in ("0", "false", "", "none"):
+            return []
+        return [
+            "--sub-source=marq",
+            "--marq-file=" + MARQ_FILE,
+            "--marq-refresh=" + str(self.opt("osd_refresh")),
+            "--marq-position=" + str(self.opt("osd_position")),
+            "--marq-size=" + str(self.opt("osd_size")),
+            "--marq-opacity=" + str(self.opt("osd_opacity")),
+        ]
+
     def _report_progress(self):
         """
         Log where the film is and how long it is.
@@ -434,13 +510,49 @@ class VlcProcess(PlayerBackend):
         """
         position = self._read_number("get_time")
         length = self._read_number("get_length")
+        self._write_overlay(position, length)
         if position is None and length is None:
             return None
-        cherrypy.log(
-            "VLC progress: position %s, length %s"
-            % (_format_seconds(position), _format_seconds(length))
-        )
+        if str(self.opt("report_progress")).lower() not in ("0", "", "false"):
+            cherrypy.log(
+                "VLC progress: position %s, length %s"
+                % (_format_seconds(position), _format_seconds(length))
+            )
         return position, length
+
+    def _write_overlay(self, position, length):
+        """
+        Put the position on the screen by rewriting the file marq reads.
+
+        That is the whole mechanism: marq re-reads --marq-file on every refresh
+        tick, so there is nothing to tell VLC -- only a file to keep current.
+        Written atomically via a temporary file and a rename, because marq reads
+        it on a timer and a half-written file would show a truncated position.
+        """
+        if not self._overlay_wanted():
+            return
+        text = "%s / %s" % (
+            _format_clock(position),
+            _format_clock(length),
+        )
+        if text == self._overlay_shown:
+            return
+        try:
+            os.makedirs(os.path.dirname(MARQ_FILE), exist_ok=True)
+            tmp = MARQ_FILE + ".tmp"
+            with open(tmp, "w", encoding="utf-8") as handle:
+                handle.write(text)
+            os.replace(tmp, MARQ_FILE)
+            self._overlay_shown = text
+        except OSError:
+            # An overlay that cannot be written is worth a line once, not once
+            # a second.
+            if not self._overlay_warned:
+                self._overlay_warned = True
+                cherrypy.log("could not write the VLC overlay file: " + MARQ_FILE)
+
+    def _overlay_wanted(self):
+        return str(self.opt("osd_overlay")).lower() not in ("0", "false", "", "none")
 
     def _read_number(self, verb):
         """
@@ -522,20 +634,34 @@ class VlcProcess(PlayerBackend):
 
     def _start_progress_reporter(self):
         """
-        Report position and length periodically, if configured to.
+        Keep the overlay, and optionally the log, up to date.
 
-        Off unless report_progress is set to a positive number of seconds, which
-        is the interval. Nothing is spawned otherwise.
+        Runs whenever the on-screen overlay is on, because that is what makes
+        the position live. report_progress only decides whether the same numbers
+        are also written to the log, for which it is the interval instead.
+
+        On when the overlay is off and report_progress is 0, nothing is spawned.
         """
+        interval = 0
+        if self._overlay_wanted():
+            try:
+                interval = int(self.opt("osd_refresh"))
+            except (TypeError, ValueError):
+                interval = 0
         try:
-            interval = int(self.opt("report_progress"))
+            log_interval = int(self.opt("report_progress"))
         except (TypeError, ValueError):
-            interval = 0
+            log_interval = 0
+        if log_interval > 0:
+            interval = log_interval if interval <= 0 else min(interval, log_interval)
         if interval <= 0:
             return
-        _start_thread(self._progress_loop, interval)
+        _start_thread(self._progress_loop, max(1, interval))
 
     def _progress_loop(self, interval):
+        # Write the file before VLC first reads it, so the overlay shows the
+        # time rather than sitting empty until the first tick.
+        self._write_overlay(None, None)
         while not self.killing:
             time.sleep(interval)
             if self.killing:

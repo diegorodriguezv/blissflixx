@@ -50,12 +50,16 @@ class TestVlcCommand:
     def test_matches_the_verified_pi_invocation(self):
         """
         The exact set of flags measured working, plus --intf=cli so the
-        commands in _send_command() have somewhere to go.
+        commands in _send_command() have somewhere to go. The position overlay
+        is added by _osd_args() and asserted separately; this checks the rest
+        has not drifted.
 
         --vout=drm_vout with the vc4 module is the hardware acceleration
         setup on the Pi and is deliberate, not an arbitrary default.
         """
-        cmd = vlc({"outfile": FILE_OUT})
+        # Overlay off here, so that this list stays about the base invocation.
+        # The overlay arguments are asserted separately and are allowed to grow.
+        cmd = VlcProcess({"osd_overlay": "0"}).build_command({"outfile": FILE_OUT})
         assert cmd[0] == "cvlc"
         assert cmd[1:] == [
             "--intf=cli",
@@ -69,6 +73,38 @@ class TestVlcCommand:
             "--play-and-exit",
             FILE_OUT,
         ]
+
+    def test_the_overlay_is_wired_up(self):
+        """
+        marq as a sub source, not a video filter -- passing it to --video-filter
+        fails with "Failed to create video filter 'marq'" on this VLC, because
+        it is an spu module. Being a sub source is also what lets it draw over
+        the picture alongside real subtitles instead of replacing them.
+        """
+        cmd = vlc({"outfile": FILE_OUT})
+        assert "--sub-source=marq" in cmd
+        assert "--marq-refresh=1" in cmd
+        assert not [a for a in cmd if a.startswith("--video-filter=marq")]
+
+    def test_the_overlay_reads_its_text_from_a_file(self):
+        """
+        VLC has no cli command to set the marquee text, so it is given a file.
+        marq re-reads that file on every refresh, which is what makes the
+        position live -- see _write_overlay.
+        """
+        from lib.player.vlcproc import MARQ_FILE
+
+        cmd = vlc({"outfile": FILE_OUT})
+        assert "--marq-file=" + MARQ_FILE in cmd
+
+    def test_the_overlay_can_be_turned_off(self):
+        """
+        marq is not asked for at all when disabled, rather than asked for and
+        ignored.
+        """
+        cmd = VlcProcess({"osd_overlay": "0"}).build_command({"outfile": FILE_OUT})
+        assert not [a for a in cmd if "marq" in a]
+        assert not [a for a in cmd if "sub-source" in a]
 
     def test_hardware_acceleration_is_pinned_to_drm_vout_on_vc4(self):
         """
@@ -1268,17 +1304,101 @@ class TestProgressReporting:
         proc._send_and_collect = lambda c: (sent.append(c) or replies.get(c, []))
         return proc, sent
 
-    def test_it_asks_for_both_and_reports_them(self, caplog):
+    def test_it_asks_for_both_and_reports_them(self, caplog, tmp_path, monkeypatch):
         # Bare numbers, which is what the real player answers with. An earlier
         # version of this expected "( time: 1834.221 )" and matched nothing,
         # so progress was silently never reported.
+        import lib.player.vlcproc as vlc
+
+        monkeypatch.setattr(vlc, "MARQ_FILE", str(tmp_path / "marq.txt"))
         proc, sent = self._proc_answering(
-            {"get_time": ["1834.221"], "get_length": ["7182.429"]}
+            {"get_time": ["1834.221"], "get_length": ["7182.429"]},
+            {"osd_overlay": "1", "report_progress": "1"},
         )
         with caplog.at_level("INFO"):
             assert proc._report_progress() == (1834.221, 7182.429)
         assert sent == ["get_time", "get_length"]
         assert "position 0:30:34, length 1:59:42" in caplog.text
+
+    def test_the_position_is_written_to_the_file_marq_reads(
+        self, tmp_path, monkeypatch
+    ):
+        """
+        The whole on-screen mechanism, without a screen: the number the user
+        sees is written to the file VLC re-reads every second.
+        """
+        import lib.player.vlcproc as vlc
+
+        target = tmp_path / "marq.txt"
+        monkeypatch.setattr(vlc, "MARQ_FILE", str(target))
+        proc = _running({"osd_overlay": "1"})
+        proc._send_and_collect = lambda c: {
+            "get_time": ["1834"],
+            "get_length": ["7182"],
+        }.get(c, [])
+
+        proc._report_progress()
+
+        assert target.read_text() == "30:34 / 1:59:42"
+
+    def test_the_file_is_left_alone_when_the_overlay_is_off(
+        self, tmp_path, monkeypatch
+    ):
+        import lib.player.vlcproc as vlc
+
+        target = tmp_path / "marq.txt"
+        monkeypatch.setattr(vlc, "MARQ_FILE", str(target))
+        proc = _running({"osd_overlay": "0"})
+        proc._send_and_collect = lambda c: ["1834"]
+
+        proc._report_progress()
+
+        assert not target.exists(), "wrote to the overlay file with the overlay off"
+
+    def test_an_unchanged_position_is_not_rewritten(self, tmp_path, monkeypatch):
+        """
+        Not merely an optimisation: marq re-reads on a timer, and rewriting
+        identical text every second is pointless work on a Pi.
+        """
+        import lib.player.vlcproc as vlc
+
+        target = tmp_path / "marq.txt"
+        monkeypatch.setattr(vlc, "MARQ_FILE", str(target))
+        proc = _running({"osd_overlay": "1"})
+        proc._send_and_collect = lambda c: {"get_time": ["10"]}.get(c, [])
+        proc._report_progress()
+        first = target.stat().st_mtime_ns
+        proc._report_progress()
+        assert target.stat().st_mtime_ns == first
+
+    def test_the_write_is_atomic(self, tmp_path, monkeypatch):
+        """
+        marq reads this file on a timer, so a half-written one would show a
+        truncated position. Written to a temporary file and renamed, which is
+        atomic on the same filesystem.
+        """
+        import lib.player.vlcproc as vlc
+
+        target = tmp_path / "marq.txt"
+        monkeypatch.setattr(vlc, "MARQ_FILE", str(target))
+        proc = _running({"osd_overlay": "1"})
+        proc._send_and_collect = lambda c: {"get_time": ["10"]}.get(c, [])
+        proc._report_progress()
+        assert target.exists()
+        assert not (tmp_path / "marq.txt.tmp").exists(), "left a temporary file"
+
+    def test_the_overlay_runs_with_the_reporter_off(self, monkeypatch):
+        """
+        report_progress is 0 by default, but the position still has to update or
+        the overlay would sit frozen on whatever it first read.
+        """
+        proc = _running({"osd_overlay": "1", "osd_refresh": "2"})
+        started = []
+        monkeypatch.setattr(
+            "lib.player.vlcproc._start_thread", lambda fn, *a: started.append(a)
+        )
+        proc._start_progress_reporter()
+        assert started, "nothing was started, so the overlay would never update"
 
     def test_a_player_that_answers_nothing_is_not_a_failure(self):
         """
@@ -1330,3 +1450,102 @@ class TestProgressReporting:
         assert _format_seconds(61.5) == "0:01:01"
         assert _format_seconds(3661) == "1:01:01"
         assert _format_seconds(None) == "--:--"
+
+
+class TestConcurrentCommandsDoNotCorruptEachOther:
+    """
+    Two threads ask this player things at once and must not be answered
+    together.
+
+    The overlay reporter polls get_time every second and the subtitle waiter
+    polls strack for up to a minute, and both go through the same stdin and the
+    same reply queue. So a strack reply could be taken as the answer to
+    get_length -- which is why the duration never appeared -- and their commands
+    could interleave mid-line.
+
+    Serialised with one lock, rather than given separate reply paths, because
+    separate paths mean separate readers on one pipe: the buffered-reader bug
+    this project already spent an evening on.
+    """
+
+    def _concurrent_proc(self, answers=None):
+        """
+        A real _send_and_collect, so the lock under test is actually the one
+        running. Only the reply-collection is left stubbable.
+        """
+        proc = _running({"osd_overlay": "1"})
+        if answers is not None:
+            proc._collect_reply = lambda settle=None: answers.get(
+                proc._pending_verb, []
+            )
+        return proc
+
+    def test_only_one_command_is_in_flight_at_a_time(self):
+        """
+        Measured where it matters: how many threads are inside the exchange at
+        once. Two would mean a reply could be taken for the other command.
+
+        Serialising only the write would still leave this at two, because the
+        replies arrive on one queue after the lock has been dropped.
+        """
+        import threading
+        import time
+
+        proc = self._concurrent_proc()
+        inside = 0
+        peak = 0
+        guard = threading.Lock()
+        hold = threading.Event()
+
+        def collect(settle=None):
+            nonlocal inside, peak
+            with guard:
+                inside += 1
+                peak = max(peak, inside)
+            hold.wait(1.0)
+            with guard:
+                inside -= 1
+            return []
+
+        proc._collect_reply = collect
+
+        threads = [
+            threading.Thread(target=proc._send_and_collect, args=(verb,))
+            for verb in ("get_time", "strack", "get_length")
+        ]
+        for thread in threads:
+            thread.start()
+        time.sleep(0.3)
+        hold.set()
+        for thread in threads:
+            thread.join(3.0)
+
+        assert peak == 1, "%d commands were in flight at once" % peak
+
+    def test_every_command_still_gets_its_own_answer(self):
+        """
+        Serialised, not dropped or merged: each verb gets back what it asked for.
+        """
+        proc = _running({"osd_overlay": "1"})
+        replies = {"get_time": ["12"], "get_length": ["900"]}
+        sent = []
+
+        proc._collect_reply = lambda settle=None: replies.get(sent[-1], [])
+
+        def record(verb):
+            sent.append(verb)
+            return proc._collect_reply()
+
+        proc._send_and_collect = record
+        assert proc._read_number("get_time") == 12.0
+        assert proc._read_number("get_length") == 900.0
+        assert sent == ["get_time", "get_length"]
+
+    def test_the_lock_is_per_instance_not_global(self):
+        """
+        Two players means two players, not one player's commands queueing behind
+        another's.
+        """
+        first = _running()
+        second = _running()
+        assert first._command_lock is not second._command_lock

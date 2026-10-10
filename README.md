@@ -243,9 +243,12 @@ therefore declares the same capabilities as `mpv` and `omxplayer-keys`.
 `--osd` is enabled so a volume change or a seek is visible on screen: without
 it the only feedback is a log line nobody watching a film can see. VLC's own
 OSD cannot be sent text, because that needs `marq`, which this build does not
-have; setting `report_progress` to a number of seconds logs position and
-duration instead, via the `get_time` and `get_length` commands. It is off by
-default.
+have; The position and duration are shown on screen with the `marq` marquee, enabled
+through `osd_overlay` and placed with `osd_position`, `osd_size` and
+`osd_opacity`. VLC has no command for setting a marquee's text, so it is given
+a file and re-reads it every `osd_refresh` seconds; that file is what
+`get_time` and `get_length` feed. Setting `report_progress` to a number of
+seconds also writes the same figures to the log, which is off by default.
 
 Subtitle delay is a separate capability from subtitle selection. `mpv` and
 `omxplayer-keys` can nudge the timing; VLC cannot through its cli interface, so
@@ -303,7 +306,7 @@ The full set of keys, and their defaults, is each backend's `defaults` dict:
 
 | Backend | Keys |
 |---|---|
-| `vlc` | `binary`, `extra_args`, `audio_device`, `video_output`, `video_output_module`, `subtitle_text_scale`, `start_timeout`, `report_progress`, `volume_step`, `volume_max` |
+| `vlc` | `binary`, `extra_args`, `audio_device`, `video_output`, `video_output_module`, `subtitle_text_scale`, `start_timeout`, `report_progress`, `osd_overlay`, `osd_refresh`, `osd_position`, `osd_size`, `osd_opacity`, `volume_step`, `volume_max` |
 | `mpv` | `binary`, `extra_args`, `audio_device`, `socket`, `start_timeout`, `subtitle_delay_step` |
 | `gstreamer` | `binary`, `pipeline`, `http_source`, `plane_id`, `connector_id`, `audio_device`, `video_decoder`, `audio_decoder`, `start_timeout` |
 | `omxplayer` | `binary`, `extra_args`, `start_timeout`, `input_timeout`, `dbus_path` |
