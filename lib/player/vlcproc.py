@@ -137,14 +137,24 @@ _SUBTITLE_WAIT_TIMEOUT = 60
 #: Where the marquee reads its text from. VLC re-reads it every --marq-refresh
 #: seconds, so writing to it is how the position gets on the screen.
 MARQ_FILE = os.path.join(TMP_DIR, "marq.txt")
-#: What get_time and get_length answer with: a bare number on a line of its own,
+#: What get_time and get_length answer with: a number on a line of its own,
 #: e.g. "1297". Not "( length: 1297 )" -- that was assumed, tested against the
 #: real player and wrong, which is why nothing was ever reported.
+#:
+#: The leading ">" is the interface's prompt, which it writes to the same line
+#: as the answer about as often as not:
+#:
+#:     > 1297
+#:
+#: So the same reply arrives sometimes bare and sometimes with the prompt on
+#: the front of it, and matching only the bare form is why a seek's time
+#: appeared "sometimes" and not otherwise -- it was whichever form the
+#: interface happened to emit for that one reply.
 #:
 #: Anchored to the whole line so a number appearing inside the player's own
 #: logging cannot be read as an answer. Those lines are already dropped as
 #: logging before this is applied; this is the second line of defence.
-_NUMBER_ALONE = re.compile(r"^\(?\s*(\d+(?:\.\d+)?)\s*\)?$")
+_NUMBER_ALONE = re.compile(r"^(?:\s*>\s*)*\(?\s*(\d+(?:\.\d+)?)\s*\)?\s*$")
 
 
 def _format_seconds(value):
@@ -272,11 +282,18 @@ def _is_echo(line):
     copier drains the stream faster than a command is sent. But the echo of the
     command itself is still noise in the reply, and stripping it keeps the log
     about the answer rather than about what was asked.
+
+    Only the prompt followed by the command. The interface writes its prompt to
+    the front of the reply as often as it writes it on a line of its own -- "> 9"
+    rather than "9" -- and this took any line starting with ">" as an echo, so
+    every answer written that way was dropped before it could be read. That is
+    why a seek showed its time only sometimes: it was whichever form the
+    interface happened to use for that one reply.
     """
     text = line.strip()
     if not text.startswith(">"):
         return False
-    return len(text) > 1
+    return len(text) > 1 and not _NUMBER_ALONE.match(text)
 
 
 #: Output that means cvlc will not play this input.

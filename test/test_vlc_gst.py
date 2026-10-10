@@ -1562,6 +1562,52 @@ class TestWhatTheOverlaySays:
         assert shown == ["Volume 55%"], shown
 
 
+class TestWhatCountsAsAnAnswer:
+    """
+    Which lines are taken as the player's reply to get_time and get_length.
+    """
+
+    @pytest.mark.parametrize(
+        "line,expected",
+        [
+            ("1297", 1297.0),
+            # The interface writes its prompt to the same line as the answer
+            # about as often as not. It was matched only when bare, which is why
+            # a seek's time appeared "sometimes" -- whichever form that one
+            # reply happened to take.
+            ("> 1297", 1297.0),
+            (">  > 1297", 1297.0),
+            ("> > 606", 606.0),
+            ("( 1297 )", 1297.0),
+        ],
+    )
+    def test_the_prompt_in_front_of_the_answer_is_not_the_problem(self, line, expected):
+        proc = _running()
+        proc._replies.put(line)
+
+        assert proc._read_number("get_time") == expected
+
+    @pytest.mark.parametrize(
+        "line",
+        [
+            "[00215670] main decoder error: 500 frames",
+            "Error 500",
+            "Cannot convert non linear input",
+            ">",
+        ],
+    )
+    def test_a_number_inside_something_else_is_not_an_answer(self, line):
+        """
+        The match is anchored to the whole line for exactly this: a number in
+        the middle of a message is not the answer, and the player's own logging
+        is full of them.
+        """
+        proc = _running()
+        proc._replies.put(line)
+
+        assert proc._read_number("get_time") is None
+
+
 class TestTheOpeningTitle:
     """
     What is said when a film starts, and how it is obtained.
