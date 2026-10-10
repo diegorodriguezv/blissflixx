@@ -365,6 +365,8 @@ class ExternalProcess(Process):
         # Set by a stage that needs each output line as it arrives. See
         # _LineTail.on_line.
         self.on_output_line = None
+        # Extra environment for the child. None inherits ours.
+        self.env = None
         self.killing = False
         if not os.path.exists(TMP_DIR):
             os.makedirs(TMP_DIR)
@@ -386,6 +388,11 @@ class ExternalProcess(Process):
             stdin=subprocess.PIPE if self.stdin_pipe else None,
             preexec_fn=os.setsid,
             shell=self.shell,
+            # None inherits this process's environment, which is what every
+            # stage did before. A stage whose dependency writes somewhere of its
+            # own choosing sets this to redirect it -- peerflix writes its
+            # .torrent metadata to os.tmpdir() regardless of -f.
+            env=self.env,
         )
         # One reader, started here, for the whole life of the process.
         #

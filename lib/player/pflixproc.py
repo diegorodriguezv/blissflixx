@@ -24,6 +24,11 @@ _LISTENING_RE = re.compile(r"(http://\S+?)/?\s*$")
 class PeerflixProcess(ExternalProcess):
     def __init__(self, torrent, idx):
         super().__init__()
+        # peerflix resolves its torrent-metadata path with os.tmpdir(), which
+        # ignores -f, so the buffer went to the directory asked for while the
+        # .torrent file still appeared in /tmp/torrent-stream. TMPDIR moves both,
+        # since os.tmpdir() reads it.
+        self.env = dict(os.environ, TMPDIR=TMP_DIR)
         cmd = ["node", "--max-old-space-size=128", "/usr/local/bin/peerflix"]
         # Avoid problems with downloading torrent files
         torrent = torrent2magnet(torrent)

@@ -27,7 +27,9 @@ in `/tmp/blissflixx`.
 
 ```
 /tmp/blissflixx/
-  torrent-stream/       peerflix's buffer (-f), told not to delete it
+  torrent-stream/       peerflix's buffer (-f) and its .torrent metadata
+                        (TMPDIR, because the latter comes from os.tmpdir()
+                        and -f does not cover it)
   <name>.srt            downloaded subtitles, from bin/getsubs.py
   cmdfifo               omxplayer command fifo
   mpv.sock              mpv IPC

@@ -941,3 +941,49 @@ class TestAStopIsNotAFailure:
         proc._add_output_to_error(tail)
         assert len(proc.errors) == 1
         assert proc.errors[0] == "could not start | no suitable decoder"
+
+
+class TestChildEnvironmentDefaultsToOurs:
+    """
+    A stage's child inherits this process's environment unless it says otherwise.
+
+    Nothing passed env= before, so this is only a statement that the default is
+    unchanged rather than a new behaviour.
+    """
+
+    def test_no_environment_override_by_default(self):
+        from lib.player.dlsrvproc import DlsrvProcess
+
+        assert DlsrvProcess().env is None
+
+
+class TestPeerflixWritesOnlyUnderOurDirectory:
+    """
+    peerflix has two output locations, and -f only moves one of them.
+
+    The buffer went where it was told, but the .torrent metadata file still
+    turned up in /tmp/torrent-stream, because that path comes from os.tmpdir()
+    and -f says nothing about it. TMPDIR moves it, since os.tmpdir() reads that.
+    """
+
+    def test_the_buffer_directory_is_ours(self):
+        from lib.player.pflixproc import BUFFER_DIR
+
+        assert BUFFER_DIR.startswith(pp.TMP_DIR)
+
+    def test_tmpdir_points_at_our_directory(self):
+        from lib.player.pflixproc import PeerflixProcess
+
+        env = PeerflixProcess("magnet:?xt=urn:btih:AA", -1).env
+        assert env["TMPDIR"] == pp.TMP_DIR
+
+    def test_the_existing_environment_is_preserved(self):
+        """
+        dict(os.environ, TMPDIR=...) rather than a bare dict, so PATH, HOME and
+        the rest still reach the child.
+        """
+        from lib.player.pflixproc import PeerflixProcess
+
+        env = PeerflixProcess("magnet:?xt=urn:btih:AA", -1).env
+        assert env.get("PATH") == os.environ.get("PATH")
+        assert "HOME" in env
