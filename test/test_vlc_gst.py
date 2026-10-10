@@ -1595,3 +1595,82 @@ class TestConcurrentCommandsDoNotCorruptEachOther:
         first = _running()
         second = _running()
         assert first._command_lock is not second._command_lock
+
+
+class TestWaitingForARealAnswer:
+    """
+    The wait must end on a real signal, not on a stray line looking like one.
+
+    This player interleaves messages with no bracketed thread id -- "Device or
+    resource busy", "cannot setup filtering pipeline" -- so they pass the
+    player's-logging filter and were being collected as replies. The wait then
+    stopped as soon as anything had been collected, which is why get_time
+    answered perfectly well when asked by hand but read 0:00 through the app:
+    the wait was cut short by a line of noise before the number arrived.
+    """
+
+    def test_a_gap_after_noise_does_not_cut_the_reply_short(self):
+        """
+        The real shape of the bug, with the gap that makes it bite.
+
+        A line of unbracketed noise arrives, the queue then goes empty, and the
+        answer follows a moment later. The old code broke on the empty queue the
+        moment anything had been collected, so it returned the noise and never
+        saw the number. That is why get_time read 0:00 through the app while
+        answering perfectly well when asked by hand.
+        """
+        import threading
+
+        proc = _running()
+        proc._send_command = lambda c: True
+        proc._replies.put("Device or resource busy.")
+
+        def answer_soon():
+            time.sleep(0.15)
+            proc._replies.put("1297")
+
+        threading.Thread(target=answer_soon, daemon=True).start()
+
+        lines = proc._collect_reply(settle=0.5)
+
+        assert "1297" in lines, lines
+
+    def test_a_line_already_queued_alongside_noise_is_still_seen(self):
+        """
+        The simpler shape, for contrast: no gap, so even the old code would have
+        collected both. Kept so the pair documents why the gap is the thing that
+        matters.
+        """
+        proc = _running()
+        proc._send_command = lambda c: True
+        proc._replies.put("Device or resource busy.")
+        proc._replies.put("1297")
+
+        lines = proc._collect_reply(settle=0.2)
+
+        assert "1297" in lines, lines
+
+    def test_a_pause_in_the_output_is_what_ends_the_wait(self):
+        """
+        Not the arrival of a line: a stream that never goes quiet must not hold
+        the request thread for the whole budget.
+        """
+        proc = _running()
+        proc._send_command = lambda c: True
+        proc._replies.put("Device or resource busy.")
+
+        started = time.time()
+        lines = proc._collect_reply(settle=0.1)
+
+        assert time.time() - started < 1.0
+        assert lines == ["Device or resource busy."]
+
+    def test_the_prompt_is_recognised(self):
+        from lib.player.vlcproc import _is_echo, _is_prompt
+
+        assert _is_prompt(">") is True
+        assert _is_prompt("> pause") is False
+        # An echo is the command being repeated back; a prompt is the interface
+        # saying it is ready for the next one. Different things.
+        assert _is_echo("> pause") is True
+        assert _is_echo(">") is False

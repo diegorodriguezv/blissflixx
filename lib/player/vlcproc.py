@@ -143,6 +143,24 @@ def _summarise_reply(lines):
     return " / ".join(lines)[:_REPLY_MAX_CHARS]
 
 
+#: What the cli interface prints when it is ready for the next command. The only
+#: reliable end-of-exchange marker: the reply cannot be attributed by its echo,
+#: and the output never goes quiet on a playing film.
+_CLI_PROMPT = ">"
+
+
+def _is_prompt(line):
+    """
+    True for the ">" the interface prints when it is ready for the next command.
+
+    Worth knowing about because it is the only reliable end-of-exchange signal
+    there is. The reply cannot be attributed by its echo -- the copier drains
+    that away -- and the output never goes quiet on a playing film, so neither
+    silence nor an echo marks the end. The prompt does.
+    """
+    return line.strip() == _CLI_PROMPT
+
+
 def _is_echo(line):
     """
     True for the interface echoing back what it was given.
@@ -450,15 +468,22 @@ class VlcProcess(PlayerBackend):
         """
         deadline = time.time() + _REPLY_TIMEOUT
         collected = []
+        last_line_at = time.time()
         while time.time() < deadline:
             try:
                 line = self._replies.get(timeout=0.1)
             except Empty:
-                # A short silence ends the wait rather than spending the whole
-                # budget on a player with nothing to say.
-                if collected or time.time() > deadline - settle:
+                # A pause in the output ends the wait. It used to end as soon as
+                # anything had been collected, which was wrong: this player
+                # interleaves messages that do not carry the bracketed thread id
+                # -- "Device or resource busy" and the like -- so those were
+                # being taken for answers, and the wait then stopped before the
+                # real reply arrived. That is why the position read 0:00 while
+                # get_time was answering perfectly well a moment later.
+                if time.time() - last_line_at >= settle:
                     break
                 continue
+            last_line_at = time.time()
             if _is_player_logging(line) or _is_echo(line):
                 continue
             collected.append(line)
