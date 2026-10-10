@@ -299,6 +299,35 @@ class VlcProcess(PlayerBackend):
         # for, so on_output_line has to be rebound with it rather than holding
         # the old queue's put.
         self._reset_replies()
+        self._create_overlay_file()
+
+    def _create_overlay_file(self):
+        """
+        Put the marquee file there before VLC starts reading it.
+
+        marq logs "cannot open ...: No such file or directory" once per refresh
+        tick, and refresh is every second, so from startup until the first action
+        the whole film is accompanied by that. It is made here rather than left
+        for the first control() to write.
+
+        Skipped when the overlay is off, since VLC is not started with --marq-file
+        then and nothing reads it.
+
+        It is created holding a space, not empty: getline() returns -1 at end of
+        file and marq reports that as "Invalid argument", so a zero-byte file
+        fails exactly like a missing one.
+        """
+        if not self._overlay_wanted():
+            return
+        try:
+            os.makedirs(os.path.dirname(MARQ_FILE), exist_ok=True)
+            if not os.path.exists(MARQ_FILE):
+                with open(MARQ_FILE, "w", encoding="utf-8") as handle:
+                    handle.write(" ")
+        except OSError as exc:
+            # Not fatal: _write_overlay creates it on the first action and warns
+            # if it cannot. This only saves the ticks before then.
+            cherrypy.log("could not create the VLC overlay file: %s" % exc)
 
     def _reset_replies(self):
         self._replies = Queue()

@@ -132,6 +132,27 @@ class TestVlcCommand:
         proc._overlay_shown = "Paused"
         return proc
 
+    def test_the_overlay_file_exists_before_the_player_starts(self):
+        """
+        marq logs "cannot open ...: No such file or directory" once per refresh
+        tick, and refresh is 1 second -- so from startup until the first action
+        the whole picture is accompanied by that error. The file is made when
+        the process is built rather than left for the first control() to make.
+        """
+        os.remove(MARQ_FILE)
+        VlcProcess()
+        assert os.path.exists(MARQ_FILE), MARQ_FILE
+
+    def test_the_overlay_file_is_never_zero_bytes_at_startup(self):
+        """
+        It is created holding a space, not empty: getline() returns -1 at end of
+        file and marq reports that as "Invalid argument", so an empty file fails
+        the same way a missing one does.
+        """
+        os.remove(MARQ_FILE)
+        VlcProcess()
+        assert os.path.getsize(MARQ_FILE) > 0, MARQ_FILE
+
     def test_resuming_does_not_write_an_empty_overlay_file(self):
         """
         Un-pausing used to write "" to clear the message. That leaves a zero-byte
