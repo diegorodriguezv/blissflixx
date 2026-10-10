@@ -137,10 +137,16 @@ _TRACK_ID = re.compile(r"^\|?\s*(-?\d+)\s+-")
 #: listing is empty until VLC has opened the media, and a torrent being streamed
 #: over http can take a while to start producing.
 _SUBTITLE_WAIT_TIMEOUT = 60
-#: How long the address stays on screen as a film starts. Matches the opening
-#: title's own timeout, so the two fade together rather than one outliving the
-#: other.
-_ADDRESS_HOLD = 3.5
+#: How many times to ask how long the film is before giving up and showing the
+#: title alone, and how long to wait between asks.
+#:
+#: A handful, not a poll. Asking every second or two for a minute is what stops
+#: this interface answering anything at all, taking the reply to the user's own
+#: seeks with it. VLC can take fifteen or twenty seconds to report a length, so
+#: the count has to cover that -- but it is a bounded few questions, not a
+#: standing question, and it stops the moment the user touches anything.
+_TITLE_ATTEMPTS = 5
+_TITLE_INTERVAL = 3
 #: Where the marquee reads its text from. VLC re-reads it every --marq-refresh
 #: seconds, so writing to it is how the position gets on the screen.
 MARQ_FILE = os.path.join(TMP_DIR, "marq.txt")
@@ -441,6 +447,8 @@ class VlcProcess(PlayerBackend):
         # Track id to language, from the listing the ids came from; the listing
         # is the only place a track's language appears.
         self._track_names = {}
+        # What is playing, for the announcement at the start.
+        self._title = ""
         # Set the moment the user asks for anything; the subtitle search gives
         # up when it is set.
         #
@@ -515,6 +523,10 @@ class VlcProcess(PlayerBackend):
         return self.opt("start_timeout")
 
     def build_command(self, args):
+        # Taken here because this is where the args arrive, and build_command
+        # stays pure -- a stage that read it later could pick up the last film's
+        # name if the same instance were reused.
+        self._title = args.get("title") or ""
         cmd = [self.opt("binary")]
         cmd += list(self.opt("extra_args"))
         cmd += self._osd_args()
@@ -542,8 +554,10 @@ class VlcProcess(PlayerBackend):
             # VLC already does this, knows the duration without being asked, and
             # does not need to be spoken to. Asking it in its own words costs
             # nothing and cannot silence it.
-            "--video-title-show",
-            "--video-title-timeout=" + str(self.opt("osd_title_timeout")),
+            # Not --video-title-show: for a torrent that is not a title at all
+            # but the stream URL, "http://192.168.1.119:9696/", which says
+            # nothing to anyone watching. The title is ours to draw, below.
+            "--no-video-title-show",
             "--play-and-exit",
         ]
         if "subtitles" in args:
@@ -594,7 +608,7 @@ class VlcProcess(PlayerBackend):
                 # reporting the startup banner as if it were its own answer.
                 self._reset_replies()
                 self._enable_embedded_subtitles()
-                _start_thread(self._show_address)
+                _start_thread(self._show_opening_title)
                 return
             if any(marker in line for marker in _ERROR_MARKERS):
                 # Defer this one. The interface reads its next command from
@@ -1041,25 +1055,44 @@ class VlcProcess(PlayerBackend):
             return
         _start_thread(self._wait_for_subtitles, args)
 
-    def _show_address(self):
+    def _show_opening_title(self):
         """
-        The web interface's address, shown as a film starts.
+        Say what started, and how long it is, once the film is up.
 
-        Handy while playing something on the television: it is how a second
-        device reaches the same player, and it is not written anywhere a person
-        would look for it while a film is running.
+        What is being played, with its total length. Not the position: at the
+        start that is 0:00 by definition, and a position reads as though
+        something had gone wrong.
 
-        Shown once, for as long as the opening title stays up, and not tied to
-        the media opening -- it is true from the moment the player does, so
-        waiting for a duration would only delay something already correct.
+        VLC will not say how long a torrent is until the stream starts
+        producing, so the length is asked for a few times over rather than
+        until it answers. That distinction matters: polling every second or two
+        for a minute is what stopped this interface answering anything at all,
+        and with it the reply to the user's own seeks. A handful of questions,
+        giving up early and showing the title alone, does not.
+
+        Stops at once if the user does anything -- see _acted.
         """
         if not self._overlay_wanted():
             return
-        address = self._interface_address()
-        if not address:
+        title = self._title
+        if not title:
             return
-        self._show_overlay(address)
-        time.sleep(_ADDRESS_HOLD)
+        for attempt in range(_TITLE_ATTEMPTS):
+            if self.killing or self._acted:
+                return
+            proc = getattr(self, "proc", None)
+            if proc is None or proc.poll() is not None:
+                return
+            length = self._read_number("get_length")
+            if length is not None and length > 0:
+                self._length = length
+                self._show_overlay("%s (%s)" % (title, _format_clock(length)))
+                return
+            if attempt + 1 < _TITLE_ATTEMPTS:
+                time.sleep(_TITLE_INTERVAL)
+        # No length, but something is playing: say what it is rather than
+        # leaving the screen to say nothing.
+        self._show_overlay(title)
 
     @staticmethod
     def _interface_address():

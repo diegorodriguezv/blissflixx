@@ -99,8 +99,9 @@ class TestVlcCommand:
             # VLC's own title, for the first few seconds. Not written by us:
             # the thread that used to do it polled the player, and polling is
             # what silences the cli interface.
-            "--video-title-show",
-            "--video-title-timeout=4000",
+            # Not --video-title-show: for a torrent that is the stream URL,
+            # http://192.168.1.119:9696/, which says nothing to a viewer.
+            "--no-video-title-show",
             "--play-and-exit",
             FILE_OUT,
         ]
@@ -1626,28 +1627,41 @@ class TestTheOpeningTitle:
         """
         cmd = vlc({"outfile": FILE_OUT})
 
-        assert "--video-title-show" in cmd
-        assert "--video-title-timeout=4000" in cmd
-        assert "--no-video-title-show" not in cmd
+        assert "--no-video-title-show" in cmd
+        assert "--video-title-show" not in cmd
 
-    def test_nothing_polls_the_player_for_the_duration(self):
+    def test_it_gives_up_and_shows_the_title_alone(self):
         """
-        The regression that has to stay fixed: anything asking the player a
-        question on a timer is what takes the reply away from the user's own
-        commands.
+        A title with no duration is useful; nothing on screen is not.
         """
-        import inspect
+        import lib.player.vlcproc as vlc
 
-        from lib.player.vlcproc import VlcProcess
+        proc = VlcProcess({"osd_overlay": "1"})
+        shown = []
+        proc._show_overlay = shown.append
+        proc.proc = m.Mock(poll=lambda: None)
+        proc._read_number = lambda verb: None
+        proc.build_command({"outfile": "/tmp/a.mkv", "title": "Lanterns"})
 
-        source = inspect.getsource(VlcProcess)
-        assert "_show_opening_title" not in source
-        assert (
-            "get_length"
-            not in inspect.getsource(VlcProcess._read_position).split(
-                "if self._length is None"
-            )[0]
-        )
+        with m.patch.object(vlc, "_TITLE_ATTEMPTS", 2), m.patch.object(
+            vlc, "_TITLE_INTERVAL", 0
+        ):
+            proc._show_opening_title()
+
+        assert shown == ["Lanterns"], shown
+
+    def test_the_title_and_its_total_length_are_shown(self):
+        proc = VlcProcess({"osd_overlay": "1"})
+        shown = []
+        proc._show_overlay = shown.append
+        proc.proc = m.Mock(poll=lambda: None)
+        proc._read_number = lambda verb: 7742.0 if verb == "get_length" else None
+        proc.build_command({"outfile": "/tmp/a.mkv", "title": "Lanterns S01E08"})
+
+        proc._show_opening_title()
+
+        # The total length, not the position -- at the start that is 0:00.
+        assert shown == ["Lanterns S01E08 (2:09:02)"], shown
 
     def test_a_seek_confirmation_still_asks_once_when_it_must(self):
         """
@@ -1735,33 +1749,6 @@ class TestTheAddressShownAtTheStart:
 
         with m.patch.object(vlc.cherrypy, "server", m.Mock(spec=[])):
             assert vlc.VlcProcess._interface_address() is None
-
-    def test_it_is_shown_when_a_film_starts(self):
-        proc = on_screen_proc()
-        proc._interface_address = lambda: "192.168.1.119:6969"
-
-        proc._show_address()
-
-        assert proc._overlay_shown == "192.168.1.119:6969"
-
-    def test_nothing_is_shown_when_the_overlay_is_off(self):
-        proc = VlcProcess({"osd_overlay": "0"})
-        proc._interface_address = lambda: "192.168.1.119:6969"
-
-        proc._show_address()
-
-        assert proc._overlay_shown is None
-
-
-class TestProgressReporting:
-    """
-    Position and duration, asked of VLC and written to the log.
-
-    The cli answers get_time and get_length with one line each -- "( time:
-    1834.221 )" -- and that is the only way to learn either on this build.
-    Drawing text on the picture needs marq, which is absent, so this is the log
-    and not the screen.
-    """
 
     def _proc_answering(self, replies, config=None):
         proc = _running(config)
