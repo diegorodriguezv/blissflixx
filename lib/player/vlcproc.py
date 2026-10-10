@@ -644,7 +644,14 @@ class VlcProcess(PlayerBackend):
         """
         if action in ("pause", "resume"):
             self._send_command("pause" if action == "pause" else "play")
-            self._show_overlay("Paused" if action == "pause" else "")
+            # Un-pausing says nothing rather than writing an empty file. marq
+            # reads it with getline(), which returns -1 on a zero-byte file, and
+            # marq reports that as "cannot read ...: Invalid argument" -- every
+            # refresh tick, for as long as playback lasts. Its own --marq-timeout
+            # takes the message away after a few seconds, so there is nothing to
+            # clear by hand.
+            if action == "pause":
+                self._show_overlay("Paused")
         elif action == "stop":
             self._send_command("quit")
         elif action in ("plus30", "minus30", "plus600", "minus600"):
@@ -687,10 +694,10 @@ class VlcProcess(PlayerBackend):
         """
         Put a line of text on the picture, for a few seconds.
 
-        An empty string clears it. Nothing here is timed or polled: the message is
-        written when the user does something, and marq's own timeout takes it away
-        again, so the screen is not left littered with confirmation of a pause
-        from a quarter of an hour ago.
+        Nothing here is timed or polled: the message is written when the user
+        does something, and marq's own --marq-timeout takes it away again, so the
+        screen is not left littered with confirmation of a pause from a quarter
+        of an hour ago. An empty string is never written; see control().
         """
         if not self._overlay_wanted():
             return

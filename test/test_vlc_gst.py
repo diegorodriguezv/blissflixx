@@ -30,7 +30,7 @@ from lib.player.backend import (
 )
 from lib.player.gstproc import GStreamerProcess
 from lib.player.processpipe import ProcessException
-from lib.player.vlcproc import _REPLY_TIMEOUT, VlcProcess
+from lib.player.vlcproc import _REPLY_TIMEOUT, MARQ_FILE, VlcProcess
 
 FILE_OUT = "/home/diego/testfiles/h264_1080p.mkv"
 HTTP_OUT = "http://127.0.0.1:9696/movie.mkv"
@@ -112,6 +112,73 @@ class TestVlcCommand:
         cmd = vlc({"outfile": FILE_OUT})
         pos = int([a for a in cmd if a.startswith("--marq-position=")][0].split("=")[1])
         assert pos == 4, pos
+
+    def _on_screen_proc(self):
+        """
+        A VlcProcess that has been put in the state a running one is in: commands
+        are captured rather than sent, and the overlay file exists with a message
+        on it. control() is otherwise free to write to the real MARQ_FILE.
+        """
+        proc = VlcProcess()
+        proc._send_command = lambda command: True
+        proc._current_volume = lambda: 100
+        proc._set_volume = lambda level: True
+        proc._report_progress = lambda: True
+        proc._show_track = lambda verb: True
+        proc._step_track = lambda verb, direction: True
+        proc._track_choice = {"strack": -1, "atrack": -1}
+        with open(MARQ_FILE, "w", encoding="utf-8") as handle:
+            handle.write("Paused")
+        proc._overlay_shown = "Paused"
+        return proc
+
+    def test_resuming_does_not_write_an_empty_overlay_file(self):
+        """
+        Un-pausing used to write "" to clear the message. That leaves a zero-byte
+        file, and marq reads it with getline(), which returns -1 at end of file --
+        so marq logs
+
+            cannot read /tmp/blissflixx/marq.txt: Invalid argument
+
+        on every refresh tick for as long as playback lasts, which looks like
+        VLC falling over rather than a blank line. Its own --marq-timeout clears
+        the message after a few seconds, so nothing has to be written to clear
+        it.
+        """
+        proc = self._on_screen_proc()
+        proc.control("resume")
+        assert open(MARQ_FILE, encoding="utf-8").read() == "Paused"
+
+    @pytest.mark.parametrize(
+        "action",
+        [
+            "pause",
+            "resume",
+            "stop",
+            "plus30",
+            "minus30",
+            "plus600",
+            "minus600",
+            "volup",
+            "voldown",
+            "hide_subtitle",
+            "show_subtitle",
+            "next_subtitle",
+            "prev_subtitle",
+            "next_audio",
+            "prev_audio",
+        ],
+    )
+    def test_no_action_ever_leaves_the_overlay_file_empty(self, action):
+        """
+        Whatever an action does, the file marq reads must never be zero bytes --
+        that is what getline() cannot handle. Checked for every action rather
+        than just resume, because "" was written by one and the next could do
+        the same.
+        """
+        proc = self._on_screen_proc()
+        proc.control(action)
+        assert os.path.getsize(MARQ_FILE) > 0, action
 
     def test_subtitles_are_lifted_off_the_bottom_edge(self):
         """
