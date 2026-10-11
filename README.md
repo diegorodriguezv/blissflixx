@@ -70,7 +70,18 @@ Now enter the BlissFlixx folder and run the configure script which will install 
     cd blissflixx
     sudo ./configure.sh
 
-It will take about 1 hour for this script to complete so now might be a good time to wash the dishes or take the dog for a walk. Note that during the execution of the script various warnings will be reported but this is expected.
+Expect about **45 minutes** on a Raspberry Pi 3. The script prints how long each
+stage took as it goes, and the total at the end, so you can see where the time
+went. The largest single step is npm, which downloads nodejs and takes about
+ten minutes of it; installing VLC takes about eight and GStreamer about four.
+
+Various warnings are reported during the install and this is expected.
+
+**If an apt repository fails partway**, the script carries on and the machine
+ends up looking installed without being installed. The stage timings are how
+you tell: something that took no time at all is the step that failed. Run
+`sudo ./configure.sh` again and it will pick up where it left off, finishing in
+a few minutes because everything already installed is cached.
 
 # configure.sh options
 
