@@ -964,6 +964,37 @@ class TestAStoppedProcessIsGivenTheChanceToTidyUp:
         signals = [c.args[1] for c in killpg.call_args_list]
         assert signals == [signal.SIGTERM, signal.SIGKILL], signals
 
+    def test_a_deliberate_stop_is_never_reported_as_a_failure(self):
+        """
+        The regression this is here for.
+
+        _terminate() waits up to _TERMINATE_GRACE for the process to leave, and
+        _wait() runs in another thread. With killing set after that wait, a
+        process that exits promptly during it -- which SIGTERM guarantees --
+        was seen as having died on its own, and the UI showed:
+
+            Process exit: -15 | Verifying downloaded: 10%
+
+        for a stop the user asked for.
+        """
+        stage = DlsrvProcess()
+        stage.proc = m.Mock(pid=os.getpid(), poll=lambda: None)
+        stage.proc.wait = m.Mock(return_value=0)
+
+        seen = {}
+
+        def wait():
+            # _wait() runs concurrently with stop(), so it reads killing at
+            # whatever moment the process is seen to have gone.
+            seen["killing"] = stage.killing
+
+        with m.patch("lib.player.processpipe.os.killpg"):
+            stage.killing = False
+            stage._terminate = m.Mock(side_effect=wait)
+            stage.stop()
+
+        assert seen["killing"] is True, "a stop looked like a crash"
+
     def test_a_process_already_gone_is_not_killed_twice(self):
         """
         Stop runs from another thread and may race the process leaving on its

@@ -593,11 +593,19 @@ class ExternalProcess(Process):
 
     def stop(self):
         if self.proc is not None:
-            # Stop gets called from a seperate thread
-            # so shutdown may already be in progress
-            # when we try to kill - therefore ignore errors
-            self._terminate()
+            # Before _terminate(), not after. _terminate() waits up to
+            # _TERMINATE_GRACE for the process to leave, and _wait() runs in
+            # another thread: with killing set afterwards, a process that exits
+            # promptly during that wait was seen as having died on its own, and
+            # every deliberate stop became an error in the UI --
+            #
+            #     Process exit: -15 | Verifying downloaded: 10%
+            #
+            # which is the opposite of what was asked for. SIGTERM by
+            # definition makes it exit, so this is the one case that must be
+            # marked before it can possibly be observed.
             self.killing = True
+            self._terminate()
 
         # The download is not deleted. It used to be, right here, by removing
         # OUT_FILE -- so a download that was interrupted, or stopped on purpose,
