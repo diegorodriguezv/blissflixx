@@ -460,14 +460,21 @@ class VlcProcess(PlayerBackend):
         It is created holding a space, not empty: getline() returns -1 at end of
         file and marq reports that as "Invalid argument", so a zero-byte file
         fails exactly like a missing one.
+
+        Always rewritten, not just when it is missing. It outlives the film,
+        because the player does not delete it, so it was still holding the last
+        message of the film before -- a confirmation of a pause, read at the
+        start of the next one, which looked like something the new film had said
+        about itself. It is emptied here as well as on stop, so a film started
+        after a crash or a power cut does not inherit the last words of the one
+        before it.
         """
         if not self._overlay_wanted():
             return
         try:
             os.makedirs(os.path.dirname(MARQ_FILE), exist_ok=True)
-            if not os.path.exists(MARQ_FILE):
-                with open(MARQ_FILE, "w", encoding="utf-8") as handle:
-                    handle.write(" ")
+            with open(MARQ_FILE, "w", encoding="utf-8") as handle:
+                handle.write(" ")
         except OSError as exc:
             # Not fatal: _write_overlay creates it on the first action and warns
             # if it cannot. This only saves the ticks before then.
@@ -1251,4 +1258,14 @@ class VlcProcess(PlayerBackend):
         return self._send_command("volume " + str(value))
 
     def stop(self):
+        # Emptied before the player goes, so the next film starts with a blank
+        # screen rather than the last words of this one. It is a file the player
+        # does not remove, and marq reads whatever is in it at startup, so a
+        # confirmation left over from a pause was shown at the start of the next
+        # film -- read as though the new film had said it about itself.
+        #
+        # A space rather than nothing, for the reason everywhere else here: an
+        # empty file is one marq reports as an error on every refresh tick.
+        self._write_overlay(" ")
+        self._overlay_shown = None
         super().stop()

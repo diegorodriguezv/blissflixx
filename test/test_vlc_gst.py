@@ -1695,6 +1695,58 @@ class TestHowLongAMessageStays:
         assert order == ["overlay", "command"], order
 
 
+class TestTheOverlayStartsBlank:
+    """
+    The marquee file outlives the film -- the player does not remove it -- and
+    marq reads whatever is in it at startup.
+    """
+
+    def test_a_new_film_does_not_start_with_the_last_words_of_the_last_one(self):
+        """
+        A confirmation of a pause was still in the file, and the next film read
+        it and showed it -- read as though the new film had said it about
+        itself.
+        """
+        with open(MARQ_FILE, "w", encoding="utf-8") as handle:
+            handle.write("Pause 0:14 / 21:37")
+
+        VlcProcess()
+
+        assert open(MARQ_FILE, encoding="utf-8").read().strip() == ""
+
+    def test_stopping_empties_it(self):
+        """
+        Emptied on stop rather than only at the next start, so a screen that is
+        looked at while nothing is playing is not still showing the last thing
+        that was said.
+        """
+        proc = on_screen_proc()
+        proc._overlay_shown = "Pause 0:14 / 21:37"
+        proc.proc = m.Mock(pid=os.getpid(), poll=lambda: None)
+        proc.proc.wait = m.Mock(return_value=0)
+
+        with m.patch("lib.player.processpipe.os.killpg"):
+            proc.stop()
+
+        assert open(MARQ_FILE, encoding="utf-8").read().strip() == ""
+        assert proc._overlay_shown is None
+
+    def test_it_is_never_left_empty(self):
+        """
+        A space, not nothing: getline() returns -1 at end of file and marq
+        reports that as "Invalid argument" once per refresh tick.
+        """
+        proc = on_screen_proc()
+        proc._overlay_shown = "Pause"
+        proc.proc = m.Mock(pid=os.getpid(), poll=lambda: None)
+        proc.proc.wait = m.Mock(return_value=0)
+
+        with m.patch("lib.player.processpipe.os.killpg"):
+            proc.stop()
+
+        assert open(MARQ_FILE, encoding="utf-8").read() != ""
+
+
 class TestWhatCountsAsAnAnswer:
     """
     Which lines are taken as the player's reply to get_time and get_length.
