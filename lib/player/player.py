@@ -230,7 +230,13 @@ class _Player:
             self.msgq.put(MSG_PLAYER_STOP)
         elif self._is_playing():
             self.play_pipe.control(action)
-            if action == "pause" or action == "resume":
+            if action in ("pause", "resume"):
+                # Toggled here for the same reason the player toggles it: which
+                # of the two words arrived does not say what the player did.
+                # Both buttons send "pause", so the interface's own idea of the
+                # state is the one thing that cannot be trusted to describe
+                # what happened -- and it is what decides which button is drawn
+                # and what the spacebar sends next.
                 self.paused = not self.paused
 
 

@@ -340,8 +340,10 @@ class TestVlcControl:
     @pytest.mark.parametrize(
         "action,expected",
         [
+            # Both arrive as one verb: VLC's pause toggles, and the label says
+            # what the toggle did. See test_the_label_says_what_the_toggle_did.
             ("pause", "pause"),
-            ("resume", "play"),
+            ("resume", "pause"),
             ("stop", "quit"),
             ("plus30", "seek +30"),
             ("minus30", "seek -30"),
@@ -367,6 +369,29 @@ class TestVlcControl:
         """
         sent = self._sent(action)
         assert sent.split()[1][0] in "+-", sent
+
+    def test_the_label_says_what_the_toggle_actually_did(self):
+        """
+        The interface sends "pause" for its PLAY button as well as its PAUSE
+        one, and VLC's pause verb toggles. So "pause" arrives when the film is
+        already paused, resumes it, and the confirmation said "Pause" as it did
+        the opposite -- which is why Play never appeared.
+        """
+        proc = VlcProcess()
+        shown = []
+        proc._show_overlay = shown.append
+        proc._send_command = lambda c: True
+        proc._read_position = lambda: (30.0, 1297.0)
+
+        proc.control("pause")
+        assert shown[-1] == "Pause 0:30 / 21:37", shown
+
+        # The same action again -- what the PLAY button sends -- resumes.
+        proc.control("pause")
+        assert shown[-1] == "Play 0:30 / 21:37", shown
+
+        proc.control("resume")
+        assert shown[-1] == "Pause 0:30 / 21:37", shown
 
     def test_the_volume_buttons_step_the_level_by_ten_percent(self):
         """

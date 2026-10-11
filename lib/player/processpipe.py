@@ -30,6 +30,11 @@ _COPY_DRAIN_TIMEOUT = 5
 #: makes the stop notification unconditional, which is the whole property the
 #: loop depends on to make progress.
 _STOP_JOIN_TIMEOUT = 5
+#: How long a stage is given to stop tidying up before it is killed. Short,
+#: because it is on the path to the next film starting: VLC releases its DRM
+#: lease as it exits, and the next player cannot open a video output until it
+#: has. See _terminate().
+_TERMINATE_GRACE = 3
 #: Seconds to wait for a spawned process to exit after its stage has finished
 #: with it. Only reached when _ready() has already failed, so the process has
 #: already had its chance to exit on its own.
@@ -542,17 +547,57 @@ class ExternalProcess(Process):
         else:
             self.msg_finished()
 
+    def _terminate(self):
+        """
+        Stop the process, giving it the chance to tidy up first.
+
+        SIGKILL alone is what stopped a second film from playing. VLC takes a
+        DRM lease on the display when it opens a video output, and gives it up
+        when it exits properly. Killed, it has no chance to release it, so the
+        next one comes up, cannot get the lease --
+
+            drm_vout vout display error: Failed to get xlease
+
+        -- and then every frame fails to commit:
+
+            Atomic commit failed: No space left on device
+
+        which is the video driver running out of buffers and not the disk. The
+        picture freezes on the last frame and nothing recovers it, which is what
+        a stopped film followed by another one looked like. The message says
+        "no space" and every check of the disk says there is plenty.
+
+        So SIGTERM first, briefly, and only SIGKILL what is left. SIGTERM is not
+        guaranteed to be honoured -- nothing is, from a process that has already
+        wedged -- so the kill is still there, just no longer first.
+        """
+        proc = self.proc
+        if proc is None:
+            return
+        try:
+            # kill - including all children of process
+            os.killpg(proc.pid, signal.SIGTERM)
+        except (OSError, ProcessLookupError):
+            # Already gone, or already being torn down by another thread. Either
+            # way there is nothing left for the kill below to do.
+            return
+        try:
+            proc.wait(timeout=_TERMINATE_GRACE)
+            return
+        except subprocess.TimeoutExpired:
+            pass
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except (OSError, ProcessLookupError):
+            pass
+
     def stop(self):
         if self.proc is not None:
             # Stop gets called from a seperate thread
             # so shutdown may already be in progress
             # when we try to kill - therefore ignore errors
-            try:
-                # kill - including all children of process
-                self.killing = True
-                os.killpg(self.proc.pid, signal.SIGKILL)
-            except Exception:
-                pass
+            self._terminate()
+            self.killing = True
 
         # The download is not deleted. It used to be, right here, by removing
         # OUT_FILE -- so a download that was interrupted, or stopped on purpose,

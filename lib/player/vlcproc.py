@@ -364,7 +364,11 @@ class VlcProcess(PlayerBackend):
         "osd_refresh": "1",
         # How long a message stays on screen, in milliseconds. Zero would leave
         # it there for ever, which would be worse than not showing it at all.
-        "osd_timeout": "3000",
+        # Fifteen seconds rather than three. Three is enough to see a change
+        # you have just made, and not enough to have read it from a sofa --
+        # the last thing pressed stays up long enough to still be there when
+        # you look back at the screen.
+        "osd_timeout": "15000",
         # How far the subtitles sit above the bottom edge, in destination pixels.
         # VLC applies this to the subtitle region alone (vout_subpictures.c lifts
         # the region by y_margin), so it is the only thing that moves them.
@@ -414,6 +418,9 @@ class VlcProcess(PlayerBackend):
         self._track_names = {}
         # What is playing, for the announcement at the start.
         self._title = ""
+        # Whether we have paused it. VLC's cli can report the state but not set
+        # it, so this is ours; see control().
+        self._paused = False
         # Set the moment the user asks for anything; the subtitle search gives
         # up when it is set.
         #
@@ -865,14 +872,26 @@ class VlcProcess(PlayerBackend):
         # Anything the user does ends the background searching. See _acted.
         self._acted = True
         if action in ("pause", "resume"):
-            self._send_command("pause" if action == "pause" else "play")
+            # Both are a toggle here, and which word arrives does not say what
+            # the player did.
+            #
+            # The interface sends "pause" for its PLAY button as well as its
+            # PAUSE one -- it decides which to send by its own idea of the
+            # state, which can disagree with the player's -- and VLC's pause
+            # verb toggles. So "pause" arrives when the film is already paused
+            # and resumes it, and the confirmation said "Pause" as it did the
+            # opposite. It also meant no way to reach the film with VLC's state
+            # known to differ from ours.
+            #
+            # So one verb, and the label says what the toggle actually did,
+            # worked out from the state we last put it in.
+            now_paused = not self._paused
+            self._send_command("pause")
+            self._paused = now_paused
             # With the time on it, because that is what pausing and un-pausing
             # is for: you stop to do something and come back to where you
             # stopped. "Pause" on its own said nothing about where.
-            #
-            # "Pause" rather than "Paused": it is the name of the key that was
-            # pressed, and what the button on the remote says.
-            self._show_overlay(self._where("Pause" if action == "pause" else "Play"))
+            self._show_overlay(self._where("Pause" if now_paused else "Play"))
         elif action == "stop":
             self._send_command("quit")
         elif action in ("plus30", "minus30", "plus600", "minus600"):

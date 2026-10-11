@@ -20,6 +20,8 @@ msg constants live in lib.player.processpipe.
 import inspect
 import os
 import queue
+import signal
+import subprocess
 import threading
 import time
 import unittest.mock as m
@@ -919,6 +921,63 @@ class TestDownloadsAreNeverDeleted:
         body = parts[2] if len(parts) > 2 else source
         for gone in ("rmtree", "OUT_FILE", "/tmp/torrent-stream", "/tmp/blissflixx"):
             assert gone not in body, gone
+
+
+class TestAStoppedProcessIsGivenTheChanceToTidyUp:
+    """
+    Stopping used to SIGKILL, and that stopped the next film from playing.
+    """
+
+    def _stage(self):
+        stage = DlsrvProcess()  # concrete, and nothing is actually run
+        stage.proc = m.Mock(pid=1234)
+        stage.proc.wait = m.Mock(return_value=0)
+        return stage
+
+    def test_a_process_is_asked_to_stop_before_it_is_killed(self):
+        stage = self._stage()
+
+        with m.patch("lib.player.processpipe.os.killpg") as killpg:
+            stage._terminate()
+
+        # SIGTERM first. VLC releases its DRM lease on the way out, and the
+        # next player cannot open a video output until it has.
+        assert killpg.call_args_list[0].args[1] is signal.SIGTERM, killpg.call_args_list
+
+    def test_nothing_is_killed_when_it_stops_promptly(self):
+        stage = self._stage()
+
+        with m.patch("lib.player.processpipe.os.killpg") as killpg:
+            stage._terminate()
+
+        assert killpg.call_count == 1, killpg.call_args_list
+
+    def test_a_process_that_ignores_it_is_still_killed(self):
+        """
+        SIGTERM is not honoured by a process that has already wedged, so the
+        kill is still there -- just no longer first.
+        """
+        stage = self._stage()
+        stage.proc.wait = m.Mock(side_effect=subprocess.TimeoutExpired("x", 3))
+
+        with m.patch("lib.player.processpipe.os.killpg") as killpg:
+            stage._terminate()
+
+        signals = [c.args[1] for c in killpg.call_args_list]
+        assert signals == [signal.SIGTERM, signal.SIGKILL], signals
+
+    def test_a_process_already_gone_is_not_killed_twice(self):
+        """
+        Stop runs from another thread and may race the process leaving on its
+        own, which is the ordinary way a player ends.
+        """
+        stage = self._stage()
+        stage.proc.wait = m.Mock(side_effect=subprocess.TimeoutExpired("x", 3))
+
+        with m.patch(
+            "lib.player.processpipe.os.killpg", side_effect=ProcessLookupError
+        ):
+            stage._terminate()  # must not raise
 
 
 class TestAStopIsNotAFailure:
