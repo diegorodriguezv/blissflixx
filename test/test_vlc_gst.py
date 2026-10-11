@@ -82,7 +82,7 @@ class TestVlcCommand:
         assert cmd[0] == "cvlc"
         assert cmd[1:] == [
             "--intf=cli",
-            "--aout=alsa",
+            "--aout=alsa,adummy",
             "--alsa-audio-device=hdmi:CARD=vc4hdmi,DEV=0",
             "--vout=drm_vout",
             "--drm-vout-module=vc4",
@@ -210,6 +210,26 @@ class TestVlcCommand:
         proc = on_screen_proc()
         proc.control(action)
         assert os.path.getsize(MARQ_FILE) > 0, action
+
+    def test_a_dead_sound_card_costs_the_sound_not_the_film(self):
+        """
+        The freeze, reproduced on a file with one audio track by cycling
+        tracks rapidly: switching audio tears the output down and rebuilds it,
+        and a burst of switches makes it fail to reopen with
+
+            main audio output error: too low audio sample frequency (0)
+            main decoder error: failed to create audio output
+
+        With nothing left to fall back on, the video stalls waiting on a clock
+        that will never arrive -- the picture freezes while the controls keep
+        answering, because none of them needed the sound to work. adummy is a
+        silent output, so the worst case is a film with no sound rather than a
+        film that will not move.
+        """
+        cmd = vlc({"outfile": FILE_OUT})
+        aout = [a for a in cmd if a.startswith("--aout=")]
+
+        assert aout == ["--aout=alsa,adummy"], aout
 
     def test_subtitles_sit_at_the_bottom_edge(self):
         """

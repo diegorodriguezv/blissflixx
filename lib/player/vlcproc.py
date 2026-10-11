@@ -515,7 +515,22 @@ class VlcProcess(PlayerBackend):
         cmd += list(self.opt("extra_args"))
         cmd += self._osd_args()
         cmd += [
-            "--aout=alsa",
+            # alsa first, then adummy, so a failure to open the sound card
+            # costs the sound and not the film.
+            #
+            # Switching audio tracks tears the output down and builds it again,
+            # and a burst of those switches makes it fail to reopen:
+            #
+            #     main audio output error: too low audio sample frequency (0)
+            #     main decoder error: failed to create audio output
+            #
+            # With nothing left, the video stalls waiting on a clock that is
+            # never going to arrive -- the picture freezes on its last frame
+            # while the controls keep answering, because they never needed the
+            # sound to work. VLC takes a comma-separated list here and uses the
+            # first that opens, so a dead card means silence rather than a
+            # frozen screen.
+            "--aout=alsa,adummy",
             "--alsa-audio-device=" + self.opt("audio_device"),
             "--vout=" + self.opt("video_output"),
             "--drm-vout-module=" + self.opt("video_output_module"),
