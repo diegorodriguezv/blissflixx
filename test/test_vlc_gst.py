@@ -379,7 +379,7 @@ class TestVlcControl:
         """
         proc = VlcProcess()
         shown = []
-        proc._show_overlay = shown.append
+        proc._show_overlay = lambda text, hold=None: shown.append(text)
         proc._send_command = lambda c: True
         proc._read_position = lambda: (30.0, 1297.0)
 
@@ -1557,7 +1557,7 @@ class TestWhatTheOverlaySays:
         """
         proc = VlcProcess()
         shown = []
-        proc._show_overlay = shown.append
+        proc._show_overlay = lambda text, hold=None: shown.append(text)
         proc._send_command = lambda command: True
         proc._send_and_collect = lambda verb: [
             "+----[ spu-es ]",
@@ -1576,7 +1576,7 @@ class TestWhatTheOverlaySays:
     def test_the_overlay_shows_a_percentage_not_vlcs_own_scale(self):
         proc = _running()
         shown = []
-        proc._show_overlay = shown.append
+        proc._show_overlay = lambda text, hold=None: shown.append(text)
         proc._send_command = lambda command: True
         proc._current_volume = lambda: 256
         proc._set_volume = lambda level: True
@@ -1585,6 +1585,114 @@ class TestWhatTheOverlaySays:
         proc.control("volup")
 
         assert shown == ["Volume 60%"], shown
+
+
+class TestAConfirmationAlwaysSaysSomething:
+    """
+    A missing confirmation cannot be told from a button that did nothing, which
+    is the one thing this mechanism exists to rule out.
+    """
+
+    def test_a_seek_with_no_readable_position_says_the_action(self):
+        """
+        The player not saying where it is says nothing about whether the seek
+        was accepted. Showing nothing made it look like the button had done
+        nothing at all.
+        """
+        proc = on_screen_proc()
+        shown = []
+        proc._show_overlay = lambda text, hold=None: shown.append(text)
+        proc._read_position = lambda: None
+
+        proc.control("plus30")
+
+        assert shown == ["Seek"], shown
+
+    def test_it_does_not_say_the_action_when_the_position_is_known(self):
+        proc = on_screen_proc()
+        shown = []
+        proc._show_overlay = lambda text, hold=None: shown.append(text)
+        proc._read_position = lambda: (64.0, 1297.0)
+
+        proc.control("plus30")
+
+        assert shown == ["1:04 / 21:37"], shown
+
+
+class TestHowLongAMessageStays:
+    """
+    The opening title is worth reading properly; a confirmation is not.
+    """
+
+    def test_a_confirmation_is_taken_away_after_five_seconds(self):
+        """
+        marq has one --marq-timeout for the whole session and the opening title
+        wants longer than a confirmation, so the confirmations are expired by
+        hand rather than by marq.
+        """
+        proc = VlcProcess()
+        proc._write_overlay = lambda text: None
+
+        with m.patch("lib.player.vlcproc._start_thread") as start:
+            proc._show_overlay("Volume 60%", hold=5)
+
+        assert start.call_args is not None, "nothing was scheduled to expire it"
+        assert start.call_args.args[1] == "Volume 60%"
+        assert start.call_args.args[2] == 5, start.call_args
+
+    def test_the_opening_title_is_left_to_marq(self):
+        """
+        It is the one message meant to be read, so it is not expired early.
+        """
+        proc = VlcProcess({"osd_overlay": "1"})
+        shown = []
+        proc._show_overlay = lambda text, hold=None: shown.append(text)
+        proc.proc = m.Mock(poll=lambda: None)
+        proc._read_number = lambda verb: 1297.0 if verb == "get_length" else None
+        proc.build_command({"outfile": "/tmp/a.mkv", "title": "Lanterns"})
+
+        with m.patch("lib.player.vlcproc._start_thread") as start:
+            proc._show_opening_title()
+
+        assert shown == ["Lanterns (21:37)"], shown
+        assert start.call_count == 0, "the opening title was expired early"
+
+    def test_an_expired_message_never_wipes_a_newer_one(self):
+        """
+        Guarded on the text still being what is on screen, so a message that has
+        already been replaced is not blanked by the earlier one's timer.
+        """
+        proc = on_screen_proc()
+        written = []
+        proc._write_overlay = written.append
+        proc._overlay_shown = "Volume 60%"
+
+        proc._expire_overlay("Volume 60%", 0)
+
+        # Cleared with a space: getline() returns -1 on an empty file, which
+        # marq reports as "Invalid argument" once per refresh tick.
+        assert written == [" "], written
+
+        written.clear()
+        proc._overlay_shown = "Volume 70%"
+        proc._expire_overlay("Volume 60%", 0)
+
+        # The newer message is left alone.
+        assert written == [], written
+
+    def test_pause_is_shown_before_the_film_is_toggled(self):
+        """
+        Asked for on the grounds that a message written once the picture has
+        stopped is not one you can rely on being seen.
+        """
+        proc = on_screen_proc()
+        order = []
+        proc._show_overlay = lambda text, hold=None: order.append("overlay")
+        proc._send_command = lambda command: order.append("command")
+
+        proc.control("pause")
+
+        assert order == ["overlay", "command"], order
 
 
 class TestWhatCountsAsAnAnswer:
@@ -1663,7 +1771,7 @@ class TestTheOpeningTitle:
 
         proc = VlcProcess({"osd_overlay": "1"})
         shown = []
-        proc._show_overlay = shown.append
+        proc._show_overlay = lambda text, hold=None: shown.append(text)
         proc.proc = m.Mock(poll=lambda: None)
         proc._read_number = lambda verb: None
         proc.build_command({"outfile": "/tmp/a.mkv", "title": "Lanterns"})
@@ -1678,7 +1786,7 @@ class TestTheOpeningTitle:
     def test_the_title_and_its_total_length_are_shown(self):
         proc = VlcProcess({"osd_overlay": "1"})
         shown = []
-        proc._show_overlay = shown.append
+        proc._show_overlay = lambda text, hold=None: shown.append(text)
         proc.proc = m.Mock(poll=lambda: None)
         proc._read_number = lambda verb: 7742.0 if verb == "get_length" else None
         proc.build_command({"outfile": "/tmp/a.mkv", "title": "Lanterns S01E08"})

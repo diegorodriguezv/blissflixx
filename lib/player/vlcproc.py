@@ -144,6 +144,11 @@ _SUBTITLE_WAIT_TIMEOUT = 60
 #: standing question, and it stops the moment the user touches anything.
 _TITLE_ATTEMPTS = 5
 _TITLE_INTERVAL = 3
+#: How long a confirmation stays up. Shorter than the opening title, which is
+#: worth reading properly, and longer than marq's own --marq-timeout could give
+#: both. marq has one timeout for the whole session, so the confirmations are
+#: taken away by hand instead -- see _expire_overlay.
+_CONFIRM_HOLD = 5
 #: Where the marquee reads its text from. VLC re-reads it every --marq-refresh
 #: seconds, so writing to it is how the position gets on the screen.
 MARQ_FILE = os.path.join(TMP_DIR, "marq.txt")
@@ -789,7 +794,7 @@ class VlcProcess(PlayerBackend):
             return None
         return position, self._length
 
-    def _report_progress(self):
+    def _report_progress(self, label=None):
         """
         Ask where we are and show it.
 
@@ -797,12 +802,27 @@ class VlcProcess(PlayerBackend):
         continuously is what stopped this player answering anything at all after
         a few seconds of playback; reading it once, when the user has just asked
         to move, is answered reliably.
+
+        label is what to say instead if the player will not say where it is.
         """
         reported = self._read_position()
         if reported is None:
+            # Say the action rather than nothing.
+            #
+            # A missing confirmation cannot be told from a button that did
+            # nothing, which is the one thing this whole mechanism exists to
+            # rule out. The player not saying where it is says nothing about
+            # whether the seek was accepted -- a seek that lands on a paused
+            # film, or one that arrives while the player is busy with another,
+            # is still a seek somebody asked for.
+            if label:
+                self._show_overlay(label, hold=_CONFIRM_HOLD)
             return None
         position, length = reported
-        self._show_overlay("%s / %s" % (_format_clock(position), _format_clock(length)))
+        self._show_overlay(
+            "%s / %s" % (_format_clock(position), _format_clock(length)),
+            hold=_CONFIRM_HOLD,
+        )
         if str(self.opt("report_progress")).lower() not in ("0", "", "false"):
             cherrypy.log(
                 "VLC progress: position %s, length %s"
@@ -886,17 +906,24 @@ class VlcProcess(PlayerBackend):
             # So one verb, and the label says what the toggle actually did,
             # worked out from the state we last put it in.
             now_paused = not self._paused
+            # Read and show before the toggle, not after. Asked for on the
+            # grounds that a message written once the picture has stopped is not
+            # one you can rely on being seen; this way it is on screen first
+            # and the film then stops behind it. The position does not change
+            # when the film is paused, so reading it first costs nothing.
+            self._show_overlay(
+                self._where("Pause" if now_paused else "Play"), hold=_CONFIRM_HOLD
+            )
             self._send_command("pause")
             self._paused = now_paused
             # With the time on it, because that is what pausing and un-pausing
             # is for: you stop to do something and come back to where you
-            # stopped. "Pause" on its own said nothing about where.
-            self._show_overlay(self._where("Pause" if now_paused else "Play"))
+
         elif action == "stop":
             self._send_command("quit")
         elif action in ("plus30", "minus30", "plus600", "minus600"):
             self._seek(_SEEK_SECONDS[action])
-            self._report_progress()
+            self._report_progress(label="Seek")
         elif action in ("volup", "voldown"):
             # The step is a percentage; VLC counts in its own units.
             step = round(_VOLUME_MAX * int(self.opt("volume_step")) / 100)
@@ -906,69 +933,79 @@ class VlcProcess(PlayerBackend):
             # must not walk the level into negatives.
             level = max(0, self._current_volume() + step)
             self._set_volume(level)
-            self._show_overlay("Volume %d%%" % _volume_percent(level))
+            self._show_overlay(
+                "Volume %d%%" % _volume_percent(level), hold=_CONFIRM_HOLD
+            )
         elif action == "hide_subtitle":
             # -1 is VLC's "disabled", and it is always in the listing.
             self._send_command("strack " + str(_TRACK_DISABLED))
-            self._show_overlay("[off] subtitle")
+            self._show_overlay("[off] subtitle", hold=_CONFIRM_HOLD)
         elif action == "show_subtitle":
             self._show_track("strack")
-            self._show_overlay(
-                _track_label(
-                    "subtitle",
-                    self._track_choice.get("strack"),
-                    self._track_language("strack"),
-                )
-            )
+            self._show_overlay(self._subtitle_label(), hold=_CONFIRM_HOLD)
         elif action == "next_subtitle":
             self._step_track("strack", +1)
-            self._show_overlay(
-                _track_label(
-                    "subtitle",
-                    self._track_choice.get("strack"),
-                    self._track_language("strack"),
-                )
-            )
+            self._show_overlay(self._subtitle_label(), hold=_CONFIRM_HOLD)
         elif action == "prev_subtitle":
             self._step_track("strack", -1)
-            self._show_overlay(
-                _track_label(
-                    "subtitle",
-                    self._track_choice.get("strack"),
-                    self._track_language("strack"),
-                )
-            )
+            self._show_overlay(self._subtitle_label(), hold=_CONFIRM_HOLD)
         elif action == "next_audio":
             self._step_track("atrack", +1)
-            self._show_overlay(
-                _track_label(
-                    "audio",
-                    self._track_choice.get("atrack"),
-                    self._track_language("atrack"),
-                )
-            )
+            self._show_overlay(self._audio_label(), hold=_CONFIRM_HOLD)
         elif action == "prev_audio":
             self._step_track("atrack", -1)
-            self._show_overlay(
-                _track_label(
-                    "audio",
-                    self._track_choice.get("atrack"),
-                    self._track_language("atrack"),
-                )
-            )
+            self._show_overlay(self._audio_label(), hold=_CONFIRM_HOLD)
 
-    def _show_overlay(self, text):
+    def _show_overlay(self, text, hold=None):
         """
         Put a line of text on the picture, for a few seconds.
 
         Nothing here is timed or polled: the message is written when the user
-        does something, and marq's own --marq-timeout takes it away again, so the
-        screen is not left littered with confirmation of a pause from a quarter
-        of an hour ago. An empty string is never written; see control().
+        does something, and it goes away again on its own, so the screen is not
+        left littered with confirmation of a pause from a quarter of an hour ago.
+        An empty string is never written; see control().
+
+        hold, when given, is how many seconds this one should stay rather than
+        marq's own --marq-timeout. Needed because that is a single value for the
+        whole session, and the opening title wants longer than a confirmation
+        does.
         """
         if not self._overlay_wanted():
             return
         self._write_overlay(text)
+        if hold:
+            _start_thread(self._expire_overlay, text, hold)
+
+    def _subtitle_label(self):
+        return _track_label(
+            "subtitle",
+            self._track_choice.get("strack"),
+            self._track_language("strack"),
+        )
+
+    def _audio_label(self):
+        return _track_label(
+            "audio",
+            self._track_choice.get("atrack"),
+            self._track_language("atrack"),
+        )
+
+    def _expire_overlay(self, text, hold):
+        """
+        Take a message away after its own, shorter, time is up.
+
+        Writes a space rather than nothing. marq reads the file with getline(),
+        which returns -1 at end of file and which marq reports as "Invalid
+        argument" -- once per refresh tick, for as long as playback lasts. That
+        is what a confirmation that cleared itself used to leave behind.
+
+        Guarded on the text still being the one on screen, so a message that has
+        already been replaced by a later action is not wiped by the earlier
+        one's timer.
+        """
+        time.sleep(hold)
+        if self._overlay_shown == text:
+            self._write_overlay(" ")
 
     def _write_overlay(self, text):
         """
