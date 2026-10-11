@@ -60,9 +60,16 @@ else
     # Install XSLT package for screen scaping websites
     apt -y install libxslt1-dev
     
-    # So server can run on port 80 without sudo
-    setcap 'cap_net_bind_service=+ep' "$(readlink -f "$(which python3)")"
-    
+    # Binding port 80 needs no help here: the service unit asks for
+    # CAP_NET_BIND_SERVICE itself, through AmbientCapabilities, which scopes the
+    # capability to the service rather than to the interpreter.
+    #
+    # This used to be a file capability set on python3, which is granted to
+    # every Python program on the machine and survives uninstall. It was also
+    # unreliable -- on a current Raspberry Pi OS the xattr was not visible on
+    # any binary that was running, so nothing could say what was actually
+    # allowing the bind.
+
     # Install peerflix globally
     npm install -g peerflix
     
@@ -100,6 +107,12 @@ Restart=always
 User=$(logname)
 WorkingDirectory=$(pwd)
 ExecStart='$(pwd)/run.sh'
+
+# To bind port 80 without root. Scoped to this service rather than granted to
+# the interpreter: a file capability on python3 belongs to every Python program
+# on the machine, not just this one, and outlives the install that put it there.
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
 
 [Install]
 WantedBy=default.target
