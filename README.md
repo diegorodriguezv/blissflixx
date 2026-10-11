@@ -48,18 +48,22 @@ The media server can be controlled via a web interface from any computer, tablet
 
 # Prerequisites
 
- - Raspberry Pi (Not model A) with at least 8Gb SD card running Raspbian. You should also have about 2 Gb of free space on the card.
+ - Raspberry Pi 3 or later with at least 8Gb SD card running Raspberry Pi OS (trixie), desktop or lite. You should also have about 2 Gb of free space on the card.
+ - `git`, which a desktop image has and a lite image does not. Without it, install it first with `sudo apt install git`.
  - Broadband connection with enough speed to support video streaming. Ideally you should have a wired ethernet connection into your Pi as some WiFi adapters may have problems with streaming.
  - Television plugged into Raspberry Pi.
  - Computer, tablet or smartphone for controlling server.
 
 # Installation
 
-**IMPORTANT: BlissFlixx installation requires Raspberry PI OS 10 (Buster) 32 bits - desktop or lite**
+**IMPORTANT: BlissFlixx installation requires Raspberry Pi OS 13 (trixie), desktop or lite**
 
-To install git clone this repository:
+BlissFlixx for current Raspberry Pi OS is developed on the `bookworm` branch:
 
-    git clone https://github.com/blissland/blissflixx.git
+    git clone -b bookworm https://github.com/diegorodriguezv/blissflixx.git
+
+Once it has been tested it will be published to the main repository, and this
+line will go back to being a plain `git clone`.
 
 Now enter the BlissFlixx folder and run the configure script which will install all the required external dependencies:
 
@@ -79,7 +83,19 @@ Install a system service script to run BlissFlixx when the system starts up. The
 
 * `-blank`
 
-Install a system service script to blank the screen when the system starts up. It's particularly useful when using a 'lite' version without an X desktop as the screen is full of boot up messages. Blanking the screen allows the screen to enter in a power saving mode more easily. For installations with a desktop environment this can also be useful so the script configures the X screensaver to blank the screen after 10 seconds. The command executed at boot is `blank_screen.sh` in case you want to modify it.
+Install a system service script to blank the screen when the system starts up.
+
+**On current Raspberry Pi OS this does nothing, on either kind of install.**
+`blank_screen.sh` has two paths, one for each kind of install: `tvservice -p`
+for a headless 'lite' image, which needs no X, and `xset dpms` for a desktop,
+which only runs when `xinit` exists. Neither is available now. `tvservice` was
+part of a display stack Raspberry Pi OS no longer ships, and is not in the
+archive to be installed. `xset` is present on a desktop but needs an X server
+that a 'lite' install does not run.
+
+The flag is kept because the intent still holds and the mechanism has not been
+replaced yet; see the note in `docs/phoenix.md`. The command executed at boot is
+`blank_screen.sh` in case you want to modify it.
 
 * `-uninstall`
 
@@ -116,29 +132,31 @@ The `configure_py.sh` script will set up the python environment for BlissFlixx.
 
 Once the configuration script is complete you can start the server by running:
 
-    ./blissflixx.py
-    
-Note that the first time you start the server it will first take a few moments to complete the installation.
-
-Once you see the message "ENGINE Bus STARTED" the server will be up and running. Now open up a browser on your phone, tablet or PC and point it at:
-
-    http://ip-address-of-your-pi:6969
-    
-So for example if the IP address of the Raspberry Pi is  192.168.1.4. Then you need to point your browser to:
-
-    http://192.168.1.4:6969
-
-If you want to run the server on the default port 80 then you will need start the server with the --port flag:
-
-    ./blissflixx.py --port 80
-    
-Finally if you want the server to continue running even after you log out of your session (which is usaully the case) then specify the --daemon flag:
-
-    ./blissflixx.py --port 80 --daemon
-    
-Fortunately there is a script to run the above command:
-
     ./start.sh
+
+Note that the first time you start the server it will first take a few moments
+to complete the installation, cloning yt-dlp into `lib/`.
+
+Once you see the message "ENGINE Bus STARTED" the server will be up and running.
+Now open up a browser on your phone, tablet or PC and point it at:
+
+    http://ip-address-of-your-pi
+
+So for example if the IP address of the Raspberry Pi is 192.168.1.4:
+
+    http://192.168.1.4
+
+**The server runs on port 80**, so there is no port number in the address. Port
+80 normally needs privilege to bind; the service installed by `configure.sh
+-boot` asks for `CAP_NET_BIND_SERVICE` for itself, which is why `./start.sh`
+needs no `sudo`.
+
+To run on a different port, for instance behind a reverse proxy or to avoid
+needing that capability at all:
+
+    ./blissflixx.py --port 6969
+
+and then point the browser at `http://192.168.1.4:6969`.
 
 If you have netbios installed in your network, chances are you can access your raspberry pi using it's `hostname`:
 
