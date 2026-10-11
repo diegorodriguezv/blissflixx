@@ -4,7 +4,7 @@ Playback control and pipeline composition.
 Two things are covered here that cannot be checked anywhere else without a
 Raspberry Pi:
 
-1. The action -> key table. OmxplayerProcess2.control() maps 17 named actions to
+1. The action -> key table. A backend's control() maps 17 named actions to
    terminal keys written into a FIFO. Patching _send_key captures the mapping,
    so the whole table is pinned even though no player is running.
 
@@ -12,7 +12,7 @@ Raspberry Pi:
    and patching _start_thread stops its background loop from running, so the
    exact stage list can be asserted without any process being spawned.
 
-Still hardware-only: whether the keys actually reach a running omxplayer, whether
+Still hardware-only: whether the command actually reaches a running player, whether
 dbus accepts the call, and whether the picture appears. Everything up to the
 handover is covered.
 """
@@ -28,12 +28,11 @@ import lib.player.player as player_module
 from lib.api import playr
 from lib.player.dlsrvproc import DlsrvProcess
 from lib.player.localproc import LocalFileProcess
-from lib.player.omxproc import OmxplayerProcess
-from lib.player.omxproc2 import OmxplayerProcess2
 from lib.player.pflixproc import PeerflixProcess
 from lib.player.subsproc import SubtitlesProcess
+from lib.player.vlcproc import VlcProcess
 
-# action -> the key omxplayer expects on stdin
+# action -> the key a keystroke-driven backend expects on stdin
 OMX_KEYS = {
     "pause": "p",
     "resume": "p",
@@ -53,85 +52,6 @@ OMX_KEYS = {
     "show_subtitle": "w",
     "hide_subtitle": "x",
 }
-
-
-class TestOmxplayer2KeyMap:
-    @pytest.mark.parametrize("action,key", sorted(OMX_KEYS.items()))
-    def test_action_sends_expected_key(self, action, key):
-        with m.patch.object(OmxplayerProcess2, "_send_key") as send:
-            OmxplayerProcess2().control(action)
-        send.assert_called_once_with(key)
-
-    def test_unknown_action_sends_nothing(self):
-        """
-        An unrecognised action must not send a stray key: it would be read as a
-        keystroke by the player and do something unexpected.
-        """
-        with m.patch.object(OmxplayerProcess2, "_send_key") as send:
-            OmxplayerProcess2().control("definitely_not_an_action")
-        send.assert_not_called()
-
-    def test_pause_and_resume_share_a_key(self):
-        """omxplayer toggles; BlissFlixx tracks which state it believes it is in."""
-        with m.patch.object(OmxplayerProcess2, "_send_key") as send:
-            OmxplayerProcess2().control("pause")
-            OmxplayerProcess2().control("resume")
-        assert [c.args[0] for c in send.call_args_list] == ["p", "p"]
-
-    def test_key_is_written_to_the_fifo(self):
-        """The command travels as stdin, so _send_key is the real transport."""
-        from lib.player.omxproc2 import _CMD_FIFO
-
-        with m.patch("os.system") as system:
-            OmxplayerProcess2().control("stop")
-        assert _CMD_FIFO in system.call_args[0][0]
-        assert system.call_args[0][0].startswith("echo -n q >>")
-
-    def test_full_table_is_covered(self):
-        """
-        Guards against an action being added to the implementation without a
-        test appearing here.
-        """
-        import inspect
-        import re
-
-        src = inspect.getsource(OmxplayerProcess2.control)
-        found = set(re.findall(r'action == "([a-z0-9_]+)"', src))
-        assert found == set(OMX_KEYS)
-
-
-class TestOmxplayerDbusControl:
-    """
-    The other omxplayer stage drives the player over dbus instead of stdin, and
-    only implements pause/resume.
-    """
-
-    def test_pause_calls_dbus(self):
-        from lib.player.omxproc import _DBUS_PATH
-
-        with m.patch("os.system") as system:
-            OmxplayerProcess().control("pause")
-        assert system.call_args[0][0] == _DBUS_PATH + " pause &"
-
-    def test_resume_sends_the_same_dbus_command(self):
-        with m.patch("os.system") as system:
-            OmxplayerProcess().control("resume")
-        assert "pause" in system.call_args[0][0]
-
-    def test_stop_is_not_handled(self):
-        """
-        This stage cannot stop the player, so control("stop") is a no-op here.
-        The pipe's stop() is what actually terminates it, via SIGKILL on the
-        process group. Recorded because it looks like an oversight otherwise.
-        """
-        with m.patch("os.system") as system:
-            OmxplayerProcess().control("stop")
-        system.assert_not_called()
-
-    def test_unknown_action_is_ignored(self):
-        with m.patch("os.system") as system:
-            OmxplayerProcess().control("nonsense")
-        system.assert_not_called()
 
 
 def build_pipe(title="T", src=None, subs=None, http=False, dlsrv=True):
@@ -205,7 +125,7 @@ class TestPipelineComposition:
 
     def test_subtitles_stage_precedes_everything(self):
         """
-        The subtitle file must exist before omxplayer is told to use it, so the
+        The subtitle file must exist before the player is told to use it, so the
         fetch stage comes first and passes the path along.
         """
         pipe = build_pipe(subs={"lang": "eng", "title": "M"})
@@ -450,7 +370,7 @@ class TestStageAvailability:
     abstraction has to cover.
     """
 
-    @pytest.mark.parametrize("cls", [DlsrvProcess, OmxplayerProcess, OmxplayerProcess2])
+    @pytest.mark.parametrize("cls", [DlsrvProcess, VlcProcess])
     def test_stage_constructs_without_arguments(self, cls):
         assert cls().name()
 

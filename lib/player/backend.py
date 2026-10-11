@@ -1,25 +1,15 @@
 """
 Player backends.
 
-A backend is the pipeline stage that actually renders media. omxplayer was the
-only one for years, and it came in two flavours that looked like two players but
-differed only in how control commands reach the process: one talks dbus, the
-other writes keystrokes into a FIFO. lib/player/player.py picked between them
-with two booleans, which decided a control transport rather than naming a
-player.
+A backend is the pipeline stage that actually renders media.
 
-PlayerBackend separates those concerns:
+PlayerBackend separates three concerns:
 
 - build_command(args) is pure and works from a fresh instance, so the command a
   backend will run is assertable without the binary being installed.
 - control(action) is per-backend, because the transport genuinely differs.
 - declares() is the capability set, so the UI can know what a backend can do
   rather than sending it actions it silently drops.
-
-OmxplayerBackend holds the readiness parsing that both omxplayer variants shared
-verbatim. It lives here rather than on PlayerBackend because it parses
-omxplayer-specific output; MpV produces no equivalent stream of status lines and
-overrides readiness instead.
 
 Command building is configuration driven. Each backend declares a `defaults`
 dict and the settings file for it, data/settings/player-<name>, merges over the
@@ -55,7 +45,7 @@ CAP_AUDIO_TRACK = "audio_track"
 #: drift apart. Distinct from CAP_SUBTITLES, which is about which track is
 #: showing at all.
 #:
-#: omxplayer-keys does this with its f and d keys. mpv does it over IPC. VLC's
+#: mpv does this over IPC. VLC's
 #: cli interface has no verb for it -- the whole command table, read from the
 #: source, has no sub-delay and no marq -- so VLC does not declare this even
 #: though its desktop GUI has a control for it.
@@ -133,13 +123,13 @@ class PlayerBackend(ExternalProcess):
         Act on a playback control action.
 
         Backends do not all control the player the same way, and a backend should
-        not assume omxplayer's model. There are three shapes in practice:
+        not assume one player's model. There are three shapes in practice:
 
-        - Keystroke, no acknowledgement. omxplayer.bin reads keys from a FIFO.
+        - Keystroke, no acknowledgement. The player reads keys from a FIFO.
           Writing the key is all there is; nothing reports whether it was acted
           on, so a caller cannot distinguish "delivered" from "ignored".
-        - Request/response. VLC's rc interface and mpv's JSON IPC both reply, so
-          delivery can be observed and logged.
+        - Request/response. mpv's JSON IPC replies, so delivery can be observed
+          and logged. VLC's cli interface does too, once it is not busy.
         - None. gst-launch exposes no IPC at all, so every action is dropped.
 
         control() returns False when the command could not be delivered at all
@@ -154,28 +144,6 @@ class PlayerBackend(ExternalProcess):
         ProcessException if it cannot. The default suits backends with no
         status output to wait for.
         """
-
-
-class OmxplayerBackend(PlayerBackend):
-    """
-    Shared behaviour for the two omxplayer variants.
-
-    Both print progress on stdout and signal success with a Metadata: or
-    Duration: line. These two _ready implementations were byte-for-byte
-    identical before this class existed.
-    """
-
-    def _ready(self):
-        while True:
-            line = self._readline(self.start_timeout)
-            if line.startswith("have a nice day"):
-                raise ProcessException("omxplayer failed to start")
-            elif line.startswith("Vcodec id unknown:"):
-                raise ProcessException("Unsupported video codec")
-            elif "Metadata:" in line:
-                break
-            elif "Duration:" in line:
-                break
 
     #: Seconds to wait for the first line of output. Subclasses override.
     start_timeout = None

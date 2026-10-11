@@ -1,7 +1,7 @@
 """
 The MpV backend and the backend registry.
 
-MpV is the first backend that shares nothing with omxplayer: different binary,
+MpV shares nothing with the other backends: different binary,
 different control transport (JSON IPC over a unix socket rather than dbus
 messages or FIFO keystrokes), and a different readiness strategy (polling for the
 socket, because mpv produces no status line stream to parse).
@@ -31,14 +31,11 @@ from lib.player.backend import (
 from lib.player.backends import (
     BACKENDS,
     DEFAULT_BACKEND,
-    LEGACY_BACKEND,
     backend_names,
     describe,
     get_backend,
 )
 from lib.player.mpvproc import MPV_BIN, MpvProcess
-from lib.player.omxproc import OmxplayerProcess
-from lib.player.omxproc2 import OmxplayerProcess2
 from lib.player.processpipe import ProcessException
 
 FILE_OUT = "/tmp/blissflixx/bf.out"
@@ -80,7 +77,7 @@ class TestMpvCommand:
     def test_uses_argv_not_a_shell_string(self):
         """
         mpv needs no pipes or redirects, so it must not go through a shell. The
-        omxplayer backends need shell=True precisely because they do.
+        A keystroke-driven backend needs shell=True precisely because it does.
         """
         assert isinstance(mpv({"outfile": FILE_OUT}), list)
         assert MpvProcess().shell is False
@@ -237,7 +234,7 @@ class TestMpvControl:
         """
         Two presses forward then one back must land on the first step, not on
         zero: mpv's sub-delay is absolute, so it is tracked rather than nudged.
-        Pressing a pair of keys in a row behaves this way on omxplayer.
+        Pressing a pair of keys in a row behaves this way in a keystroke backend.
         """
         proc = MpvProcess()
         sent = []
@@ -252,7 +249,7 @@ class TestMpvControl:
 
     def test_every_action_is_covered_by_a_test(self):
         """
-        The omxplayer key map has an equivalent guard. Same idea: a new action
+        A keystroke-driven key map has an equivalent guard. Same idea: a new action
         should not appear in the implementation without appearing here, so the
         two sets must match exactly.
 
@@ -364,8 +361,8 @@ class TestBackendBase:
         ExternalProcess.start calls _get_cmd(args); backends implement
         build_command instead, so the two names must not diverge.
         """
-        assert OmxplayerProcess()._get_cmd({"outfile": HTTP_OUT}) == (
-            OmxplayerProcess().build_command({"outfile": HTTP_OUT})
+        assert MpvProcess()._get_cmd({"outfile": HTTP_OUT}) == (
+            MpvProcess().build_command({"outfile": HTTP_OUT})
         )
 
     def test_capability_checking(self):
@@ -374,31 +371,14 @@ class TestBackendBase:
         assert proc.declares("not_a_capability") is False
 
 
-class TestOmxCapabilities:
-    def test_key_variant_supports_everything(self):
-        assert OmxplayerProcess2().supports(*ALL_CAPABILITIES)
-
-    def test_dbus_variant_is_limited(self):
-        """
-        It implements pause only. Advertising precisely what it can do is the
-        point of the capability set: the UI can stop offering controls that
-        would be silently dropped.
-        """
-        proc = OmxplayerProcess()
-        assert proc.declares(CAP_PAUSE) is True
-        assert proc.declares(CAP_STOP) is False
-        assert proc.declares(CAP_SEEK) is False
-
-
 class TestRegistry:
-    def test_the_original_backends_are_registered(self):
+    def test_the_backends_are_registered(self):
         """
         Not the full list: adding a backend should not require editing an
         assertion here. The registry's own invariants are covered in
-        test_backend_config.py; what matters is that these three stay
-        selectable, because omxplayer is the legacy default.
+        test_backend_config.py.
         """
-        for name in ("omxplayer", "omxplayer-keys", "mpv"):
+        for name in ("vlc", "mpv", "gstreamer"):
             assert name in BACKENDS
 
     def test_names_are_sorted(self):
@@ -408,14 +388,12 @@ class TestRegistry:
 
     def test_backend_names_is_the_registry_only(self):
         """
-        selectable_names() adds the legacy pseudo-backend; backend_names() must
-        stay the registry, because every name in it has to resolve through
-        get_backend().
+        Everything selectable has to resolve through get_backend(), so the two
+        lists agree rather than one being a superset of the other.
         """
         from lib.player.backends import selectable_names
 
-        assert set(backend_names()) < set(selectable_names())
-        assert LEGACY_BACKEND not in backend_names()
+        assert set(backend_names()) == set(selectable_names())
 
     def test_every_registered_backend_is_reachable_by_name(self):
         for name in backend_names():
@@ -423,8 +401,6 @@ class TestRegistry:
 
     def test_get_backend_returns_a_configured_instance(self):
         assert isinstance(get_backend("mpv"), MpvProcess)
-        assert isinstance(get_backend("omxplayer"), OmxplayerProcess)
-        assert isinstance(get_backend("omxplayer-keys"), OmxplayerProcess2)
 
     def test_unknown_name_raises(self):
         """
@@ -436,8 +412,7 @@ class TestRegistry:
 
     def test_default_backend_is_vlc(self):
         """
-        omxplayer only runs on obsolete Raspberry Pi OS. VLC is the replacement
-        default; the omxplayer backends remain selectable by name.
+        VLC is the default, and the flags do not change that.
         """
         assert DEFAULT_BACKEND == "vlc"
         assert DEFAULT_BACKEND in BACKENDS
@@ -474,19 +449,6 @@ class TestBackendSelection:
         flags: those decide about serving, not about which player runs.
         """
         assert self._stage(http, dlsrv).name() == "vlc"
-
-    @pytest.mark.parametrize("http", [False, True])
-    @pytest.mark.parametrize("dlsrv", [False, True])
-    def test_legacy_name_matches_the_historical_choice(self, http, dlsrv):
-        """
-        The pre-abstraction behaviour, still reachable by name: the two flags
-        picked one of two omxplayer variants.
-        """
-        stage = self._stage(http, dlsrv, backend=LEGACY_BACKEND)
-        expected = (
-            OmxplayerProcess2() if (http or dlsrv) else OmxplayerProcess()
-        ).name()
-        assert stage.name() == expected
 
     @pytest.mark.parametrize("http", [False, True])
     @pytest.mark.parametrize("dlsrv", [False, True])

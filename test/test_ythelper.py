@@ -2,7 +2,7 @@
 URL classification in lib/player/ythelper.
 
 These regexes decide whether a stream is downloaded to disk first or piped
-straight to omxplayer, so a false negative means a video silently buffers to a
+straight to the player, so a false negative means a video silently buffers to a
 file instead of playing immediately.
 """
 

@@ -169,7 +169,6 @@ def cleanup():
         os.remove(home + "/.swfinfo")
     except Exception:
         pass
-    kill_process("omxplayer")
     kill_process("peerflix")
     kill_process("livestreamer")
     kill_process("dlsrv")

@@ -30,12 +30,7 @@ from lib.player.backend import (
 )
 from lib.player.gstproc import GStreamerProcess
 from lib.player.processpipe import ProcessException
-from lib.player.vlcproc import (
-    _REPLY_TIMEOUT,
-    MARQ_FILE,
-    VlcProcess,
-    _volume_percent,
-)
+from lib.player.vlcproc import _REPLY_TIMEOUT, MARQ_FILE, VlcProcess, _volume_percent
 
 FILE_OUT = "/home/diego/testfiles/h264_1080p.mkv"
 HTTP_OUT = "http://127.0.0.1:9696/movie.mkv"
@@ -299,7 +294,7 @@ class TestVlcCommand:
         assert not [a for a in vlc({"outfile": FILE_OUT}) if "--sub-file" in a]
 
     def test_reads_a_growing_http_url(self):
-        """VLC handles the dlsrv stage's url itself, unlike omxplayer's tail."""
+        """VLC handles the dlsrv stage's url itself, with no tail process."""
         assert vlc({"outfile": HTTP_OUT})[-1] == HTTP_OUT
 
     def test_exits_when_playback_ends(self):
@@ -679,7 +674,7 @@ class TestVlcControl:
         Pinned as an explicit set rather than a length, so gaining or losing a
         capability has to be a deliberate edit here.
 
-        VLC is now exactly one behind mpv and omxplayer-keys. The gap is
+        VLC is exactly one behind mpv. The gap is
         subtitle delay: this VLC's cli interface has no verb for it. The whole
         command table, read from the source, has no sub-delay and no marq --
         only the desktop GUI has a control, and there is no GUI on a headless
@@ -688,16 +683,13 @@ class TestVlcControl:
         """
         from lib.player.backend import ALL_CAPABILITIES, CAP_SUBTITLE_DELAY
         from lib.player.mpvproc import MpvProcess
-        from lib.player.omxproc import OmxplayerProcess
-        from lib.player.omxproc2 import OmxplayerProcess2
 
         missing = ALL_CAPABILITIES - VlcProcess().capabilities
         assert missing == {CAP_SUBTITLE_DELAY}, missing
         assert VlcProcess().capabilities == MpvProcess().capabilities - {
             CAP_SUBTITLE_DELAY
         }
-        assert MpvProcess().capabilities == OmxplayerProcess2().capabilities
-        assert len(OmxplayerProcess().capabilities) < len(ALL_CAPABILITIES)
+        assert len(VlcProcess().capabilities) < len(ALL_CAPABILITIES)
 
 
 class _FakeStdin:
@@ -1402,7 +1394,7 @@ class TestEmbeddedSubtitlesAreEnabledOnStart:
     being the default backend made that the common case rather than the edge
     one.
 
-    OmxplayerProcess2.start() has always called show_subtitle, so this brings VLC
+    The old player has always shown subtitles from the start, so this brings VLC
     to the behaviour the project already had, which is what "subtitles are
     mandatory" means in practice.
     """

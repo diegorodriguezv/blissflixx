@@ -99,15 +99,9 @@ want a smaller install. Everything else is installed as usual.
 ## After installing
 
 `configure.sh` finishes by running `bin/check_players.py`, which reports whether
-each registered backend can actually run rather than merely be installed. It is
-worth knowing, because two of them need attention on a current Raspberry Pi OS:
-
-* omxplayer has no package, so it cannot be installed at all. The two omxplayer
-  backends only work on the old OS.
-* stock GStreamer has no `v4l2h264dec`; the v4l2 decoders were dropped from the
-  main gst-plugins set. Set `video_decoder` to `avdec_h264` in
-  `data/settings/player-gstreamer` for software decode, which costs CPU.
-
+the player can actually run rather than merely being installed. Worth knowing,
+because the two are not the same thing and a missing codec only shows up when
+something tries to play.
 Run it again at any time:
 
 ```
@@ -210,27 +204,17 @@ The second option - RESTART & UPDATE - will restart and also update the server t
 
 # Player backends
 
-Playback used to go through omxplayer, which no longer runs on current Raspberry
-Pi OS. VLC is now the default. The omxplayer backends remain selectable by name
-for anyone still on the old OS.
+BlissFlixx plays through VLC. Other backends exist in the code and can still be
+selected through `set_backend` below, but they are not part of this release and
+are not supported.
 
 | Backend name | Player | Control | Subtitles | Audio tracks |
 |---|---|---|---|---|
-| `omxplayer` | omxplayer | dbus, pause only | yes | no |
-| `omxplayer-keys` | omxplayer.bin | FIFO keystrokes | yes | yes |
 | `vlc` | cvlc | cli interface | yes | no |
-| `mpv` | mpv | JSON IPC | yes | yes |
-| `gstreamer` | gst-launch-1.0 | none | no | no |
 
-`gstreamer` has no control surface at all: `gst-launch` is a one-shot pipeline
-runner with no IPC, so it cannot be paused, seeked or adjusted. Stopping still
-works, because the player SIGKILLs the process group. It is the most efficient
-by CPU and the least capable.
-
-`vlc` is the recommended player on current Raspberry Pi OS, and the default. It
-decodes H.264 in hardware, sends audio to HDMI and burns in subtitles, without
-the expensive GStreamer compositing path. Video output is pinned to `drm_vout`
-through the `vc4` driver, which is what makes the Pi decode in hardware.
+`vlc` decodes H.264 in hardware, sends audio to HDMI and burns in subtitles.
+Video output is pinned to `drm_vout` through the `vc4` driver, which is what
+makes the Pi decode in hardware.
 
 VLC is controlled through its cli interface: commands are typed into the
 player's stdin and the replies read from its stdout. The rc interface would be
@@ -238,8 +222,7 @@ the more usual choice, but Debian trixie's VLC 3.0.23 for armhf ships no
 `librc_plugin.so`, so `--extraintf=rc` is silently ignored and no control socket
 is ever created. Subtitles and audio tracks are selected through `strack` and `atrack`,
 which list the available tracks and mark the active one with an asterisk,
-so visibility can be turned off with `-1` and back on with a real id. VLC
-therefore declares the same capabilities as `mpv` and `omxplayer-keys`.
+so visibility can be turned off with `-1` and back on with a real id.
 `--osd` is enabled so a volume change or a seek is visible on screen: without
 it the only feedback is a log line nobody watching a film can see. VLC's own
 OSD cannot be sent text, because that needs `marq`, which this build does not
@@ -269,9 +252,9 @@ Nothing here polls the player on a timer. That is what stops its cli interface
 answering at all, and the reply is taken within a second or so of the action
 that wanted it, rather than continuously.
 
-Subtitle delay is a separate capability from subtitle selection. `mpv` and
-`omxplayer-keys` can nudge the timing; VLC cannot through its cli interface, so
-it does not advertise the capability and the buttons are hidden for it.
+Subtitle delay is a separate capability from subtitle selection, and VLC's cli
+interface has no verb for it. VLC does not advertise the capability, so a client
+knows not to offer buttons that would do nothing.
 
 ## Choosing a backend
 
@@ -290,19 +273,11 @@ It can also be changed over the API, which writes the same file:
 ```
 /api/playr?fn=backends                            # every backend, with the active one marked
 /api/playr?fn=backend                             # just the active one
-/api/playr?fn=backend&data={"name":"mpv"}        # describe one without selecting it
-/api/playr?fn=set_backend&data={"name":"mpv"}     # select one
+/api/playr?fn=set_backend&data={"name":"vlc"}     # select one
 ```
 
-`backends` reports each backend's capabilities. That matters because the playbar
-renders one fixed set of controls whatever is playing: with `gstreamer` active,
-`capabilities` is empty and a `note` says so, so a client can hide the buttons
-that would be dropped rather than offering controls that do nothing.
-
-The special name `legacy` selects the behaviour from before backends existed,
-where the http and dlsrv flags chose between the two omxplayer variants. It is
-reported with a note saying so, because its capabilities depend on those flags
-rather than being fixed.
+`backends` reports each backend's capabilities, so a client can hide the buttons
+a backend would silently drop rather than offering controls that do nothing.
 
 Switching does not disturb what is already playing: the current item keeps the
 backend it started with.
@@ -326,10 +301,6 @@ The full set of keys, and their defaults, is each backend's `defaults` dict:
 | Backend | Keys |
 |---|---|
 | `vlc` | `binary`, `extra_args`, `audio_device`, `video_output`, `video_output_module`, `subtitle_text_scale`, `start_timeout`, `report_progress`, `osd_overlay`, `osd_refresh`, `osd_position`, `osd_size`, `osd_opacity`,  `sub_margin`, `volume_step`, `volume_max` |
-| `mpv` | `binary`, `extra_args`, `audio_device`, `socket`, `start_timeout`, `subtitle_delay_step` |
-| `gstreamer` | `binary`, `pipeline`, `http_source`, `plane_id`, `connector_id`, `audio_device`, `video_decoder`, `audio_decoder`, `start_timeout` |
-| `omxplayer` | `binary`, `extra_args`, `start_timeout`, `input_timeout`, `dbus_path` |
-| `omxplayer-keys` | `binary`, `extra_args`, `start_timeout`, `fifo` |
 
 `extra_args` replaces the built-in flag list rather than adding to it, so a flag
 the backend always passes can be removed by naming the list without it.
@@ -365,10 +336,12 @@ BlissFlixx relies on the following projects to do all the heavy lifting:
 
  - yt-dlp for media extraction: https://github.com/yt-dlp/yt-dlp
  - peerflix for torrent streaming: https://github.com/mafintosh/peerflix
- - omxplayer for media playback: https://github.com/popcornmix/omxplayer
  - SinglePaged jekyll theme for the website: https://github.com/t413/SinglePaged
+
+## Previously used software
 
 BlissFlixx used to rely on the following software projects:
 
+ - omxplayer for media playback: https://github.com/popcornmix/omxplayer
  - livestreamer for media streaming: https://github.com/chrippa/livestreamer
  - youtube-dl for media extraction: https://github.com/rg3/youtube-dl

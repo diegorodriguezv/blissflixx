@@ -23,11 +23,9 @@ watching cannot make sense of.
 ## Known limits, agreed
 
 - **Subtitle delay is not available on VLC.** Its cli interface has no verb
-  for it. `mpv` and `omxplayer-keys` have the capability; VLC does not
+  for it. `mpv` has the capability; VLC does not
   advertise it and the buttons are hidden for it rather than shown and
   ineffective.
-- **`omxplayer` is not available** on current Raspberry Pi OS, so parity is
-  judged from memory rather than by measurement.
 - **The overlay is one line at one position.** A marquee reads one line from
   one file, so two stacked messages need two overlays, and that has not been
   shown to work.

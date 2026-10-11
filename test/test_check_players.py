@@ -2,7 +2,6 @@
 bin/check_players.py
 
 Installing a player is not the same as being able to run it, and two of the
-backends need attention on a current Raspberry Pi OS: omxplayer has no package,
 and stock GStreamer has no v4l2h264dec. This checks what is actually present and
 says what to do about what is missing.
 
@@ -49,7 +48,7 @@ class TestPlanningIsDerivedFromDefaults:
             assert checks, name
 
     def test_binary_is_always_checked_first(self):
-        for name in ("vlc", "mpv", "gstreamer", "omxplayer"):
+        for name in ("vlc", "mpv", "gstreamer"):
             first = check_players.plan_checks(name)[0]
             assert first.kind == "executable", name
             assert first.label == "binary"
@@ -74,7 +73,7 @@ class TestPlanningIsDerivedFromDefaults:
         assert "alsasink" in values
 
     def test_non_gstreamer_backends_check_no_elements(self):
-        for name in ("vlc", "mpv", "omxplayer"):
+        for name in ("vlc", "mpv"):
             kinds = {c.kind for c in check_players.plan_checks(name)}
             assert "gst_element" not in kinds, name
 
@@ -262,9 +261,6 @@ class TestRemedies:
 
         for name in backend_names():
             assert name in check_players.REMEDY, name
-
-    def test_omxplayer_says_it_cannot_be_installed(self):
-        assert "no package" in check_players.REMEDY["omxplayer"]
 
     def test_gstreamer_names_the_substitute_decoder(self):
         """

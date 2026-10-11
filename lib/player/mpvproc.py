@@ -1,24 +1,23 @@
 """
 MpV backend.
 
-The first backend that is not an omxplayer, and the reason the abstraction is
-worth having: it renders the same media, accepts the same control actions, and
-shares none of omxplayer's mechanics.
+Worth having in its own right: it renders the same media, accepts the same
+control actions, and shares no mechanics with the other backends.
 
-Two things differ from the omxplayer backends:
+Two things set it apart:
 
 - No status output. mpv run with --no-terminal and --msg-level=all=error says
   nothing until something goes wrong, so readiness cannot be read from a line
-  stream the way OmxplayerBackend does. Instead the IPC socket is polled for:
+  stream. Instead the IPC socket is polled for:
   mpv binds it during startup, so its appearance means mpv is up. Errors that
   arrive first are surfaced from the output stream.
-- Control goes over a unix socket as JSON IPC rather than as dbus messages or
-  FIFO keystrokes. That is a property list rather than keystrokes, so actions map
-  to commands directly and unknown ones can be reported instead of dropped.
+- Control goes over a unix socket as JSON IPC. That is a property list rather
+  than keystrokes, so actions map to commands directly and unknown ones can be
+  reported instead of dropped.
 
 mpv is not installed by configure.sh; it is here so the backend can be selected
 and so the abstraction is exercised by an implementation that shares nothing
-with omxplayer.
+with the others.
 """
 
 import json
@@ -207,12 +206,12 @@ class MpvProcess(PlayerBackend):
 
     def _shift_subtitle_delay(self, direction):
         """
-        Nudge subtitle timing, the way omxplayer's f and d keys do.
+        Nudge subtitle timing.
 
         mpv's sub-delay is an absolute offset in seconds, so it is tracked here
         and moved from the last value set rather than sent as a relative nudge.
         That keeps subplus then subminus returning to no offset, which is what
-        pressing a pair of keys in a row does on omxplayer.
+        pressing a pair of keys in a row does.
         """
         self._subtitle_delay = round(
             self._subtitle_delay + direction * self.opt("subtitle_delay_step"), 3

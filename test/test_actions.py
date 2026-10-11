@@ -17,23 +17,42 @@ import pathlib
 import re
 import textwrap
 
-from lib.player.omxproc2 import OmxplayerProcess2
-
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
 PLAYBAR = REPO_ROOT / "html" / "tags" / "playbar.html"
 
-# Action names the key backend's control() compares against. Parsed rather than
-# grepped so mpv/VLC property names cannot be mistaken for actions.
-_control_source = textwrap.dedent(inspect.getsource(OmxplayerProcess2.control))
+# Action names VLC's control() compares against. Parsed rather than grepped so
+# mpv property names cannot be mistaken for actions.
+from lib.player.vlcproc import VlcProcess
+
+_control_source = textwrap.dedent(inspect.getsource(VlcProcess.control))
 _control_tree = ast.parse(_control_source)
+
+
+def _compared_action_names(node):
+    """
+    The action names one comparison in control() mentions.
+
+    Two shapes, because both are idiomatic and this backend uses both:
+    "action == 'stop'" compares against one constant, and "action in ('a', 'b')"
+    against a tuple of them. Reading only the first shape found nothing at all,
+    because every action here is in a tuple.
+    """
+    for comparator in node.comparators:
+        if isinstance(comparator, ast.Constant):
+            yield comparator.value
+        elif isinstance(comparator, ast.Tuple):
+            for element in comparator.elts:
+                if isinstance(element, ast.Constant):
+                    yield element.value
+
+
 SERVER_ACTIONS = {
-    comparator.value
+    name
     for node in ast.walk(_control_tree)
     if isinstance(node, ast.Compare)
     and isinstance(node.left, ast.Name)
     and node.left.id == "action"
-    for comparator in node.comparators
-    if isinstance(comparator, ast.Constant)
+    for name in _compared_action_names(node)
 }
 
 
@@ -49,8 +68,17 @@ class TestControlSurfaceMatches:
     def test_playbar_exists(self):
         assert PLAYBAR.is_file(), PLAYBAR
 
-    def test_every_ui_action_is_implemented(self):
-        assert ui_actions() - SERVER_ACTIONS == set()
+    def test_the_only_ui_actions_vlc_drops_are_the_ones_it_cannot_do(self):
+        """
+        The playbar carries subtitle-delay buttons, because some backends can
+        do that and the panel is one page for all of them. VLC's cli has no verb
+        for it, so it does not advertise the capability and those two buttons do
+        nothing here.
+
+        Named rather than asserted empty, so a button that stops working for any
+        other reason fails instead of passing.
+        """
+        assert ui_actions() - SERVER_ACTIONS == {"subplus", "subminus"}
 
     def test_every_server_action_is_reachable(self):
         """
@@ -59,8 +87,8 @@ class TestControlSurfaceMatches:
         """
         assert SERVER_ACTIONS - ui_actions() == set()
 
-    def test_the_sets_are_the_expected_seventeen(self):
-        assert len(SERVER_ACTIONS) == 17
+    def test_the_set_is_the_expected_size(self):
+        assert len(SERVER_ACTIONS) == 15, sorted(SERVER_ACTIONS)
 
     def test_the_remote_panel_is_where_they_live(self):
         """
@@ -78,10 +106,20 @@ class TestBackendCapabilityReporting:
     implements fewer has to declare that, or actions are dropped silently.
     """
 
-    def test_key_backend_declares_every_capability(self):
+    def test_the_key_backend_declares_every_capability_it_can(self):
+        """
+        Every capability except subtitle delay, which VLC's cli interface has
+        no verb for -- so it does not advertise it, and the buttons are hidden
+        rather than shown and ineffective.
+
+        Stated as the set it is rather than as everything, so a capability
+        quietly dropped for a good reason has to be named here rather than
+        passing unnoticed.
+        """
         from lib.player.backend import ALL_CAPABILITIES
 
-        assert OmxplayerProcess2().supports(*ALL_CAPABILITIES)
+        missing = {c for c in ALL_CAPABILITIES if not VlcProcess().supports(c)}
+        assert missing == {"subtitle_delay"}, missing
 
     def test_ui_has_more_actions_than_there_are_capabilities(self):
         """

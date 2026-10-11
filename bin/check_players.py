@@ -6,8 +6,6 @@ Report whether the installed players can actually run.
 configure.sh installs packages; this checks that what arrived is usable. The
 point is that installing a backend is not the same as being able to run it:
 
-- omxplayer has no package on current Raspberry Pi OS, so installing it fails
-  and the install must not depend on it.
 - v4l2h264dec, which the GStreamer pipeline uses for hardware decode, is not in
   stock GStreamer 1.24 at all. The v4l2 decoders were dropped from the main
   gst-plugins set, and gstreamer1.0-libav provides the software avdec_h264
@@ -184,9 +182,6 @@ def render(results, active=None):
 #: What to change when something is missing. Kept here so the advice and the
 #: check live together.
 REMEDY = {
-    "omxplayer": "no package on current Raspberry Pi OS; the legacy backends "
-    "only work on the old OS. Select another backend with data/settings/player",
-    "omxplayer-keys": "no package on current Raspberry Pi OS; see omxplayer",
     "vlc": "apt install vlc",
     "mpv": "apt install mpv",
     "gstreamer": "apt install gstreamer1.0-tools gstreamer1.0-plugins-base "

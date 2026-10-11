@@ -6,10 +6,7 @@ setting:
 
     data/settings/player   {"backend": "vlc"}
 
-Leaving it unset selects DEFAULT_BACKEND. The pseudo-name "legacy" selects the
-behaviour from before backends existed, where the http and dlsrv flags chose
-between the two omxplayer variants; that path lives in
-_Player._legacy_backend() and is unchanged.
+Leaving it unset selects DEFAULT_BACKEND.
 
 How a given backend is invoked comes from its own settings file:
 
@@ -25,33 +22,28 @@ Pi, sit side by side in one checkout without a platform conditional:
 from ..settings import load
 from .gstproc import GStreamerProcess
 from .mpvproc import MpvProcess
-from .omxproc import OmxplayerProcess
-from .omxproc2 import OmxplayerProcess2
 from .vlcproc import VlcProcess
 
 #: name -> backend class. Add an entry to make a backend selectable. Registering
 #: the same class under two names gives two independent configurations.
 BACKENDS = {
-    "omxplayer": OmxplayerProcess,
-    "omxplayer-keys": OmxplayerProcess2,
     "vlc": VlcProcess,
     "mpv": MpvProcess,
     "gstreamer": GStreamerProcess,
 }
 
-#: Used when no backend is configured.
+#: The backends this release documents and supports. Everything else stays
+#: selectable in the code but is not part of the release, so it is not written
+#: about in the README.
 #:
-#: omxplayer only runs on obsolete Raspberry Pi OS, so VLC is the default: it
-#: decodes H.264 in hardware, sends audio to HDMI and burns in subtitles without
-#: the expensive GStreamer compositing path. The two omxplayer backends remain
-#: selectable by name for anyone who needs them.
-DEFAULT_BACKEND = "vlc"
+#: Kept here rather than in the tests so that "documented" is a property of the
+#: code rather than a list in each test file that can drift from the others.
+SUPPORTED_BACKENDS = ["vlc"]
 
-#: Selects the pre-abstraction behaviour, where the http and dlsrv flags decide
-#: between the two omxplayer variants. Not a backend in its own right, but
-#: reachable by name so that path is not lost now that a backend is chosen
-#: without consulting those flags.
-LEGACY_BACKEND = "legacy"
+#: Used when no backend is configured. VLC decodes H.264 in hardware, sends
+#: audio to HDMI and burns in subtitles without the expensive GStreamer
+#: compositing path.
+DEFAULT_BACKEND = "vlc"
 
 
 def backend_names():
@@ -59,20 +51,19 @@ def backend_names():
     Every registered backend.
 
     This is the registry and nothing else, so every name here resolves through
-    get_backend(). The legacy pseudo-backend is not in it, because it is not a
-    class; see selectable_names() for what a client may choose from.
+    get_backend().
     """
     return sorted(BACKENDS)
 
 
 def selectable_names():
-    """Everything a client may select: the registry plus the legacy name."""
-    return sorted(BACKENDS) + [LEGACY_BACKEND]
+    """Everything a client may choose from: the registry."""
+    return sorted(BACKENDS)
 
 
 def is_known(name):
     """Whether name can be selected, without raising."""
-    return name in BACKENDS or name == LEGACY_BACKEND
+    return name in BACKENDS
 
 
 def backend_class(name):
@@ -126,19 +117,6 @@ def describe(name):
     controls regardless of which backend is active, so a UI that wants to hide
     buttons a backend would drop needs this rather than a hardcoded list.
     """
-    if name == LEGACY_BACKEND:
-        # Not a single backend: it picks between two depending on the flags,
-        # so its capabilities depend on what it resolves to at playback time.
-        # Reported as the richer of the two, which is what it mostly resolves to.
-        keys = get_backend("omxplayer-keys")
-        info = {
-            "backend": name,
-            "name": "omxplayer (chosen per item)",
-            "capabilities": sorted(keys.capabilities),
-            "binary": "omxplayer / omxplayer.bin",
-            "note": "the player is chosen from the http and dlsrv flags",
-        }
-        return info
     instance = get_backend(name)
     info = {
         "backend": name,

@@ -28,11 +28,9 @@ live in `/tmp/blissflixx`; downloads live on the card.
 ```
 /tmp/blissflixx/
   <name>.srt            downloaded subtitles, from bin/getsubs.py
-  cmdfifo               omxplayer command fifo
   mpv.sock              mpv IPC
   vlc.sock              VLC, unused: this VLC has no rc module
   bf.out                yt-dlp output, while downloading
-  omxplayerdbus.$USER   omxplayer dbus socket and pid
 ```
 
 ```

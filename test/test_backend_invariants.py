@@ -22,7 +22,7 @@ import pytest
 from lib.player.backend import ALL_CAPABILITIES, CAP_PAUSE, PlayerBackend
 from lib.player.backends import (
     BACKENDS,
-    LEGACY_BACKEND,
+    SUPPORTED_BACKENDS,
     backend_class,
     backend_names,
     describe,
@@ -35,6 +35,10 @@ HTTP_OUT = "http://127.0.0.1:9696/movie.mkv"
 FILE_OUT = "/tmp/blissflixx/bf.out"
 
 ALL_NAMES = sorted(BACKENDS)
+#: The backends the README is required to document. The rest stay selectable in
+#: the code but are not part of this release, so nothing in the user-facing
+#: documentation promises them.
+DOCUMENTED_NAMES = sorted(SUPPORTED_BACKENDS)
 
 
 class TestRegistryShape:
@@ -91,9 +95,9 @@ class TestBackendContract:
         """
         Every backend must state its start timeout, even when that value is None.
 
-        None is deliberate for omxplayer-keys: its input is a file that is still
-        growing and has no end, so it waits indefinitely for the first line. It
-        is a choice, and it has to be visible as one rather than a missing key.
+        None is deliberate for some backends: an input that is a file still
+        growing has no end, so it waits indefinitely for the first line. It is a
+        choice, and it has to be visible as one rather than a missing key.
         """
         assert "start_timeout" in get_backend(name).config
 
@@ -107,7 +111,7 @@ class TestBackendContract:
 
     @pytest.mark.parametrize("name", ALL_NAMES)
     def test_has_a_start_timeout_property(self, name):
-        """OmxplayerBackend._ready reads self.start_timeout."""
+        """The default _ready reads self.start_timeout."""
         assert get_backend(name).start_timeout == get_backend(name).opt("start_timeout")
 
 
@@ -158,23 +162,6 @@ class TestShellBackendsQuoteTheirInput:
     a space in it would otherwise be split into two arguments.
     """
 
-    @pytest.mark.parametrize("name", ["omxplayer", "omxplayer-keys"])
-    def test_shell_string_is_quoted(self, name):
-        cmd = get_backend(name).build_command({"outfile": FILE_OUT, "pid": 1})
-        assert isinstance(cmd, str)
-        # omxplayer quotes the tail path with double quotes, omxplayer-keys the
-        # filename with single. Either counts; bare does not.
-        quoted = ("'" + FILE_OUT + "'", '"' + FILE_OUT + '"')
-        assert any(form in cmd for form in quoted), cmd
-
-    @pytest.mark.parametrize("name", ["omxplayer", "omxplayer-keys"])
-    def test_subtitle_path_is_quoted(self, name):
-        cmd = get_backend(name).build_command(
-            {"outfile": FILE_OUT, "pid": 1, "subtitles": "/tmp/a b.srt"}
-        )
-        quoted = ("'" + "/tmp/a b.srt" + "'", '"' + "/tmp/a b.srt" + '"')
-        assert any(form in cmd for form in quoted), cmd
-
 
 class TestArgvBackendsKeepPathsIntact:
     @pytest.mark.parametrize("name", ["vlc", "mpv"])
@@ -222,7 +209,7 @@ class TestCapabilitiesMatchImplementation:
 
     def test_audio_track_capability_matches_the_transport(self):
         """
-        mpv's IPC, omxplayer's key map and VLC's track interface can all cycle
+        mpv's IPC and VLC's track interface can both cycle
         audio tracks. VLC was counted as unable to for as long as the cli
         interface was assumed to have no track verb, which turned out to be
         wrong: "atrack" lists the tracks and marks the active one, the same way
@@ -287,9 +274,8 @@ class TestDescribeIsSerialisable:
 
 class TestDefaultBackend:
     """
-    VLC is the default because omxplayer no longer runs on current Raspberry Pi
-    OS. VLC decodes H.264 in hardware, sends audio to HDMI and burns in
-    subtitles without the expensive GStreamer compositing path.
+    VLC decodes H.264 in hardware, sends audio to HDMI and burns in subtitles
+    without the expensive GStreamer compositing path.
     """
 
     def test_vlc_is_the_default(self):
@@ -311,77 +297,6 @@ class TestDefaultBackend:
 
             assert isinstance(pl._player_stage(True, True), VlcProcess)
             assert isinstance(pl._player_stage(False, False), VlcProcess)
-
-    def test_omxplayer_is_still_selectable_by_name(self, settings):
-        """
-        Deprecated as a default does not mean removed. Anyone still on the old
-        OS can name it explicitly.
-        """
-        from lib.player.omxproc import OmxplayerProcess
-
-        pl = _Player()
-        with m.patch("lib.player.player.load", return_value={"backend": "omxplayer"}):
-            assert isinstance(pl._player_stage(True, True), OmxplayerProcess)
-
-
-class TestLegacyBehaviourPreserved:
-    """
-    The pre-abstraction choice is still reachable, under the name "legacy", now
-    that a default no longer falls through to it.
-    """
-
-    @pytest.mark.parametrize(
-        "flags",
-        [(False, False), (False, True), (True, False), (True, True)],
-    )
-    def test_legacy_name_uses_the_historical_choice(self, settings, flags):
-        """
-        Compared by class rather than by name: name() is a display name, so
-        omxplayer-keys displays as "omxplayer with keys".
-        """
-        from lib.player.omxproc import OmxplayerProcess
-        from lib.player.omxproc2 import OmxplayerProcess2
-
-        http, dlsrv = flags
-        pl = _Player()
-        with m.patch(
-            "lib.player.player.load", return_value={"backend": LEGACY_BACKEND}
-        ):
-            stage = pl._player_stage(http, dlsrv)
-        # Keys or not: only the plain dbus variant takes this path.
-        expected = OmxplayerProcess2 if (http or dlsrv) else OmxplayerProcess
-        assert isinstance(stage, expected)
-
-    def test_legacy_choice_does_not_consult_the_registry(self, settings):
-        """
-        The legacy path constructs the classes directly. Guarding that it does
-        not route through get_backend keeps it independent of whatever happens
-        to be registered.
-        """
-        from lib.player.omxproc import OmxplayerProcess
-
-        pl = _Player()
-        with m.patch(
-            "lib.player.player.load", return_value={"backend": LEGACY_BACKEND}
-        ):
-            with m.patch(
-                "lib.player.backends.get_backend",
-                side_effect=AssertionError("legacy must not consult the registry"),
-            ):
-                assert isinstance(pl._player_stage(False, False), OmxplayerProcess)
-
-    def test_legacy_is_selectable_but_is_not_in_the_registry(self):
-        """
-        It is a pseudo-backend: selectable, but there is no class behind it, so
-        get_backend cannot resolve it and describe handles it instead.
-        """
-        from lib.player.backends import BACKENDS, is_known, selectable_names
-
-        assert is_known(LEGACY_BACKEND)
-        assert LEGACY_BACKEND not in BACKENDS
-        assert LEGACY_BACKEND in selectable_names()
-        with pytest.raises(KeyError):
-            get_backend(LEGACY_BACKEND)
 
     def test_configured_backend_overrides_the_flags(self, settings):
         pl = _Player()
@@ -458,47 +373,20 @@ class TestReadmeMatchesTheCode:
             "volume_step",
             "volume_max",
         },
-        "mpv": {
-            "binary",
-            "extra_args",
-            "audio_device",
-            "socket",
-            "start_timeout",
-            "subtitle_delay_step",
-        },
-        "gstreamer": {
-            "binary",
-            "pipeline",
-            "http_source",
-            "plane_id",
-            "connector_id",
-            "audio_device",
-            "video_decoder",
-            "audio_decoder",
-            "start_timeout",
-        },
-        "omxplayer": {
-            "binary",
-            "extra_args",
-            "start_timeout",
-            "input_timeout",
-            "dbus_path",
-        },
-        "omxplayer-keys": {"binary", "extra_args", "start_timeout", "fifo"},
     }
 
     @staticmethod
     def readme():
         return (pathlib.Path(__file__).resolve().parents[1] / "README.md").read_text()
 
-    def test_every_backend_is_documented(self):
-        assert set(self.DOCUMENTED) == set(ALL_NAMES)
+    def test_every_supported_backend_is_documented(self):
+        assert set(self.DOCUMENTED) == set(DOCUMENTED_NAMES)
 
-    @pytest.mark.parametrize("name", ALL_NAMES)
+    @pytest.mark.parametrize("name", DOCUMENTED_NAMES)
     def test_documented_keys_are_the_real_keys(self, name):
         assert self.DOCUMENTED[name] == set(backend_class(name).defaults), name
 
-    @pytest.mark.parametrize("name", ALL_NAMES)
+    @pytest.mark.parametrize("name", DOCUMENTED_NAMES)
     def test_documented_keys_appear_in_the_readme(self, name):
         """
         Checked against the actual table text, so renaming a key without editing
@@ -508,12 +396,30 @@ class TestReadmeMatchesTheCode:
         missing = [k for k in sorted(backend_class(name).defaults) if k not in readme]
         assert missing == [], (name, missing)
 
-    def test_the_backend_table_lists_every_name(self):
+    def test_the_backend_table_lists_every_supported_name(self):
         readme = self.readme()
-        for name in ALL_NAMES:
+        for name in DOCUMENTED_NAMES:
             assert "`" + name + "`" in readme, name
 
-    def test_capability_free_backend_is_called_out(self):
-        """The README has to warn, since the UI does not hide the buttons yet."""
-        readme = self.readme().lower()
-        assert "no control surface" in readme
+    def test_unsupported_backends_are_not_advertised(self):
+        """
+        The point of SUPPORTED_BACKENDS: mpv and gstreamer are selectable in the
+        code but are not part of this release, so the README must not offer them
+        to someone following it. Naming them as absent would be as much a
+        promise as offering them.
+        """
+        readme = self.readme()
+        for name in ALL_NAMES:
+            if name not in DOCUMENTED_NAMES:
+                assert "| `" + name + "` |" not in readme, name
+
+    def test_a_capability_free_backend_is_called_out(self):
+        """
+        Only meaningful while every supported backend has controls. If a
+        capability-free backend is ever promoted into SUPPORTED_BACKENDS this
+        stops passing, which is the point: the README would then have to warn
+        about it, since the UI does not hide the buttons.
+        """
+        from lib.player.backends import backend_class
+
+        assert all(backend_class(n).capabilities for n in DOCUMENTED_NAMES)

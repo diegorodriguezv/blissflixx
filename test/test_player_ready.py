@@ -4,13 +4,12 @@ Output parsing for every pipeline stage.
 Each stage's _ready() reads exclusively through self._readline(), so replacing
 that one method is the entire seam between "a subprocess printed some lines" and
 "the stage decided it is ready or failed". Stubbing it means the real parsing
-logic is exercised without omxplayer, peerflix, dlsrv or getsubs.py ever
+logic is exercised without VLC, peerflix, dlsrv or getsubs.py ever
 running.
 
-That leaves exactly three things untestable here, and they are all genuinely
-about the hardware: whether omxplayer renders video, whether dbus key injection
-reaches a running omxplayer, and whether subtitles burn in correctly. What is
-tested here is everything up to the point the bytes are handed to the player.
+What is left untestable here is genuinely about the hardware: whether the
+picture and sound come out, and whether subtitles burn in correctly. What is
+tested is everything up to the point the bytes are handed to the player.
 """
 
 import types
@@ -18,8 +17,6 @@ import types
 import pytest
 
 from lib.player.dlsrvproc import DlsrvProcess
-from lib.player.omxproc import OmxplayerProcess
-from lib.player.omxproc2 import OmxplayerProcess2
 from lib.player.pflixproc import PeerflixProcess
 from lib.player.processpipe import ProcessException
 from lib.player.subsproc import SubtitlesProcess
@@ -54,7 +51,7 @@ def stub_proc(proc, pid=4242):
 class TestDlsrvReady:
     def test_listening_line_makes_the_output_an_http_url(self):
         """
-        dlsrv serves the partially downloaded file over HTTP so omxplayer can
+        dlsrv serves the partially downloaded file over HTTP so the player can
         read it while it is still growing. The next stage gets that URL, not
         the local path.
         """
@@ -146,7 +143,7 @@ class TestPeerflixReady:
 
 class TestYoutubeDlReady:
     def test_json_url_becomes_the_output(self):
-        """Piped playback hands omxplayer the direct stream url."""
+        """Piped playback hands the player the direct stream url."""
         proc = feed(stub_proc(YoutubeDlProcess("u")), '{"url": "http://direct/x.mp4"}')
         proc.args = {}
         assert proc._ready() == {
@@ -156,8 +153,8 @@ class TestYoutubeDlReady:
 
     def test_pid_is_reported_for_the_next_stage(self):
         """
-        omxproc tails the producer with `tail -f --pid=<pid>`, so it has to
-        know which process to stop watching. Missing pid is what makes omxproc's
+        The producer is tailed with `tail -f --pid=<pid>`, so it has to
+        know which process to stop watching. A missing pid is what makes the
         local-file branch raise KeyError.
         """
         proc = feed(stub_proc(YoutubeDlProcess("u"), pid=99), '{"url": "http://x"}')
@@ -291,71 +288,3 @@ class TestSubtitlesReady:
     def test_status_message_is_shown_while_fetching(self):
         proc = SubtitlesProcess({"lang": "eng", "title": "M"})
         assert proc.status_msg() == "FETCHING SUBTITLES"
-
-
-class TestOmxReady:
-    """
-    Both omxplayer stages share this logic verbatim; the ASTs are identical. The
-    tests run against both so a future edit to one cannot silently diverge.
-    """
-
-    @pytest.fixture(params=[OmxplayerProcess, OmxplayerProcess2])
-    def cls(self, request):
-        return request.param
-
-    def test_metadata_line_means_ready(self, cls):
-        proc = stub_proc(feed(cls(), "Metadata: title"))
-        proc._ready()
-
-    def test_duration_line_means_ready(self, cls):
-        """
-        Some videos report Duration before Metadata, so either is enough. When
-        it appears the video has started.
-        """
-        proc = stub_proc(feed(cls(), "Duration: 00:01:30"))
-        proc._ready()
-
-    def test_clean_exit_is_reported_as_failure_to_start(self, cls):
-        proc = stub_proc(feed(cls(), "have a nice day"))
-        with pytest.raises(ProcessException, match="failed to start"):
-            proc._ready()
-
-    def test_unknown_codec_is_reported(self, cls):
-        """
-        The Pi has no codec for this container, so it will never play. Failing
-        here is what surfaces a message instead of a silent hang.
-        """
-        proc = stub_proc(feed(cls(), "Vcodec id unknown: vp09"))
-        with pytest.raises(ProcessException, match="Unsupported video codec"):
-            proc._ready()
-
-    def test_noise_before_metadata_is_skipped(self, cls):
-        proc = stub_proc(feed(cls(), "some log line", "Metadata: title"))
-        proc._ready()
-
-    def test_process_dying_is_reported(self, cls):
-        """What _readline itself raises once the process is gone."""
-        proc = stub_proc(feed(cls(), "have a nice day"))
-        with pytest.raises(ProcessException):
-            proc._ready()
-
-
-class TestSharedReadyImplementation:
-    def test_both_omx_stages_parse_identically(self):
-        """
-        Documents the duplication rather than the behaviour: the two classes
-        differ only in control() transport, and the planned backend abstraction
-        exists to collapse this.
-        """
-        import ast
-        import pathlib
-
-        def ready_ast(path):
-            tree = ast.parse(pathlib.Path(path).read_text())
-            for node in ast.walk(tree):
-                if isinstance(node, ast.FunctionDef) and node.name == "_ready":
-                    return ast.dump(ast.Module(body=node.body, type_ignores=[]))
-            return None
-
-        base = pathlib.Path(__file__).resolve().parents[1] / "lib" / "player"
-        assert ready_ast(base / "omxproc.py") == ready_ast(base / "omxproc2.py")

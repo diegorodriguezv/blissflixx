@@ -3,7 +3,7 @@ VLC backend.
 
 VLC is the recommended player on current Raspberry Pi OS. Hardware H.264 decode,
 HDMI audio and subtitles all work without the expensive GStreamer compositing
-path, which makes it the most capable of the three non-omxplayer options.
+path, which makes it the most capable of the options.
 
 Two things differ from the mpv backend:
 
@@ -324,7 +324,7 @@ class VlcProcess(PlayerBackend):
     """
     Renders via cvlc.
 
-    cvlc takes argv, so no shell is needed. Unlike omxplayer it can read a
+    cvlc takes argv, so no shell is needed. It can read a
     growing http url, so it works with or without the dlsrv stage.
     """
 
@@ -1056,9 +1056,7 @@ class VlcProcess(PlayerBackend):
 
         VLC starts with none selected -- sub-track=-1 -- so a file with embedded
         subtitles played silently unless somebody pressed the subtitle button
-        first. omxplayer never had that problem because OmxplayerProcess2.start()
-        has always called show_subtitle; this brings VLC to the same behaviour,
-        which is what "subtitles are mandatory" means in practice.
+        first. This is what "subtitles are mandatory" means in practice.
 
         Only for tracks inside the file. When the UI asked for subtitles by
         language, they arrive as --sub-file and VLC selects them itself, and
@@ -1134,7 +1132,7 @@ class VlcProcess(PlayerBackend):
             if tracks:
                 cherrypy.log(
                     "enabling subtitle track %s "
-                    "(omxplayer does this on every start)" % tracks[0]
+                    "(subtitles are on by default)" % tracks[0]
                 )
                 self._track_choice["strack"] = tracks[0]
                 self._send_command("strack " + str(tracks[0]))

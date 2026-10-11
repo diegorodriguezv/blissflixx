@@ -4,7 +4,7 @@ ProcessPipe message protocol.
 lib/player/processpipe chains subprocesses together: each one signals READY with
 the arguments the next one needs, and the pipe walks its processes in order. The
 protocol is the trickiest part of the player, and it cannot be tested on a
-development machine without omxplayer and peerflix, so these tests drive it with
+development machine without VLC and peerflix, so these tests drive it with
 fake Process subclasses. No subprocess is ever started and no Raspberry Pi
 hardware is involved.
 
@@ -31,8 +31,6 @@ import pytest
 import lib.player.processpipe as pp
 from lib.player.backends import BACKENDS, backend_class
 from lib.player.dlsrvproc import DlsrvProcess
-from lib.player.omxproc import OmxplayerProcess
-from lib.player.omxproc2 import OmxplayerProcess2
 from lib.player.pflixproc import PeerflixProcess
 from lib.player.processpipe import (
     MSG_PLAYER_PIPE_STOPPED,
@@ -278,7 +276,7 @@ class TestPipeStop:
     def test_stop_stops_processes_in_reverse_order(self):
         """
         The last process is torn down first, since it is the one holding the
-        player. Order matters: stopping omxplayer before the downloader would
+        player. Order matters: stopping the player before the downloader would
         leave the download writing into a dead pipe.
         """
         a = FakeProcess("a", outcome="ready")
@@ -344,7 +342,7 @@ class TestPipeState:
 
     def test_control_is_forwarded_to_the_last_process(self):
         """
-        Only the two omxplayer stages implement control(). Everything else, such
+        Only the player stages implement control(). Everything else, such
         as a pipeline whose last stage is a downloader, ignores it.
 
         Process used to have no control() at all, so Player.control("pause")

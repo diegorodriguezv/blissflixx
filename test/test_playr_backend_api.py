@@ -19,12 +19,7 @@ import pytest
 
 from lib.api import playr
 from lib.api.common import ApiError
-from lib.player.backends import (
-    DEFAULT_BACKEND,
-    LEGACY_BACKEND,
-    backend_names,
-    selectable_names,
-)
+from lib.player.backends import DEFAULT_BACKEND, backend_names, selectable_names
 from lib.settings import load
 
 
@@ -37,11 +32,10 @@ class TestBackendsListing:
         listed = [b["backend"] for b in playr.backends()]
         assert listed == selectable_names()
 
-    def test_includes_the_registry_and_legacy(self):
+    def test_includes_the_registry(self):
         listed = [b["backend"] for b in playr.backends()]
         for name in backend_names():
             assert name in listed
-        assert LEGACY_BACKEND in listed
 
     def test_exactly_one_is_active(self):
         assert sum(1 for b in playr.backends() if b["active"]) == 1
@@ -75,26 +69,22 @@ class TestBackendsListing:
 
     def test_capable_backends_carry_no_note(self):
         """
-        Two unrelated reasons earn a note: no capabilities at all, and being
-        legacy, whose capabilities depend on flags rather than being fixed. A
-        plain capable backend has nothing surprising to say.
+        One reason earns a note: no capabilities at all, so a client does not
+        offer buttons that will be dropped. A plain capable backend has nothing
+        surprising to say.
         """
         for info in playr.backends():
-            if info["capabilities"] and info["backend"] != LEGACY_BACKEND:
+            if info["capabilities"]:
                 assert "note" not in info, info["backend"]
 
     def test_note_appears_exactly_where_it_should(self):
         """
-        Every entry either has capabilities and is not legacy, or carries a note
-        explaining why a client should not take it at face value.
+        Every entry either has capabilities, or carries a note explaining why a
+        client should not take it at face value.
         """
         for info in playr.backends():
-            if not info["capabilities"] or info["backend"] == LEGACY_BACKEND:
+            if not info["capabilities"]:
                 assert "note" in info, info["backend"]
-
-    def test_legacy_is_flagged_as_flag_dependent(self):
-        info = next(b for b in playr.backends() if b["backend"] == LEGACY_BACKEND)
-        assert "note" in info
 
 
 class TestBackendLookup:
@@ -104,9 +94,6 @@ class TestBackendLookup:
     @pytest.mark.parametrize("name", backend_names())
     def test_any_registered_name_can_be_described(self, name):
         assert playr.backend(name)["backend"] == name
-
-    def test_legacy_can_be_described(self):
-        assert playr.backend(LEGACY_BACKEND)["backend"] == LEGACY_BACKEND
 
     def test_unknown_name_is_rejected(self):
         with pytest.raises(ApiError):
@@ -142,11 +129,6 @@ class TestSetBackend:
         assert info["backend"] == "vlc"
         assert info["binary"] == "cvlc"
 
-    def test_legacy_is_settable(self, settings):
-        playr.set_backend(LEGACY_BACKEND)
-        settings._cache.clear()
-        assert load("player")["backend"] == LEGACY_BACKEND
-
     def test_unknown_name_is_rejected_and_changes_nothing(self, settings):
         with pytest.raises(ApiError):
             playr.set_backend("nonsense")
@@ -156,7 +138,6 @@ class TestSetBackend:
         with pytest.raises(ApiError) as exc:
             playr.set_backend("nonsense")
         assert "vlc" in str(exc.value)
-        assert LEGACY_BACKEND in str(exc.value)
 
     def test_missing_name_is_rejected(self, settings):
         with pytest.raises(ApiError):
@@ -244,8 +225,14 @@ class TestDocumentedEndpointsAreReachable:
     def test_endpoint_is_named_in_the_readme(self, fn):
         assert fn in self.readme()
 
-    def test_default_is_documented_as_vlc(self):
-        assert "VLC is now the default" in self.readme()
+    def test_the_default_backend_is_documented_as_vlc(self):
+        """
+        Named in the prose as well as the table, so that an install following
+        the README ends up on the backend the defaults actually resolve to.
+        """
+        readme = self.readme()
+        assert "BlissFlixx plays through VLC" in readme
+        assert "| `vlc` | cvlc |" in readme
 
     def test_the_capability_note_is_documented(self):
         """
@@ -254,4 +241,4 @@ class TestDocumentedEndpointsAreReachable:
         """
         readme = self.readme().lower()
         assert "capabilities" in readme
-        assert "no control surface" in readme
+        assert "would silently drop" in readme

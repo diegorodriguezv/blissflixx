@@ -23,7 +23,6 @@ from lib.player.backend import PlayerBackend
 from lib.player.backends import (
     BACKENDS,
     DEFAULT_BACKEND,
-    LEGACY_BACKEND,
     backend_class,
     backend_names,
     describe,
@@ -32,8 +31,6 @@ from lib.player.backends import (
     settings_name,
 )
 from lib.player.mpvproc import MpvProcess
-from lib.player.omxproc import OmxplayerProcess
-from lib.player.omxproc2 import OmxplayerProcess2
 from lib.settings import save
 
 FILE_OUT = "/tmp/blissflixx/bf.out"
@@ -60,11 +57,11 @@ class TestSettingsNaming:
 
 
 class TestDefaultsWithoutSettings:
-    @pytest.mark.parametrize("name", ["omxplayer", "omxplayer-keys", "mpv"])
+    @pytest.mark.parametrize("name", ["vlc", "mpv", "gstreamer"])
     def test_resolve_config_yields_the_defaults(self, name):
         assert resolve_config(name) == backend_class(name).defaults
 
-    @pytest.mark.parametrize("name", ["omxplayer", "omxplayer-keys", "mpv"])
+    @pytest.mark.parametrize("name", ["vlc", "mpv", "gstreamer"])
     def test_get_backend_constructs_from_defaults_alone(self, name):
         assert isinstance(get_backend(name), backend_class(name))
 
@@ -84,13 +81,10 @@ class TestOverrideSemantics:
         assert backend.opt("binary") == MpvProcess.defaults["binary"]
 
     def test_a_full_override_need_not_repeat_the_defaults(self, settings):
-        write_settings(
-            "omxplayer-keys",
-            {"binary": "/opt/omxplayer/omxplayer.bin"},
-        )
-        backend = get_backend("omxplayer-keys")
-        assert backend.opt("binary") == "/opt/omxplayer/omxplayer.bin"
-        assert backend.opt("extra_args") == OmxplayerProcess2.defaults["extra_args"]
+        write_settings("mpv", {"binary": "/opt/mpv/bin/mpv"})
+        backend = get_backend("mpv")
+        assert backend.opt("binary") == "/opt/mpv/bin/mpv"
+        assert backend.opt("extra_args") == MpvProcess.defaults["extra_args"]
 
     def test_empty_settings_file_is_the_same_as_absent(self, settings):
         write_settings("mpv", {})
@@ -180,13 +174,13 @@ class TestPlatformVariants:
 
 
 class TestRegistryInvariants:
-    @pytest.mark.parametrize("name", ["omxplayer", "omxplayer-keys", "mpv"])
+    @pytest.mark.parametrize("name", ["vlc", "mpv", "gstreamer"])
     def test_every_backend_declares_its_defaults(self, name):
         """A backend with no defaults dict cannot be configured or described."""
         assert isinstance(backend_class(name).defaults, dict)
         assert backend_class(name).defaults, name
 
-    @pytest.mark.parametrize("name", ["omxplayer", "omxplayer-keys", "mpv"])
+    @pytest.mark.parametrize("name", ["vlc", "mpv", "gstreamer"])
     def test_every_default_value_is_json_serialisable(self, name):
         """
         Settings are JSON, so a default that cannot round-trip through the file
@@ -194,12 +188,12 @@ class TestRegistryInvariants:
         """
         json.dumps(backend_class(name).defaults)
 
-    @pytest.mark.parametrize("name", ["omxplayer", "omxplayer-keys", "mpv"])
+    @pytest.mark.parametrize("name", ["vlc", "mpv", "gstreamer"])
     def test_every_backend_has_a_binary(self, name):
         """Needed by describe(), and by anything that reports what will run."""
         assert get_backend(name).opt("binary")
 
-    @pytest.mark.parametrize("name", ["omxplayer", "omxplayer-keys", "mpv"])
+    @pytest.mark.parametrize("name", ["vlc", "mpv", "gstreamer"])
     def test_every_backend_builds_a_command(self, name):
         cmd = get_backend(name).build_command({"outfile": HTTP_OUT})
         assert cmd
@@ -216,12 +210,11 @@ class TestRegistryInvariants:
 
     def test_default_backend_is_configured(self):
         """
-        Not None any more. omxplayer no longer runs on current Raspberry Pi OS,
-        so an unconfigured install resolves to a real backend rather than falling
-        through to the legacy omxplayer choice.
+        An unconfigured install has to resolve to a real, installed backend.
+        There is no fallback path any more, so DEFAULT_BACKEND is simply a
+        member of the registry.
         """
-        assert DEFAULT_BACKEND is not None
-        assert DEFAULT_BACKEND != LEGACY_BACKEND
+        assert DEFAULT_BACKEND in backend_names()
 
     def test_describe_reports_what_will_run(self):
         info = describe("mpv")
