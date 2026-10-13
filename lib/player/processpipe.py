@@ -201,6 +201,10 @@ class ProcessPipe:
         self.next_proc = 0
         self.stopping = False
         self.started = False
+        # Which stages have reported what. Both are consulted before the next
+        # stage is started, so one stage cannot start two.
+        self._ready_seen = set()
+        self._finished_seen = set()
 
     def status_msg(self):
         if self.started:
@@ -225,13 +229,32 @@ class ProcessPipe:
             if m == MSG_PROCESS_READY:
                 cherrypy.log("READY: " + name)
                 args = self.msgq.get()
-                if not self._is_last_proc(idx):
+                # A stage that has already reported -- ready once already, or
+                # finished at all -- must not start another.
+                #
+                # It could: a stage reports ready, then finishes, and a
+                # straggling ready arrives after the finish, from a read that
+                # was already in flight when the process ended. Starting the
+                # next stage again ran a second player over the same film.
+                #
+                # Two players is the whole problem, not untidiness. Only one of
+                # them is a stage this pipe tracks, so only one is stopped; the
+                # other keeps its picture and its sound, the pipe reports itself
+                # finished, and the film on screen cannot be ended by anything
+                # the interface sends. Reported from an IPTV stream on a Pi:
+                # stop cleared the interface and the video carried on.
+                if idx in self._ready_seen or idx in self._finished_seen:
+                    cherrypy.log("IGNORING SECOND READY: " + name)
+                elif not self._is_last_proc(idx):
+                    self._ready_seen.add(idx)
                     self._start_next(args)
                 else:
+                    self._ready_seen.add(idx)
                     self.started = True
 
             elif m == MSG_PROCESS_FINISHED:
                 cherrypy.log("FINISHED: " + name)
+                self._finished_seen.add(idx)
                 if self._is_last_proc(idx):
                     self.stop()
                     break
@@ -263,6 +286,11 @@ class ProcessPipe:
         return idx == len(self.procs) - 1
 
     def _start_next(self, args={}):
+        if self.next_proc >= len(self.procs):
+            # Nothing left to start. Every caller checks this first, so getting
+            # here means a message arrived for a stage that does not exist --
+            # not worth an IndexError out of the pipe loop.
+            return
         proc = self.procs[self.next_proc]
         cherrypy.log("STARTING: " + proc.name() + ' "' + repr(proc) + '"')
         proc.set_msgq(self.msgq, self.next_proc)

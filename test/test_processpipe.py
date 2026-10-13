@@ -34,6 +34,7 @@ from lib.player.dlsrvproc import DlsrvProcess
 from lib.player.pflixproc import PeerflixProcess
 from lib.player.processpipe import (
     MSG_PLAYER_PIPE_STOPPED,
+    MSG_PROCESS_FINISHED,
     MSG_PROCESS_READY,
     ExternalProcess,
     Process,
@@ -1129,3 +1130,92 @@ class TestStoppingAStageThatNeverStarted:
     def test_the_attribute_exists_before_anything_is_spawned(self):
         proc = _StubExternal()
         assert hasattr(proc, "proc"), "self.proc must exist before start()"
+
+
+class _StubStage(Process):
+    """A stage that does nothing but report itself by name."""
+
+    def __init__(self, name):
+        super().__init__()
+        self._name = name
+
+    def name(self):
+        return self._name
+
+    def start(self, args):
+        pass
+
+    def stop(self):
+        pass
+
+    def status_msg(self):
+        return self._name
+
+
+class TestOneStageCannotStartTwo:
+    """
+    A stage reports ready, then finishes, then reports ready again.
+
+    The second ready can arrive after the finish -- a read that was already in
+    flight when the process ended. Acting on it started the next stage again,
+    which for a film means a second player over the same picture.
+
+    Only one of them is a stage the pipe tracks, so only one is ever stopped.
+    The other keeps its picture and its sound, the pipe reports itself
+    finished, and nothing the interface sends can end the film.
+    """
+
+    def _running_pipe(self, stages=2):
+        """A pipe whose loop is actually running, so messages are consumed."""
+        pipe = pp.ProcessPipe("t")
+        for n in range(stages):
+            pipe.add_process(_StubStage("stage%d" % n))
+        pmsgq = queue.Queue()
+        thread = threading.Thread(target=pipe.start, args=(pmsgq,), daemon=True)
+        thread.start()
+        # start() spawns the first stage on its own; wait until it has.
+        deadline = time.time() + 3
+        while pipe.next_proc < 1 and time.time() < deadline:
+            time.sleep(0.02)
+        return pipe, pmsgq, thread
+
+    def _send(self, pipe, msg, idx, args=None):
+        pipe.msgq.put(msg)
+        pipe.msgq.put(idx)
+        if args is not None:
+            pipe.msgq.put(args)
+
+    def test_a_second_ready_does_not_start_another_stage(self):
+        pipe, pmsgq, thread = self._running_pipe()
+        assert pipe.next_proc == 1, "only the first stage starts on its own"
+
+        self._send(pipe, pp.MSG_PROCESS_READY, 0, {})
+        deadline = time.time() + 3
+        while pipe.next_proc < 2 and time.time() < deadline:
+            time.sleep(0.02)
+        assert pipe.next_proc == 2, "the first ready starts the second stage"
+        thread.join(timeout=1)
+
+    def test_a_ready_after_a_finish_starts_nothing(self):
+        pipe, pmsgq, thread = self._running_pipe()
+
+        self._send(pipe, pp.MSG_PROCESS_READY, 0, {})
+        deadline = time.time() + 3
+        while pipe.next_proc < 2 and time.time() < deadline:
+            time.sleep(0.02)
+        assert pipe.next_proc == 2
+
+        self._send(pipe, pp.MSG_PROCESS_FINISHED, 0)
+        # The straggler: the same stage reporting ready again.
+        self._send(pipe, pp.MSG_PROCESS_READY, 0, {})
+        time.sleep(0.5)
+        assert pipe.next_proc == 2, "a finished stage started another stage"
+        thread.join(timeout=1)
+
+    def test_starting_past_the_last_stage_is_not_an_index_error(self):
+        pipe = pp.ProcessPipe("t")
+        pipe.add_process(_StubStage("only"))
+        pipe._start_next()
+        assert pipe.next_proc == 1
+        pipe._start_next()  # must be a no-op, not IndexError
+        assert pipe.next_proc == 1
