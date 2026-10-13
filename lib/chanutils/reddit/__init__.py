@@ -23,7 +23,9 @@ Reddit slightly, which for "what is new in this subreddit" is the wrong way
 round and is why _TIMEOUT is generous rather than eager.
 """
 
+import re
 import time
+import urllib.parse
 
 import requests
 
@@ -160,7 +162,14 @@ def get_feed(feed, moviesubs=False):
         # error, so a feed that cannot be served reads as a channel with
         # nothing in it instead of a failure.
         return PlayItemList()
-    data = _cached(tuple(sorted(params.items())), lambda: _query(params))
+    # A flair feed is a search over the archive as much as search is, and it
+    # fails the same way, so it gets the same extra attempts. Measured: a
+    # plain subreddit listing answers without trouble, flair and title queries
+    # both time out intermittently.
+    retries = _SEARCH_RETRIES if _is_filtered(params) else None
+    data = _cached(
+        tuple(sorted(params.items())), lambda: _query(params, retries=retries)
+    )
     return _extract(_listing(data), moviesubs)
 
 
@@ -179,10 +188,12 @@ def _feed_params(url):
         return None
     path = url.split("://", 1)[1].split("/", 1)[1] if "/" in url else ""
     # These URLs end in ".json", often after a query string
-    # ("/r/videos/top.json?sort=top&t=all"), so the query is dropped and the
-    # suffix stripped per segment: "/r/trailers.json" is the subreddit
-    # "trailers", not one called "trailers.json".
-    path = path.split("?", 1)[0]
+    # ("/r/videos/top.json?sort=top&t=all"), so the query is kept aside rather
+    # than dropped, and the suffix stripped per segment: "/r/trailers.json" is
+    # the subreddit "trailers", not one called "trailers.json".
+    query = ""
+    if "?" in path:
+        path, query = path.split("?", 1)
     parts = [p[: -len(".json")] if p.endswith(".json") else p for p in path.split("/")]
     parts = [p for p in parts if p]
     if len(parts) < 2 or parts[0] != "r":
@@ -194,6 +205,8 @@ def _feed_params(url):
         listing = None
     elif parts[2] in ("new", "hot", "rising", "top"):
         listing = parts[2]
+    elif parts[2] == "search":
+        listing = None
     else:
         return None
     params = {"subreddit": subreddit, "limit": _LIMIT, "sort": "desc"}
@@ -207,7 +220,79 @@ def _feed_params(url):
     # user discovering the difference.
     if listing == "top":
         params["after"] = _TOP_WINDOW
+    # A flair listing: /r/Documentaries/search.json?q=flair:'Art'&sort=top.
+    # The documentaries channel is mostly these -- thirty-odd feeds that are
+    # one flair each -- so parsing them is most of that channel working. The
+    # archive filters on link_flair_text, which is the same string.
+    flair = _flair_from_query(query)
+    if flair:
+        params["link_flair_text"] = flair
+        return params
+    # The shortfilms channel instead searches on words: ?q=action%20adventure.
+    # Those are titles containing the phrase, which the archive can do with the
+    # same title parameter the search box uses.
+    term = _term_from_query(query)
+    if term:
+        params["title"] = term
     return params
+
+
+def _is_filtered(params):
+    """
+    True when the query narrows the listing rather than just naming a subreddit.
+
+    Both the flair feeds and the word-search feeds are filtered, and both time
+    out intermittently where a plain subreddit listing does not. That is the
+    distinction the retry budget turns on.
+    """
+    return bool(params.get("link_flair_text") or params.get("title"))
+
+
+def _query_fields(query):
+    """
+    The q= value out of a feed's query string, or None.
+
+    The subreddits that search write it as a bare phrase, with + or %20 for
+    the space. This is the phrase, as it was written.
+    """
+    for key, value in urllib.parse.parse_qsl(query):
+        if key == "q":
+            return value
+    return None
+
+
+def _term_from_query(query):
+    """
+    A search phrase out of "?q=action%20adventure", unless it is a flair.
+
+    A flair arrives as flair:'Art' -- a field selector, not words -- and is
+    handled as one. Everything else is words to look for in the title.
+    """
+    value = _query_fields(query)
+    if not value:
+        return None
+    if re.search(r"flair\s*:", value, re.IGNORECASE):
+        return None
+    return value or None
+
+
+def _flair_from_query(query):
+    """
+    The flair out of "?q=flair%3A%27Art%27", or None if there is not one.
+
+    The flair is a label a subreddit applies to a post, and the subreddits that
+    use them write their feeds exactly like this. So the feed the user chose in
+    the interface is recovered here and asked for as itself: "Crime" in the
+    list still means posts flaired Crime.
+    """
+    for field in urllib.parse.parse_qsl(query):
+        key, value = field
+        if key != "q":
+            continue
+        match = re.search(r"flair\s*:\s*['\"]([^'\"]+)['\"]", value, re.IGNORECASE)
+        if match:
+            return match.group(1)
+    return None
 
 
 def _listing(posts):

@@ -39,17 +39,19 @@ thing as one that works for someone who has just found it.
 - **The overlay is one line at one position.** A marquee reads one line from
     one file, so two stacked messages need two overlays, and that has not been
     shown to work.
-  - **Reddit posts come from an archive, and search is the weak part.** Six
-    channels read their posts from Arctic Shift rather than from Reddit, which
-    no longer answers. Feeds are reliable; search is not. Measured from here,
-    a plain subreddit listing answered 6 times in 6, while a title search
-    answered 4 in 10 -- with the same query returning results on one attempt
-    and a timeout on the next. Search retries five times before giving up, so
-    it usually answers, but it can take half a minute, and a term the archive
-    cannot search will fail rather than return nothing. A channel whose only
-    listing is a `top` feed is also an approximation now: the archive cannot
-    rank by score, so it reads as the highest scoring posts within a date
-    window instead. See the module docstring in `lib/chanutils/reddit`.
+  - **Reddit posts come from an archive, and the filtered feeds are the weak
+    part.** Six channels read their posts from Arctic Shift rather than from
+    Reddit, which no longer answers. Measured from here: a plain subreddit
+    listing answered 6 times in 6, while queries that narrow the listing -- the
+    thirty-odd flair feeds in the documentaries channel, the word-search feeds
+    in the shortfilms channel, and the search box -- answered 4 in 10, and
+    those failures can take the full 30s timeout each. Filtered feeds and
+    search are retried five times, so they usually answer, but a term the
+    archive will not search fails rather than returning nothing, and it can
+    take half a minute. A channel with a `top` feed is also an approximation
+    now: the archive cannot rank by score, so it reads as the highest scoring
+    posts within a date window instead. See the module docstring in
+    `lib/chanutils/reddit`.
 
   ## After Phoenix
 
