@@ -13,12 +13,16 @@ _API = {
     "countries": "https://iptv-org.github.io/api/countries.json",
 }
 
-# The upstream payloads are static but large (channels ~8MB, logos ~6MB,
-# guides ~26MB), and every feed/search call needs them, so keep both the
-# downloaded payloads and the indexes derived from them around for a while
-# instead of refetching and re-parsing on each request.
+# The upstream payloads are static but large, and every feed/search call needs
+# them, so keep both the downloaded payloads and the indexes derived from them
+# around for a while instead of refetching and re-parsing on each request.
 _CACHE = {}
 _CACHE_TTL = 60 * 60
+
+# guides.json is ~26MB and takes far longer than the default request timeout to
+# pull down on a slow link, so it gets its own generous timeout and is only ever
+# fetched for the language feeds.
+_GUIDES_TIMEOUT = 300
 
 
 def _cached(key, builder):
@@ -30,8 +34,8 @@ def _cached(key, builder):
     return data
 
 
-def _get_cached(key):
-    return _cached(key, lambda: get_json(_API[key]))
+def _get_cached(key, **kwargs):
+    return _cached(key, lambda: get_json(_API[key], **kwargs))
 
 
 _FEEDLIST = [
@@ -98,7 +102,7 @@ def _build_logo_index():
 def _build_language_index():
     """guides.json is the only remaining source of per-channel language."""
     index = {}
-    for guide in _get_cached("guides"):
+    for guide in _get_cached("guides", timeout=_GUIDES_TIMEOUT):
         chid = guide.get("channel")
         lang = guide.get("lang")
         if not chid or not lang:
@@ -107,12 +111,19 @@ def _build_language_index():
     return index
 
 
+def _language_index():
+    return _cached("language_index", _build_language_index)
+
+
 def load_all_streams():
     """link each of the streams with it's corresponding channel"""
     streams = _get_cached("streams")
     channels = _get_cached("channels")
     logos = _cached("logo_index", _build_logo_index)
-    languages = _cached("language_index", _build_language_index)
+    # guides.json is only wanted by the language feeds, and pulling it costs
+    # far more than the rest combined, so leave it out unless one is asked for
+    languages = _CACHE.get("language_index")
+    languages = languages[1] if languages else None
     channels_idx = {ch["id"]: ch for ch in channels}
     num_channels_added = 0
     for stream in streams:
@@ -121,15 +132,19 @@ def load_all_streams():
             # these two fields were dropped from channels.json upstream, so
             # re-attach them from the sources that still carry them
             info["logo"] = logos.get(stream["channel"])
-            info["languages"] = languages.get(stream["channel"], set())
+            if languages is not None:
+                info["languages"] = languages.get(stream["channel"], set())
             stream["channel_info"] = info
             num_channels_added += 1
     return streams
 
 
 def feed(idx):
-    streams = load_all_streams()
     filter = _FEEDLIST[idx]["filter"]
+    # only the language feeds need guides.json, so pay for it only there
+    if "language" in filter:
+        _language_index()
+    streams = load_all_streams()
     data = []
     if "country" in filter:
         data = [
