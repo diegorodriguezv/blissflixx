@@ -30,7 +30,13 @@ from lib.player.backend import (
 )
 from lib.player.gstproc import GStreamerProcess
 from lib.player.processpipe import ProcessException
-from lib.player.vlcproc import _REPLY_TIMEOUT, MARQ_FILE, VlcProcess, _volume_percent
+from lib.player.vlcproc import (
+    _REPLY_TIMEOUT,
+    _VOLUME_START,
+    MARQ_FILE,
+    VlcProcess,
+    _volume_percent,
+)
 
 FILE_OUT = "/home/diego/testfiles/h264_1080p.mkv"
 HTTP_OUT = "http://127.0.0.1:9696/movie.mkv"
@@ -420,10 +426,13 @@ class TestVlcControl:
         proc = VlcProcess()
         proc._send_command = lambda c: True
 
-        proc.control("volup")
-        assert proc._volume == 307  # 256 + 51
+        # Measured from the starting level rather than a fixed number, so this
+        # still says what it means if the start ever changes again.
+        start = proc._volume
         proc.control("voldown")
-        assert proc._volume == 256
+        assert start - proc._volume == 51  # 10% of VLC's 0-512 scale
+        proc.control("volup")
+        assert proc._volume == start
 
     def test_the_volume_step_is_a_percentage_not_vlcs_own_units(self):
         """
@@ -433,8 +442,8 @@ class TestVlcControl:
         proc = VlcProcess()
         proc._send_command = lambda c: True
 
-        proc.control("volup")
-        assert _volume_percent(proc._volume) == 60
+        proc.control("voldown")
+        assert _volume_percent(proc._volume) == 90
 
     def test_the_volume_does_not_walk_outside_its_range(self):
         proc = VlcProcess()
@@ -459,6 +468,31 @@ class TestVlcControl:
         for _ in range(200):
             proc.control("volup")
         assert proc._volume == proc.opt("volume_max")
+
+    def test_the_start_level_is_put_on_the_player(self):
+        """
+        So a film cannot open at whatever level VLC last saved.
+
+        Nothing was sent at startup, and volume-save is on by default, so the
+        level in force was carried over from the last session -- or wherever
+        else was playing. A film that opened silent was fixed by pressing
+        volume up, which is what the symptom looked like: picture fine,
+        controls answering, no sound.
+        """
+        proc = VlcProcess()
+        sent = []
+        proc._send_command = sent.append
+
+        proc._apply_start_volume()
+
+        assert sent == ["volume %d" % _VOLUME_START]
+        assert proc._volume == _VOLUME_START
+
+    def test_the_start_level_is_full_scale(self):
+        """
+        At 100% rather than VLC's own 256, which is half of the scale.
+        """
+        assert _volume_percent(_VOLUME_START) == 100
 
     def test_audio_track_actions_reach_the_track_interface(self):
         """

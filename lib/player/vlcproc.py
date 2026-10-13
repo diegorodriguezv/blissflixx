@@ -233,10 +233,14 @@ _SEEK_SECONDS = {
 }
 
 
-#: VLC's own volume scale. Its maximum is 512, not 100, and its default is
-#: 256 -- which is what the player starts at and what the cli has no command to
-#: read back, so the level is tracked from the last one set.
+#: VLC's own volume scale. Its maximum is 512, not 100. The cli has no command
+#: to read the level back, so the level in force is tracked from the last one set.
 _VOLUME_MAX = 512
+
+#: What the player starts at: full scale. VLC's own default is 256, half of that,
+#: and the level actually in use was whatever VLC last saved, so a film could
+#: open silent. Applied at readiness; see _apply_start_volume.
+_VOLUME_START = _VOLUME_MAX
 
 
 def _volume_percent(level):
@@ -244,9 +248,9 @@ def _volume_percent(level):
     VLC's level as a percentage.
 
     Shown this way because 512 is VLC's internal scale and means nothing to
-    anyone watching. Its default of 256 is 50%, which is also what the player
-    starts at -- so "Volume 50%" is the first thing seen, rather than the 256
-    that used to appear.
+    anyone watching. The player starts at _VOLUME_START, so the first thing
+    seen after pressing volume is "Volume 100%", rather than the 512 that used
+    to appear.
     """
     return round(level * 100 / _VOLUME_MAX)
 
@@ -485,8 +489,10 @@ class VlcProcess(PlayerBackend):
         self._replies = Queue()
         self.on_output_line = self._replies.put
         # The cli interface has no volume query, so it is tracked from the last
-        # set point. VLC treats 256 of 512 as its default level.
-        self._volume = 256
+        # set point. It starts at the level _apply_start_volume puts on the
+        # player, rather than at VLC's own half-scale default, so the two agree
+        # from the first frame instead of being reconciled later.
+        self._volume = _VOLUME_START
         self._overlay_shown = None
         self._overlay_failures = 0
         # Remembered once learned; see _report_progress.
@@ -607,6 +613,7 @@ class VlcProcess(PlayerBackend):
                 # they just sat there: the first control action came back
                 # reporting the startup banner as if it were its own answer.
                 self._reset_replies()
+                self._apply_start_volume()
                 self._enable_embedded_subtitles()
                 _start_thread(self._show_opening_title)
                 return
@@ -620,6 +627,29 @@ class VlcProcess(PlayerBackend):
                 if line not in self._startup_errors:
                     self._startup_errors.append(line)
         raise ProcessException(self._did_not_come_up())
+
+    def _apply_start_volume(self):
+        """
+        Put the starting level on the player before the first frame.
+
+        VLC was never told what volume to play at. It starts at whatever it
+        last saved -- and it saves, because volume-save defaults on -- so the
+        level carried over from the previous session, or from another player on
+        the same card. There is no --gain/--volume on the command line that the
+        cli agrees with, and no cli verb to read the level back, so the code
+        tracked its own idea of it in _reset_replies() and only ever sent a
+        command when somebody pressed volume up or down.
+
+        That left the first seconds of every film at a level nobody chose. It
+        read as no audio at all: the picture was fine, the controls answered,
+        and pressing volume up made the sound appear -- which is a maddening
+        thing to have to do on every film.
+
+        So the level the player says it is at is now also the level VLC is at.
+        Both come from _VOLUME_START, so what the interface shows and what comes
+        out of the speakers cannot disagree.
+        """
+        self._set_volume(_VOLUME_START)
 
     def _did_not_come_up(self):
         """
