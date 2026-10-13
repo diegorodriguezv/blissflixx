@@ -1210,7 +1210,11 @@ class TestOneStageCannotStartTwo:
         self._send(pipe, pp.MSG_PROCESS_READY, 0, {})
         time.sleep(0.5)
         assert pipe.next_proc == 2, "a finished stage started another stage"
-        thread.join(timeout=1)
+        # Also that the loop survived it. Without the guard this raises
+        # IndexError out of the loop and kills the thread, which leaves
+        # next_proc at 2 -- so the check above passes for the wrong reason and
+        # the player is the thing that is actually broken.
+        assert thread.is_alive(), "the pipe loop died on the straggling ready"
 
     def test_starting_past_the_last_stage_is_not_an_index_error(self):
         pipe = pp.ProcessPipe("t")
