@@ -34,6 +34,14 @@ _PLAY_QUEUE_SIZE = 32
 #: Seconds to wait to hand a play to the loop before giving up.
 _PLAY_ENQUEUE_TIMEOUT = 5
 
+#: Seconds to wait for a stopped pipeline's thread to finish before going on
+#: without it. Bounded because this join is on the player loop itself: a
+#: pipeline that will not unwind -- a VLC wedged in demuxing, which ignores the
+#: quit its cli was sent -- left it joining forever, and a loop that never comes
+#: back reads every later stop and play as no answer at all. The whole
+#: interface went unresponsive while the film was still on screen.
+_PLAY_JOIN_TIMEOUT = 5
+
 MSG_PLAYER_PLAY = 1
 MSG_PLAYER_STOP = 2
 MSG_PLAYER_QUIT = 3
@@ -85,7 +93,14 @@ class _Player:
                 self._stop()
             elif m == MSG_PLAYER_PIPE_STOPPED:
                 self.error = msgq.get()
-                self.play_thread.join()
+                # Bounded, and the state is cleared either way. Waiting on a
+                # thread that may never finish left the loop unable to answer
+                # anything, which is worse than a thread still winding down in
+                # the background: it cannot stop the film, and it cannot start
+                # the next one either.
+                self.play_thread.join(timeout=_PLAY_JOIN_TIMEOUT)
+                if self.play_thread.is_alive():
+                    cherrypy.log("PLAY THREAD DID NOT EXIT")
                 cherrypy.log("PIPE STOPPED")
                 if nextpipe is not None:
                     self._play(nextpipe)

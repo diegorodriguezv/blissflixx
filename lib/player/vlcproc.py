@@ -26,6 +26,7 @@ command equivalent, so they are declared absent rather than silently dropped.
 
 import os
 import re
+import subprocess
 import threading
 import time
 from queue import Empty, Queue
@@ -41,7 +42,7 @@ from .backend import (
     CAP_VOLUME,
     PlayerBackend,
 )
-from .processpipe import TMP_DIR, ProcessException, _start_thread
+from .processpipe import _TERMINATE_GRACE, TMP_DIR, ProcessException, _start_thread
 
 VLC_BIN = "cvlc"
 _START_TIMEOUT = 30
@@ -641,6 +642,34 @@ class VlcProcess(PlayerBackend):
 
     # -- control ----------------------------------------------------------
 
+    def _force_quit(self, grace=_TERMINATE_GRACE):
+        """
+        Make "quit" actually stop the player, and say so when it did not.
+
+        "quit" only works if VLC's cli interface is still servicing its stdin,
+        and a stream it cannot get through demuxing is what stops it doing so:
+        a broken transport stream fills the log with
+
+            ts demux error: libdvbpsi error (PSI decoder): TS duplicate
+
+        and the player never reaches the command. The stop was then reported
+        as done and nothing stopped. The player stayed in its playing state,
+        so every later film queued behind a process that was never going to
+        move, which read as the whole interface freezing -- the stop button
+        and the play button both appeared dead.
+
+        So ask politely, then insist. The stage thread already reaps VLC and
+        notices it exit; this only has to not let it keep running.
+        """
+        proc = getattr(self, "proc", None)
+        if proc is None:
+            return
+        try:
+            proc.wait(timeout=grace)
+        except subprocess.TimeoutExpired:
+            cherrypy.log("VLC IGNORED QUIT, TERMINATING")
+            self._terminate()
+
     def _send_command(self, command):
         """
         Type one command into VLC's stdin and read what it says back.
@@ -943,6 +972,7 @@ class VlcProcess(PlayerBackend):
 
         elif action == "stop":
             self._send_command("quit")
+            self._force_quit()
         elif action in ("plus30", "minus30", "plus600", "minus600"):
             self._seek(_SEEK_SECONDS[action])
             self._report_progress(label="Seek")
