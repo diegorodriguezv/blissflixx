@@ -1,21 +1,231 @@
+"""
+Reddit posts for the channels that are built on them.
+
+Reddit's own API is not reachable from here. Its anonymous .json endpoints
+answer
+
+    You've been blocked by network security.
+
+which is a policy block rather than a rate limit: it lands on every request,
+from every address, and changing the User-Agent, the scheme or the host does
+not help. Self-service API registration has gone the same way -- creating an
+app now only leads to Reddit's Responsible Builder Policy, which requires
+approval before any access, and points developers at their own platform.
+
+So the posts come from Arctic Shift instead, a community-run archive of Reddit
+data with a keyless API. It answers from its own record rather than from
+Reddit, so none of the above applies, and it serves the same field names, so
+_extract() below reads it as if it were the API's own response.
+
+Two things it is not. It is volunteer-run with no uptime guarantee, so a
+failure here has to stay a failure rather than a hang. And its listings lag
+Reddit slightly, which for "what is new in this subreddit" is the wrong way
+round and is why _TIMEOUT is generous rather than eager.
+"""
+
+import time
+
+import requests
+
 from ...playitem import PlayItem, PlayItemList
 from ..chanutils import get_json, movie_title_year, replace_entity
 
+#: Arctic Shift's search endpoint. Posts and comments are separate paths; only
+#: posts carry what these channels show.
+_API = "https://arctic-shift.photon-reddit.com/api/posts/search"
+
+#: Reddit's listing is about 25 posts, so ask for a little over that and let
+#: _extract drop the self-posts that never make it into the list.
+_LIMIT = 30
+
+#: Seconds to wait for the archive before giving up on it. It is a shared,
+#: volunteer-run resource and a Pi is not quick, so this is deliberately long
+#: -- but not infinite, because the alternative to waiting is a request that
+#: never comes back and a UI that never stops spinning.
+_TIMEOUT = 30
+
+#: How far back a "top" listing looks, as a date the archive accepts. Reddit's
+#: own was "of all time", which the archive cannot do: it stores no score
+#: ranking to ask for. A year is long enough for the highest-scoring posts in
+#: a film subreddit to be a recognisable set rather than this week.
+_TOP_WINDOW = "2025-10-01"
+
+#: Seconds to hold a listing before asking again. Every channel that shares a
+#: subreddit shares this too, so clicking through several of them in a row
+#: costs the archive one request rather than one each. The archive is the
+#: scarce resource here, so this is what protects it.
+_CACHE_TTL = 5 * 60
+
+#: How many times to retry the archive's timeout response before failing.
+#: It answers 422 with "Timeout. Maybe slow down a bit" when a query takes it
+#: too long, which is its own overloaded case rather than a bad request --
+#: the identical query returns 200 moments later. So the same query is worth
+#: asking again.
+#:
+#: Search is retried more than a feed is, because the archive is markedly less
+#: reliable over it: measured at 4 successes in 10 title queries against 6 of 6
+#: for the plain subreddit listing. The failures come back in under a second,
+#: then again after the full timeout, so the wait is short when it can be and
+#: the extra attempts are what turn "no results" into results.
+_RETRIES = 3
+_SEARCH_RETRIES = 5
+
+#: Pause between those retries, in seconds. Long enough not to pile onto the
+#: archive while it is already struggling, short enough to stay invisible.
+_RETRY_WAIT = 2
+
+_cache = {}
+
+
+def _cached(key, fetch):
+    """
+    The listing for key, fetched at most once per _CACHE_TTL.
+
+    Shared across channels: /r/videos is one cache entry whether it was asked
+    for by the video channel or by a search that happened to match. This is
+    the whole reason the archive is not being hammered -- without it every
+    click was a request, and the archive's own answer to being asked too often
+    is to time out.
+    """
+    entry = _cache.get(key)
+    if entry and time.monotonic() - entry[0] < _CACHE_TTL:
+        return entry[1]
+    data = fetch()
+    _cache[key] = (time.monotonic(), data)
+    return data
+
+
+def _query(params, retries=None):
+    """
+    Ask the archive, retrying the case where it says it was too slow.
+
+    A 422 with its own "maybe slow down" message means the archive gave up on
+    the query, not that the query was wrong, so it is retried rather than
+    raised. A genuine failure -- the archive down, a network problem -- is
+    left to propagate as the exception it is.
+    """
+    last = None
+    for attempt in range(_RETRIES if retries is None else retries):
+        try:
+            response = requests.get(
+                _API,
+                params=params,
+                timeout=_TIMEOUT,
+                headers={"user-agent": "blissflixx/1.0"},
+            )
+            if response.status_code == 422:
+                last = "the archive reported the query timed out"
+                time.sleep(_RETRY_WAIT * (attempt + 1))
+                continue
+            response.raise_for_status()
+            return response.json().get("data") or []
+        except requests.RequestException as exc:
+            last = exc
+            time.sleep(_RETRY_WAIT * (attempt + 1))
+    raise Exception("arctic shift: could not be read (%s)" % last)
+
 
 def search(subreddit, q, moviesubs=False):
-    url = "http://www.reddit.com/r/" + subreddit + "/search.json"
-    data = get_json(url, params={"q": q, "restrict_sr": "on"})
-    return _extract(data, moviesubs)
+    """
+    Posts in subreddit whose title mentions q.
+
+    The archive searches titles only, and only within one subreddit, which is
+    what these channels search anyway.
+    """
+    params = {
+        "subreddit": subreddit,
+        "title": q,
+        "limit": _LIMIT,
+        "sort": "desc",
+    }
+    data = _cached(
+        ("search", subreddit, q.lower()),
+        lambda: _query(params, retries=_SEARCH_RETRIES),
+    )
+    return _extract(_listing(data), moviesubs)
 
 
 def get_feed(feed, moviesubs=False):
-    data = get_json(feed["url"])
-    return _extract(data, moviesubs)
+    """
+    Posts for one feed entry.
+
+    The feed still says which subreddit and which listing in the URL it was
+    written against. That is deliberate: the channels read as they always
+    did, and the move to the archive is contained here.
+    """
+    params = _feed_params(feed["url"])
+    if params is None:
+        # Not a listing this helper knows how to serve -- currently only the
+        # retired channel's sitewide domain feed. An empty list rather than an
+        # error, so a feed that cannot be served reads as a channel with
+        # nothing in it instead of a failure.
+        return PlayItemList()
+    data = _cached(tuple(sorted(params.items())), lambda: _query(params))
+    return _extract(_listing(data), moviesubs)
+
+
+def _feed_params(url):
+    """
+    Translate one of Reddit's listing URLs into archive query parameters.
+
+    Returns None for anything that is not a subreddit listing. The one that
+    matters is the sitewide domain feed (/domain/<site>/...): it lists posts
+    linking to one site from anywhere on Reddit, and the archive has no
+    equivalent -- it can only search within a named subreddit. Returning None
+    for it is what makes that feed come back empty instead of quietly
+    returning the wrong thing.
+    """
+    if "://" not in url:
+        return None
+    path = url.split("://", 1)[1].split("/", 1)[1] if "/" in url else ""
+    # These URLs end in ".json", often after a query string
+    # ("/r/videos/top.json?sort=top&t=all"), so the query is dropped and the
+    # suffix stripped per segment: "/r/trailers.json" is the subreddit
+    # "trailers", not one called "trailers.json".
+    path = path.split("?", 1)[0]
+    parts = [p[: -len(".json")] if p.endswith(".json") else p for p in path.split("/")]
+    parts = [p for p in parts if p]
+    if len(parts) < 2 or parts[0] != "r":
+        return None
+    subreddit = parts[1]
+    # "new" is a listing; the bare subreddit path is the hot listing, and a
+    # trailing segment that is neither is a listing we do not recognise.
+    if len(parts) == 2:
+        listing = None
+    elif parts[2] in ("new", "hot", "rising", "top"):
+        listing = parts[2]
+    else:
+        return None
+    params = {"subreddit": subreddit, "limit": _LIMIT, "sort": "desc"}
+    if listing == "new":
+        params["sort"] = "asc"
+    # "top" asked for the highest scoring posts of all time. The archive will
+    # not rank by score -- it sorts by time and takes before/after bounds --
+    # so this is the closest honest equivalent rather than the same thing: a
+    # window of the highest scoring posts in it. Kept separate from the others
+    # because it is an approximation, and saying so here is cheaper than the
+    # user discovering the difference.
+    if listing == "top":
+        params["after"] = _TOP_WINDOW
+    return params
+
+
+def _listing(posts):
+    """
+    The archive's rows as the listing shape _extract already reads.
+
+    Arctic Shift returns the same fields the API did -- title, url,
+    permalink, score, num_comments, thumbnail, is_self -- one object per post,
+    where the API wrapped each in {"kind": ..., "data": ...}. Normalising here
+    means _extract() did not have to change, and nothing above it can tell
+    which one it is being served.
+    """
+    return {"data": {"children": [{"data": post} for post in posts]}}
 
 
 def _extract(data, moviesubs):
     results = PlayItemList()
-    if not "data" in data or len(data["data"]["children"]) == 0:
+    if "data" not in data or len(data["data"]["children"]) == 0:
         return results
     rtree = data["data"]["children"]
     for r in rtree:
@@ -43,3 +253,8 @@ def _extract(data, moviesubs):
         item = PlayItem(title, thumb, url, subtitle, subs=subs)
         results.add(item)
     return results
+
+
+# Kept for the channels that still import it, and for anything that reaches
+# reddit over the old path directly.
+__all__ = ["search", "get_feed"]

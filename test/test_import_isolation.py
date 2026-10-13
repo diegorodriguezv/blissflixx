@@ -83,7 +83,6 @@ class TestStandaloneImports:
             "bfch_tmz",
             "bfch_twitch",
             "bfch_vimeo",
-            "bfch_youtube",
             "bfch_yts_torrents",
         ],
     )

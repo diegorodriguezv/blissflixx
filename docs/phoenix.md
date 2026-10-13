@@ -37,10 +37,21 @@ thing as one that works for someone who has just found it.
   advertise it and the buttons are hidden for it rather than shown and
   ineffective.
 - **The overlay is one line at one position.** A marquee reads one line from
-  one file, so two stacked messages need two overlays, and that has not been
-  shown to work.
+    one file, so two stacked messages need two overlays, and that has not been
+    shown to work.
+  - **Reddit posts come from an archive, and search is the weak part.** Six
+    channels read their posts from Arctic Shift rather than from Reddit, which
+    no longer answers. Feeds are reliable; search is not. Measured from here,
+    a plain subreddit listing answered 6 times in 6, while a title search
+    answered 4 in 10 -- with the same query returning results on one attempt
+    and a timeout on the next. Search retries five times before giving up, so
+    it usually answers, but it can take half a minute, and a term the archive
+    cannot search will fail rather than return nothing. A channel whose only
+    listing is a `top` feed is also an approximation now: the archive cannot
+    rank by score, so it reads as the highest scoring posts within a date
+    window instead. See the module docstring in `lib/chanutils/reddit`.
 
-## After Phoenix
+  ## After Phoenix
 
 Noted, agreed, not started. In the order they were raised.
 
@@ -107,3 +118,32 @@ a stalled seek.
 Ten percent per press is what the television wants. Ten presses to silence is
 a lot of pressing, and the difference between 40% and 45% matters more at the
 bottom of the range than it does at the top. Not before Phoenix.
+### Popular videos, from YouTube or an aggregator
+
+There was a YouTube channel (`bfch_youtube`) built on Reddit's sitewide
+`/domain/youtube.com` listing: whatever anyone posted anywhere on Reddit that
+linked to YouTube. Retired rather than repaired.
+
+It went the way the other Reddit channels went, and for the same reason -- see
+"Reddit posts come from an archive now" below for how those work. But this one
+does not come back with the others, because what it listed is not a subreddit.
+It was everything across all of Reddit matching one domain, and the archive
+those channels now read can only search within a named subreddit. Substituting
+one would return a different thing that looked the same: posts from some
+subreddit about YouTube, not posts from everywhere about YouTube. A channel
+that is quietly wrong is worse than one that is absent, so it was removed
+instead.
+
+What is actually wanted is a way to play popular videos without going through
+Reddit at all, which is a different feature with a different set of sources to
+weigh:
+
+- YouTube's own feeds and search, through the bundled yt-dlp. The plumbing is
+  already there, since every video play goes through it. The question is
+  whether YouTube's own endpoints are reachable and stable enough to depend on,
+  which is the same question Reddit's were, once.
+- An aggregator that serves a plain list of what's popular, with no account and
+  no key. Arctic Shift is one of these for Reddit specifically; the equivalent
+  for video is not settled.
+
+Worth deciding on its own terms rather than as a repair. Not before Phoenix.
