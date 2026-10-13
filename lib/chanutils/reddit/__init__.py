@@ -27,6 +27,7 @@ import re
 import time
 import urllib.parse
 
+import cherrypy
 import requests
 
 from ...playitem import PlayItem, PlayItemList
@@ -40,11 +41,19 @@ _API = "https://arctic-shift.photon-reddit.com/api/posts/search"
 #: _extract drop the self-posts that never make it into the list.
 _LIMIT = 30
 
-#: Seconds to wait for the archive before giving up on it. It is a shared,
-#: volunteer-run resource and a Pi is not quick, so this is deliberately long
-#: -- but not infinite, because the alternative to waiting is a request that
-#: never comes back and a UI that never stops spinning.
-_TIMEOUT = 30
+#: Seconds to wait for one attempt against the archive. Longer than a Pi takes
+#: to answer comfortably, because the archive is slow as well as unreliable,
+#: and a short deadline mostly throws away attempts that were about to succeed.
+_TIMEOUT = 15
+
+#: Seconds to allow for the whole call, retries included. The alternative to
+#: waiting is a request that never comes back and a UI that never stops
+#: spinning, but the ceiling has to be well under what retrying would take on
+#: its own: five slow attempts in a row is over a minute of a user watching a
+#: spinner. The point of retrying is to rescue the query that fails fast, not to
+#: wait out one that is genuinely struggling. Past this the caller gets an
+#: empty listing and can try again.
+_MAX_SECONDS = 25
 
 #: How far back a "top" listing looks, as a date the archive accepts. Reddit's
 #: own was "of all time", which the archive cannot do: it stores no score
@@ -105,8 +114,14 @@ def _query(params, retries=None):
     the query, not that the query was wrong, so it is retried rather than
     raised. A genuine failure -- the archive down, a network problem -- is
     left to propagate as the exception it is.
+
+    Stops at _MAX_SECONDS however the attempts are going, so one query the
+    archive is struggling with cannot hold the caller for a minute. What is
+    left unasked is asked next time: nothing is cached from a failed call, so
+    a retry by the user starts fresh rather than inheriting this staleness.
     """
     last = None
+    deadline = time.monotonic() + _MAX_SECONDS
     for attempt in range(_RETRIES if retries is None else retries):
         try:
             response = requests.get(
@@ -117,12 +132,16 @@ def _query(params, retries=None):
             )
             if response.status_code == 422:
                 last = "the archive reported the query timed out"
+                if time.monotonic() >= deadline:
+                    break
                 time.sleep(_RETRY_WAIT * (attempt + 1))
                 continue
             response.raise_for_status()
             return response.json().get("data") or []
         except requests.RequestException as exc:
             last = exc
+            if time.monotonic() >= deadline:
+                break
             time.sleep(_RETRY_WAIT * (attempt + 1))
     raise Exception("arctic shift: could not be read (%s)" % last)
 
@@ -142,7 +161,7 @@ def search(subreddit, q, moviesubs=False):
     }
     data = _cached(
         ("search", subreddit, q.lower()),
-        lambda: _query(params, retries=_SEARCH_RETRIES),
+        lambda: _read(params, retries=_SEARCH_RETRIES),
     )
     return _extract(_listing(data), moviesubs)
 
@@ -168,9 +187,30 @@ def get_feed(feed, moviesubs=False):
     # both time out intermittently.
     retries = _SEARCH_RETRIES if _is_filtered(params) else None
     data = _cached(
-        tuple(sorted(params.items())), lambda: _query(params, retries=retries)
+        tuple(sorted(params.items())), lambda: _read(params, retries=retries)
     )
     return _extract(_listing(data), moviesubs)
+
+
+def _read(params, retries=None):
+    """
+    The listing, or an empty one if the archive could not be read in time.
+
+    The archive is volunteer-run and answers a narrowed query unreliably, so
+    some failure is expected rather than exceptional. Raising it turned that
+    into an error page over the whole channel, for a feed the user can simply
+    ask for again. An empty listing is the smaller failure: the channel still
+    loads, the other feeds still work, and the next attempt starts clean --
+    nothing is cached when this returns nothing, so it never sticks.
+
+    The failure is still logged. Silently empty would be worse than either --
+    it would be indistinguishable from a subreddit with nothing in it.
+    """
+    try:
+        return _query(params, retries=retries)
+    except Exception as exc:
+        cherrypy.log("reddit listing unavailable: %s" % exc)
+        return []
 
 
 def _feed_params(url):
