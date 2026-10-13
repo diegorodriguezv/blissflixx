@@ -388,6 +388,12 @@ class ExternalProcess(Process):
         # Extra environment for the child. None inherits ours.
         self.env = None
         self.killing = False
+        # Set by start() when the command is spawned, and back to None once it
+        # has been waited for. Declared here as well so that stop() is safe to
+        # call on a stage that has never started: stopping a pipeline while the
+        # first stage is still coming up does exactly that, and stop() reads
+        # this attribute to decide whether there is anything to kill.
+        self.proc = None
         if not os.path.exists(TMP_DIR):
             os.makedirs(TMP_DIR)
 

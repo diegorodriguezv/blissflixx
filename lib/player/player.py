@@ -83,34 +83,52 @@ class _Player:
         nextpipe = None
         while True:
             m = msgq.get()
-            if m == MSG_PLAYER_PLAY:
-                if self.play_pipe is not None:
-                    nextpipe = msgq.get()
+            # Nothing in here may be allowed to end this thread.
+            #
+            # This is the whole player. Every stop, every play and every
+            # status the interface shows is answered from this loop, so an
+            # exception escaping it does not fail the one request that caused
+            # it -- it leaves the player permanently deaf. Nothing the user
+            # does afterwards reaches anything: stop returns 200 and no film
+            # stops, play returns 200 and nothing starts, and the film on
+            # screen is still there with no way to end it.
+            #
+            # It happened: stopping a pipeline whose first stage was still
+            # starting raised AttributeError out of stop(), which ended this
+            # thread, and the player was unusable until the process was
+            # restarted. The message is reported and the loop carries on, so a
+            # single bad message costs one action rather than all of them.
+            try:
+                if m == MSG_PLAYER_PLAY:
+                    if self.play_pipe is not None:
+                        nextpipe = msgq.get()
+                        self._stop()
+                    else:
+                        self._play(msgq.get())
+                elif m == MSG_PLAYER_STOP:
                     self._stop()
-                else:
-                    self._play(msgq.get())
-            elif m == MSG_PLAYER_STOP:
-                self._stop()
-            elif m == MSG_PLAYER_PIPE_STOPPED:
-                self.error = msgq.get()
-                # Bounded, and the state is cleared either way. Waiting on a
-                # thread that may never finish left the loop unable to answer
-                # anything, which is worse than a thread still winding down in
-                # the background: it cannot stop the film, and it cannot start
-                # the next one either.
-                self.play_thread.join(timeout=_PLAY_JOIN_TIMEOUT)
-                if self.play_thread.is_alive():
-                    cherrypy.log("PLAY THREAD DID NOT EXIT")
-                cherrypy.log("PIPE STOPPED")
-                if nextpipe is not None:
-                    self._play(nextpipe)
-                    nextpipe = None
-                else:
-                    self.play_pipe = None
-                    self.play_thread = None
-            elif m == MSG_PLAYER_QUIT:
-                self._stop()
-                break
+                elif m == MSG_PLAYER_PIPE_STOPPED:
+                    self.error = msgq.get()
+                    # Bounded, and the state is cleared either way. Waiting on a
+                    # thread that may never finish left the loop unable to answer
+                    # anything, which is worse than a thread still winding down in
+                    # the background: it cannot stop the film, and it cannot start
+                    # the next one either.
+                    self.play_thread.join(timeout=_PLAY_JOIN_TIMEOUT)
+                    if self.play_thread.is_alive():
+                        cherrypy.log("PLAY THREAD DID NOT EXIT")
+                    cherrypy.log("PIPE STOPPED")
+                    if nextpipe is not None:
+                        self._play(nextpipe)
+                        nextpipe = None
+                    else:
+                        self.play_pipe = None
+                        self.play_thread = None
+                elif m == MSG_PLAYER_QUIT:
+                    self._stop()
+                    break
+            except Exception as exc:
+                cherrypy.log("PLAYER LOOP ERROR on message %r: %s" % (m, exc))
 
     def quit(self):
         if self.main_thread is not None:

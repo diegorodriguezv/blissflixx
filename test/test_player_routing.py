@@ -19,6 +19,7 @@ handover is covered.
 
 import queue
 import threading
+import time
 import unittest.mock as m
 import urllib.parse
 
@@ -391,3 +392,70 @@ class TestStageAvailability:
         obj = urllib.parse.urlparse("file:///media/a.mkv")
         assert obj.scheme == "file"
         assert obj.path == "/media/a.mkv"
+
+
+class TestTheLoopSurvivesAFailedAction:
+    """
+    Nothing in the player loop may end the thread.
+
+    This is the whole player: every stop, every play and every status comes
+    through here. An exception escaping does not fail the request that caused
+    it -- it leaves the player deaf, so stop returns 200 and nothing stops,
+    play returns 200 and nothing starts, and a film on screen cannot be ended.
+
+    It happened. Stopping a pipeline whose first stage was still starting
+    raised AttributeError out of stop(), which ended this loop thread, and the
+    player could not be recovered without restarting the process.
+    """
+
+    def test_a_stop_that_raises_does_not_end_the_loop(self):
+        pl = player_module._Player()
+        loop = threading.Thread(target=pl.start, daemon=True)
+        loop.start()
+
+        class Boom:
+            def stop(self):
+                raise AttributeError(
+                    "'YoutubeDlProcess' object has no attribute 'proc'"
+                )
+
+        pl.play_pipe = Boom()
+        pl.msgq.put(player_module.MSG_PLAYER_STOP)
+        # The loop must still be answering.
+        pl.msgq.put(player_module.MSG_PLAYER_STOP)
+        assert loop.is_alive()
+
+        # QUIT stops too, so give it a pipe that can be stopped before asking
+        # the loop to end -- otherwise this asserts on the same raise.
+        pl.play_pipe = None
+        pl.play_pipe = None
+        pl.msgq.put(player_module.MSG_PLAYER_QUIT)
+        loop.join(timeout=3)
+        assert not loop.is_alive(), "the loop should still be able to shut down"
+
+    def test_the_loop_keeps_going_after_a_failure(self):
+        """Not just alive -- still functional, which is what the user needs."""
+        pl = player_module._Player()
+        loop = threading.Thread(target=pl.start, daemon=True)
+        loop.start()
+
+        class Boom:
+            def stop(self):
+                raise AttributeError("boom")
+
+        pl.play_pipe = Boom()
+        pl.msgq.put(player_module.MSG_PLAYER_STOP)
+        time.sleep(0.3)
+
+        # A second stop is picked up rather than left in a queue nobody reads.
+        stopped = []
+        pl.play_pipe = type("Ok", (), {"stop": lambda self: stopped.append(1)})()
+        pl.msgq.put(player_module.MSG_PLAYER_STOP)
+        deadline = time.time() + 3
+        while not stopped and time.time() < deadline:
+            time.sleep(0.05)
+        assert stopped, "the loop did not reach the second stop"
+
+        pl.play_pipe = None
+        pl.msgq.put(player_module.MSG_PLAYER_QUIT)
+        loop.join(timeout=3)

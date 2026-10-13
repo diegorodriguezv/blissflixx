@@ -1098,3 +1098,34 @@ class TestPeerflixsHardcodedMetadataPathIsLeftAlone:
 
         source = inspect.getsource(blissflixx)
         assert "symlink" not in source, "peerflix's hardcoded path is faked again"
+
+
+class TestStoppingAStageThatNeverStarted:
+    """
+    Stopping a pipeline while its first stage is still coming up.
+
+    Which is what happens when a film is asked for twice in quick succession:
+    the second request stops the first, whose stage has been told to start but
+    has not spawned anything yet.
+
+    stop() reads self.proc to decide whether there is anything to kill. That
+    attribute used to exist only once a command had been spawned, so this
+    raised AttributeError. It was raised out of the player loop, which ended
+    the loop thread -- and with the loop gone the player could not stop
+    anything, start anything, or answer a status: stop returned 200 and the
+    film kept playing. The player was unusable until the process was restarted.
+    """
+
+    def test_a_stage_with_no_command_can_be_stopped(self):
+        proc = _StubExternal()
+        # start() was never called, so nothing was ever spawned.
+        assert proc.proc is None
+        proc.stop()
+        # Nothing was spawned, so there is nothing to kill and no error to
+        # record -- the point is that this returns at all.
+        assert proc.killing is False
+        assert proc.errors == []
+
+    def test_the_attribute_exists_before_anything_is_spawned(self):
+        proc = _StubExternal()
+        assert hasattr(proc, "proc"), "self.proc must exist before start()"
