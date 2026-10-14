@@ -611,29 +611,23 @@ class ExternalProcess(Process):
         try:
             # kill - including all children of process
             os.killpg(proc.pid, signal.SIGTERM)
-        except (OSError, ProcessLookupError):
+        except Exception:
             # Not a reason to stop. killpg addresses a process *group*, and
             # the group is only there once the child has run the setsid it was
             # spawned with. Stopping a stage that is still starting can beat
             # that, and then the group named by this pid does not exist yet --
             # while the process itself very much does.
-            #
-            # This returned here, which meant the SIGKILL below was never
-            # reached, so the one process that could not be killed politely was
-            # also the one process never killed outright. For a player that is
-            # a stage still running its own wait, so the pipe reported itself
-            # finished while the film kept playing, with nothing left able to
-            # stop it. It looked like the stop button doing nothing, and it
-            # only happened on some stops -- the race.
             pass
         try:
             proc.wait(timeout=_TERMINATE_GRACE)
             return
-        except subprocess.TimeoutExpired:
+        except Exception:
+            # The process did not leave within the grace period. Fall through
+            # to the SIGKILL path below rather than giving up on it.
             pass
         try:
             os.killpg(proc.pid, signal.SIGKILL)
-        except (OSError, ProcessLookupError):
+        except Exception:
             pass
         try:
             # By pid as well, because the group can be missing while the process
@@ -641,7 +635,7 @@ class ExternalProcess(Process):
             # and not anything it spawned, which is what the group was for, so
             # this is the fallback and not the replacement.
             proc.kill()
-        except (OSError, ProcessLookupError):
+        except Exception:
             pass
         # Make sure what was asked for has actually happened. Without this the
         # process is a zombie until something reaps it, and the call site
@@ -649,7 +643,7 @@ class ExternalProcess(Process):
         # SIGKILL does not wait for it to take effect.
         try:
             proc.wait(timeout=_TERMINATE_GRACE)
-        except (subprocess.TimeoutExpired, subprocess.SubprocessError, OSError):
+        except Exception:
             pass
 
     def stop(self):
