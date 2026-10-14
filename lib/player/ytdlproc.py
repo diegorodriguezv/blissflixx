@@ -13,6 +13,13 @@ class YoutubeDlProcess(ExternalProcess):
     def __init__(self, url):
         super().__init__()
         self.url = url
+        # yt-dlp's --dump-single-json writes the whole extraction result as one
+        # line. For a YouTube video with subtitles that is routinely hundreds of
+        # kilobytes, and _LineTail's normal 2 KB partial cap silently truncated
+        # it, so _ready() never saw the JSON and reported "Process exit: 0"
+        # instead of playing a video that had resolved fine. Four megabytes is
+        # comfortably larger than these lines while still bounding the buffer.
+        self.partial_limit = 4 * 1024 * 1024
 
     def name(self):
         return "yt-dlp"

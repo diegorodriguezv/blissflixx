@@ -188,6 +188,23 @@ class TestLineTail:
         tail.close()
         assert len(tail.summary()) <= 2000
 
+    def test_a_long_single_line_is_kept_whole_when_the_stage_allows_it(self):
+        """
+        yt-dlp writes its whole JSON extraction result as one line. With the
+        normal 2 KB partial cap that line is cut down to its tail before the
+        newline arrives, so _ready() never sees the object and reports a
+        process exit instead of playing a video that resolved correctly.
+        """
+        tail = _LineTail(partial_limit=10000)
+        tail.write("{" + "x" * 5000 + "}\n")
+        assert tail.lines[0].startswith("{")
+        assert tail.lines[0].endswith("}")
+
+    def test_the_summary_does_not_hand_a_huge_json_line_to_the_ui(self):
+        tail = _LineTail(partial_limit=10000)
+        tail.write("{" + "x" * 5000 + "}\n")
+        assert len(tail.summary()) <= 500
+
     def test_empty_says_so_rather_than_nothing(self):
         assert _LineTail().summary() == "no output"
 

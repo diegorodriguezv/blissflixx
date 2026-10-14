@@ -69,10 +69,11 @@ class _LineTail:
     interesting line is rarely the last byte written.
     """
 
-    def __init__(self, keep=12, on_line=None):
+    def __init__(self, keep=12, on_line=None, partial_limit=2000):
         self.keep = keep
         self.lines = []
         self._partial = ""
+        self.partial_limit = partial_limit
         # Optional per-line observer. A stage that is controlled by typing
         # commands at the process reads its replies from the same stream the
         # process logs to, so it needs the lines rather than just the tail.
@@ -96,9 +97,11 @@ class _LineTail:
             line, self._partial = self._partial.split("\n", 1)
             self._push(line)
         # Bound the partial buffer too, in case a stage writes one huge line with
-        # no newline: keep its tail, which is where the message ends.
-        if len(self._partial) > 2000:
-            self._partial = self._partial[-2000:]
+        # no newline: keep its tail, which is where the message ends. Stages that
+        # need to parse a single long line -- yt-dlp's JSON is often half a
+        # megabyte on one line -- raise this for themselves.
+        if len(self._partial) > self.partial_limit:
+            self._partial = self._partial[-self.partial_limit :]
 
     def _push(self, line):
         line = line.strip()
@@ -129,7 +132,7 @@ class _LineTail:
         # until close(), so _partial has to count.
         return bool(self.lines) or bool(self._partial.strip())
 
-    def summary(self, max_lines=3):
+    def summary(self, max_lines=3, line_limit=500):
         """The last few lines, which is where a failure reason usually is."""
         lines = list(self.lines)
         # A process that died mid-line left a fragment. Non-destructive, so this
@@ -139,7 +142,16 @@ class _LineTail:
             lines.append(partial)
         if not lines:
             return "no output"
-        return " | ".join(lines[-max_lines:])
+        # yt-dlp's single JSON line can be hundreds of kilobytes long. Handing
+        # that whole thing to the UI turns a one-line failure into a wall of
+        # JSON that hides the actual reason, so each line is clipped for the
+        # summary. The full line is still kept in self.lines for whoever needs it.
+        clipped = []
+        for line in lines[-max_lines:]:
+            if line_limit and len(line) > line_limit:
+                line = line[: line_limit - 3] + "..."
+            clipped.append(line)
+        return " | ".join(clipped)
 
 
 def _copypipe(src, dest, on_done=None):
@@ -413,6 +425,10 @@ class ExternalProcess(Process):
         # Set by a stage that needs each output line as it arrives. See
         # _LineTail.on_line.
         self.on_output_line = None
+        # How long a single unterminated output line may grow before its tail is
+        # kept instead. Most stages want the small default; yt-dlp raises this
+        # because its dump-single-json output is one very long line.
+        self.partial_limit = 2000
         # Extra environment for the child. None inherits ours.
         self.env = None
         self.killing = False
@@ -470,7 +486,9 @@ class ExternalProcess(Process):
         # lines off a queue it fills, and _wait() joins that same copier instead
         # of starting a second reader. There is no select left to disagree with
         # the buffer.
-        self._tail = _LineTail(on_line=self._observe_line)
+        self._tail = _LineTail(
+            on_line=self._observe_line, partial_limit=self.partial_limit
+        )
         self._lines = Queue()
         self._copier = _bgcopypipe(
             self.proc.stdout, self._tail, lambda: self._lines.put(_EOF)
