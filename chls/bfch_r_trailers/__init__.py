@@ -5,6 +5,10 @@ _SUBREDDIT = "trailers"
 _FEEDLIST = [
     {"title": "Hot", "url": "http://www.reddit.com/r/trailers.json"},
     {"title": "Top This Week", "url": "http://www.reddit.com/r/trailers/top.json"},
+    {
+        "title": "Top This Month",
+        "url": "http://www.reddit.com/r/trailers/top.json?t=month",
+    },
 ]
 
 
@@ -25,9 +29,10 @@ def feedlist():
 
 
 def feed(idx):
-    if idx > 0:
-        return lib.chanutils.reddit.top(_SUBREDDIT, days=7)
-    return lib.chanutils.reddit.get_feed(_FEEDLIST[idx])
+    if idx == 0:
+        return lib.chanutils.reddit.get_feed(_FEEDLIST[idx])
+    days = 7 if idx == 1 else 30
+    return lib.chanutils.reddit.top(_SUBREDDIT, days=days)
 
 
 def search(q):
