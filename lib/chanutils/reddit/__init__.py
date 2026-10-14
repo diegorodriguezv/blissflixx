@@ -27,6 +27,8 @@ import re
 import time
 import urllib.parse
 
+from datetime import datetime, timedelta, timezone
+
 import cherrypy
 import requests
 
@@ -164,6 +166,30 @@ def search(subreddit, q, moviesubs=False):
         lambda: _read(params, retries=_SEARCH_RETRIES),
     )
     return _extract(_listing(data), moviesubs)
+
+
+def top(subreddit, days=7, moviesubs=False):
+    """
+    Highest scoring posts from the last few days.
+
+    The archive has no score ranking of its own, so Reddit's "top" listing is
+    served by asking it for everything in a recent window and ranking that here
+    by score. That is slower than a single archive listing but gives the sort of
+    feed a trailers channel wants: what people actually reacted to, rather than
+    only what is newest.
+    """
+    after = (datetime.now(timezone.utc) - timedelta(days=days)).date().isoformat()
+    params = {
+        "subreddit": subreddit,
+        "limit": _LIMIT * 3,
+        "sort": "desc",
+        "after": after,
+    }
+    data = _cached(
+        ("top", subreddit, days), lambda: _read(params, retries=_SEARCH_RETRIES)
+    )
+    data.sort(key=lambda post: int(post.get("score") or 0), reverse=True)
+    return _extract(_listing(data[:_LIMIT]), moviesubs)
 
 
 def get_feed(feed, moviesubs=False):
@@ -382,4 +408,4 @@ def _extract(data, moviesubs):
 
 # Kept for the channels that still import it, and for anything that reaches
 # reddit over the old path directly.
-__all__ = ["search", "get_feed"]
+__all__ = ["search", "get_feed", "top"]

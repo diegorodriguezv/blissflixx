@@ -4,7 +4,7 @@ _SUBREDDIT = "trailers"
 
 _FEEDLIST = [
     {"title": "Hot", "url": "http://www.reddit.com/r/trailers.json"},
-    {"title": "New", "url": "http://www.reddit.com/r/trailers/new.json"},
+    {"title": "Top This Week", "url": "http://www.reddit.com/r/trailers/top.json"},
 ]
 
 
@@ -25,6 +25,8 @@ def feedlist():
 
 
 def feed(idx):
+    if idx > 0:
+        return lib.chanutils.reddit.top(_SUBREDDIT, days=7)
     return lib.chanutils.reddit.get_feed(_FEEDLIST[idx])
 
 
