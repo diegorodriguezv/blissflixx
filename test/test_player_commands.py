@@ -87,7 +87,9 @@ class TestYoutubeDl:
         """
         piped = YoutubeDlProcess(SHORT_URL)._get_cmd({})
         assert "--simulate" in piped
-        assert "--dump-single-json" in piped
+        assert "--print" in piped
+        assert "%(url)j" in piped
+        assert "--dump-single-json" not in piped
 
     def test_download_when_not_skipped(self):
         """

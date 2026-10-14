@@ -13,12 +13,10 @@ class YoutubeDlProcess(ExternalProcess):
     def __init__(self, url):
         super().__init__()
         self.url = url
-        # yt-dlp's --dump-single-json writes the whole extraction result as one
-        # line. For a YouTube video with subtitles that is routinely hundreds of
-        # kilobytes, and _LineTail's normal 2 KB partial cap silently truncated
-        # it, so _ready() never saw the JSON and reported "Process exit: 0"
-        # instead of playing a video that had resolved fine. Four megabytes is
-        # comfortably larger than these lines while still bounding the buffer.
+        # The printed direct URL can itself be several kilobytes long because signed
+        # media URLs carry a large query string. The normal 2 KB partial cap would
+        # truncate it before the newline, so give this stage room to keep the
+        # whole line. Four megabytes is far above any single URL.
         self.partial_limit = 4 * 1024 * 1024
 
     def name(self):
@@ -39,7 +37,13 @@ class YoutubeDlProcess(ExternalProcess):
 
         if ythelper.skip_download(self.url):
             cmd.append("--simulate")
-            cmd.append("--dump-single-json")
+            # Print only the direct media URL rather than dumping yt-dlp's full
+            # extraction JSON. That JSON includes every automatic caption track
+            # yt-dlp knows about; one YouTube documentary here was 11 MB of
+            # subtitle metadata on a single line, which the output tail had to
+            # buffer before it could be parsed. The URL is all this stage needs.
+            cmd.append("--print")
+            cmd.append("%(url)j")
 
         cmd.append("--format")
         fmat = ythelper.get_format(self.url)
@@ -57,6 +61,14 @@ class YoutubeDlProcess(ExternalProcess):
             if line.startswith("[download] Destination:"):
                 self.args["outfile"] = OUT_FILE
                 return self.args
+            elif line.startswith('"'):
+                # The --print %(url)j form emits a JSON string rather than the
+                # full extraction object.
+                url = json.loads(line)
+                if not url:
+                    raise ProcessException("No URL in YTDL")
+                self.args["outfile"] = url
+                return self.args
             elif line.startswith("{"):
                 obj = json.loads(line)
                 if not "url" in obj:
@@ -68,6 +80,8 @@ class YoutubeDlProcess(ExternalProcess):
                     url = obj["url"]
                 self.args["outfile"] = url
                 return self.args
+            elif line == "NA" or line == "null":
+                raise ProcessException("No URL in YTDL")
             elif line.startswith("ERROR:"):
                 raise ProcessException(self._get_ytdl_err(line[7:]))
 

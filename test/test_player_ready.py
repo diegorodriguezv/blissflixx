@@ -161,6 +161,16 @@ class TestYoutubeDlReady:
         proc.args = {}
         assert proc._ready()["pid"] == 99
 
+    def test_print_url_string_becomes_the_output(self):
+        """
+        yt-dlp's --print %(url)j form emits a JSON string, not an object. This is
+        the form the player now uses because the full extraction JSON was one
+        11 MB line for a video with many automatic caption tracks.
+        """
+        proc = feed(stub_proc(YoutubeDlProcess("u")), '"http://direct/x.mp4"')
+        proc.args = {}
+        assert proc._ready()["outfile"] == "http://direct/x.mp4"
+
     def test_requested_formats_falls_back_to_the_first_entry(self):
         """Merged dash/audio formats have no top-level url."""
         proc = feed(
@@ -189,6 +199,12 @@ class TestYoutubeDlReady:
 
     def test_json_without_any_url_is_rejected(self):
         proc = feed(stub_proc(YoutubeDlProcess("u")), '{"title": "no url here"}')
+        proc.args = {}
+        with pytest.raises(ProcessException, match="No URL in YTDL"):
+            proc._ready()
+
+    def test_missing_print_url_is_rejected(self):
+        proc = feed(stub_proc(YoutubeDlProcess("u")), "null")
         proc.args = {}
         with pytest.raises(ProcessException, match="No URL in YTDL"):
             proc._ready()
