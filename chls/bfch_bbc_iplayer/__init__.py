@@ -116,17 +116,93 @@ def _extract_grid(doc):
             continue
         if url.startswith("/iplayer"):
             url = "http://www.bbc.co.uk" + url
+        img = None
         idiv = select_one(l, "div.rs-image")
-        idiv = select_one(idiv, "img")
-        img = get_attr(idiv, "srcset").split()[0]
+        if idiv is not None:
+            for _candidate in (
+                select_one(idiv, "img.rs-image__img"),
+                select_one(idiv, "img"),
+                select_one(idiv, "source"),
+            ):
+                if _candidate is None:
+                    continue
+                srcset = get_attr(_candidate, "srcset")
+                if srcset:
+                    img = str(srcset).split()[0]
+                    break
+                src = get_attr(_candidate, "src")
+                if src:
+                    img = src
+                    break
+                data_src = get_attr(_candidate, "data-src")
+                if data_src:
+                    img = data_src
+                    break
+        if not img:
+            for _img in l.xpath(".//img"):
+                srcset = _img.get("srcset")
+                if srcset:
+                    img = str(srcset).split()[0]
+                    break
+                src = _img.get("src")
+                if src and not str(src).startswith("data:"):
+                    img = src
+                    break
+        if not img:
+            _raw = get_attr(a, "data-v-item")
+            if _raw:
+                try:
+                    import json as _json
+
+                    _meta = _json.loads(_raw)
+                    _tmpl = _meta.get("image")
+                    if isinstance(_tmpl, str) and "{recipe}" in _tmpl:
+                        img = _tmpl.replace("{recipe}", "304x171")
+                except (ValueError, TypeError):
+                    pass
 
         sdiv = select_one(l, "div.content-item__info__text")
-        avail = select_one(sdiv, "div.content-item__labels")
+        avail = select_one(sdiv, "div.content-item__labels") if sdiv is not None else None
         if get_text_content(avail) == "Not available":
             continue
+        if any(get_text_content(_el) == "Not available" for _el in l.iter()):
+            continue
 
-        title = get_text_content(select_one(sdiv, "div.content-item__title"))
-        subtitle = get_text_content(select_one(sdiv, "div.content-item__description"))
+        title = None
+        subtitle = None
+        if sdiv is not None:
+            title = get_text_content(select_one(sdiv, "div.content-item__title"))
+            subtitle = get_text_content(select_one(sdiv, "div.content-item__description"))
+        if not title:
+            for _expr in (
+                "div.content-item-root__title",
+                "div.content-item-root__meta",
+                "div.content-item__title",
+            ):
+                title = get_text_content(select_one(l, _expr))
+                if title:
+                    break
+        if not title:
+            _aria = get_attr(a, "aria-label")
+            if _aria:
+                _parts = [p.strip() for p in str(_aria).split(".") if p.strip()]
+                if len(_parts) > 1 and _parts[0].lower().startswith(
+                    ("1 of ", "2 of ", "3 of ", "4 of ", "5 of ")
+                ):
+                    title = _parts[1]
+                elif _parts:
+                    title = _parts[0]
+        if not subtitle:
+            _aria = get_attr(a, "aria-label")
+            if _aria and "Description:" in _aria:
+                subtitle = _aria.split("Description:", 1)[1].strip()
+                for _marker in (" Category:", " Duration:", " Rating:"):
+                    if _marker in subtitle:
+                        subtitle = subtitle.split(_marker, 1)[0].strip()
+        if not title:
+            continue
+        if subtitle is None:
+            subtitle = ""
         if title.endswith("..."):
             title = title[:-3]
         if subtitle.endswith("..."):

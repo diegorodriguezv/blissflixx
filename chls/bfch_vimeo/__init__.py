@@ -1,13 +1,11 @@
-import json
+import lxml.html
 
-import lib.chanutils.reddit
 from lib.chanutils import get
 from lib.playitem import PlayItem, PlayItemList
 
 _SEARCH_URL = "https://vimeo.com/search"
 
 _FEEDLIST = [
-    {"title": "Trending", "url": "http://www.reddit.com/domain/vimeo.com/top/.json"},
     {
         "title": "Ads and Commercials",
         "url": "https://vimeo.com/categories/adsandcommercials/videos",
@@ -22,8 +20,8 @@ _FEEDLIST = [
     {"title": "Experimental", "url": "http://vimeo.com/categories/experimental/videos"},
     {"title": "Music", "url": "http://vimeo.com/categories/music/videos"},
     {"title": "Narrative", "url": "http://vimeo.com/categories/narrative/videos"},
-    {"title": "Sports", "url": "http://vimeo.com/categories/sports/videos"},
-    {"title": "Travel", "url": "http://vimeo.com/categories/travel/videos"},
+    {"title": "Sports", "url": "https://vimeo.com/categories/sports/videos"},
+    {"title": "Travel", "url": "https://vimeo.com/categories/travel/videos"},
 ]
 
 
@@ -45,11 +43,8 @@ def feedlist():
 
 def feed(idx):
     url = _FEEDLIST[idx]["url"]
-    if url.endswith(".json"):
-        return lib.chanutils.reddit.get_feed(_FEEDLIST[idx])
-    else:
-        r = get(url)
-        return _extract(r.text)
+    r = get(url)
+    return _extract(r.text)
 
 
 def search(q):
@@ -58,13 +53,24 @@ def search(q):
 
 
 def _extract(text):
-    start = text.find("var data = {")
-    end = text.find("console.debug(data);", start)
-    data = json.loads(text[start + 11 : end - 40])
+    doc = lxml.html.fromstring(text)
     results = PlayItemList()
-    for item in data["filtered"]["data"]:
-        url = item["clip"]["link"]
-        title = item["clip"]["name"]
-        img = item["clip"]["pictures"]["sizes"][0]["link"]
+    for li in doc.xpath("//ol/li"):
+        anchors = li.xpath(".//a")
+        anchor = None
+        for a in anchors:
+            href = a.get("href") or ""
+            if href.lstrip("/").isdigit():
+                anchor = a
+                break
+        if anchor is None:
+            continue
+        title = anchor.get("title")
+        if not title:
+            title = anchor.text_content().strip()
+        img_el = li.xpath(".//img")
+        img = img_el[0].get("src") if img_el else None
+        href = anchor.get("href")
+        url = "https://vimeo.com" + href
         results.add(PlayItem(title, img, url))
     return results

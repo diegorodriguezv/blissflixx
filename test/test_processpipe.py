@@ -1223,3 +1223,58 @@ class TestOneStageCannotStartTwo:
         assert pipe.next_proc == 1
         pipe._start_next()  # must be a no-op, not IndexError
         assert pipe.next_proc == 1
+
+
+class TestTheKillIsNotSkippedWhenTheGroupIsMissing:
+    """
+    _terminate() addresses a process group, and the group only exists once the
+    child has run the setsid it was spawned with.
+
+    Stopping a stage that is still starting can beat that. The group named by
+    its pid does not exist yet, killpg raises, and -- because the handler
+    returned -- the SIGKILL after it was never reached. So the one process
+    that could not be killed politely was also the one never killed at all.
+
+    For a player that is a stage still sitting in its own wait, so the pipe
+    reports itself finished while the film keeps playing and nothing the
+    interface sends can stop it. It happened on a Pi, and only on some stops,
+    which is what a race looks like.
+    """
+
+    def _proc(self):
+        """A live process, recorded so it is cleaned up afterwards."""
+        proc = subprocess.Popen(
+            ["sleep", "300"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+        )
+        self._spawned.append(proc)
+        return proc
+
+    def setup_method(self):
+        self._spawned = []
+
+    def teardown_method(self):
+        for proc in self._spawned:
+            if proc.poll() is None:
+                proc.kill()
+
+    def test_the_process_dies_even_when_the_group_is_gone(self):
+        stage = _StubExternal()
+        stage.proc = self._proc()
+        # Exactly what losing the race looks like from inside _terminate.
+        with m.patch("os.killpg", side_effect=ProcessLookupError("no such group")):
+            stage._terminate()
+        assert stage.proc.poll() is not None, "the process outlived the stop"
+
+    def test_the_process_is_killed_by_pid_when_the_group_is_gone(self):
+        """The group is how a process reaches the children it spawned; the
+        pid is the fallback for when the group is not there at all."""
+        stage = _StubExternal()
+        real = self._proc()
+        stage.proc = real
+
+        def group_gone(pgid, sig):
+            raise ProcessLookupError("no such group")
+
+        with m.patch("os.killpg", side_effect=group_gone):
+            stage._terminate()
+        assert real.poll() is not None, "the process outlived the stop"

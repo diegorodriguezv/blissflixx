@@ -1,18 +1,22 @@
-from lib.chanutils import get_json
-from lib.playitem import PlayItemList, SearchItem
+import json
+
+import lxml.html
+
+from lib.chanutils import get
+from lib.playitem import PlayItem, PlayItemList
 
 _FEEDLIST = [
     {
         "title": "Top Rentals",
-        "url": "http://www.rottentomatoes.com/api/private/v1.0/m/list/find?page=1&limit=30&type=dvd-top-rentals&minTomato=0&maxTomato=100&minPopcorn=0&maxPopcorn=100&services=amazon;amazon_prime;flixster;hbo_go;itunes;netflix_iw;target;vudu&genres=1;2;4;5;6;8;9;10;11;13;18;14&sortBy=popularity&certified=false",
+        "url": "https://www.rottentomatoes.com/browse/movies_at_home/sort:popular",
     },
     {
         "title": "Top Rated",
-        "url": "http://www.rottentomatoes.com/api/private/v1.0/m/list/find?page=1&limit=30&type=cf-dvd-all&minTomato=75&maxTomato=100&minPopcorn=0&maxPopcorn=100&services=amazon;amazon_prime;flixster;hbo_go;itunes;netflix_iw;target;vudu&genres=1;2;4;5;6;8;9;10;11;13;18;14&sortBy=release&certified=true",
+        "url": "https://www.rottentomatoes.com/browse/movies_at_home/critics:certified_fresh",
     },
     {
         "title": "New Releases",
-        "url": "http://www.rottentomatoes.com/api/private/v1.0/m/list/find?page=1&limit=30&type=dvd-new-releases&minTomato=0&maxTomato=100&minPopcorn=0&maxPopcorn=100&services=amazon;amazon_prime;flixster;hbo_go;itunes;netflix_iw;target;vudu&genres=1;2;4;5;6;8;9;10;11;13;18;14&sortBy=popularity&certified=false",
+        "url": "https://www.rottentomatoes.com/browse/movies_at_home/sort:newest",
     },
 ]
 
@@ -26,7 +30,7 @@ def image():
 
 
 def description():
-    return "Rotten Tomatoes Channel (<a target='_blank' href='http://www.rottentomatoes.com/'>http://www.rottentomatoes.com/</a>)."
+    return "Rotten Tomatoes Channel (<a target='_blank' href='https://www.rottentomatoes.com/'>https://www.rottentomatoes.com/</a>)."
 
 
 def feedlist():
@@ -34,23 +38,58 @@ def feedlist():
 
 
 def feed(idx):
-    data = get_json(_FEEDLIST[idx]["url"])
-    return _extract(data["results"])
+    r = get(_FEEDLIST[idx]["url"])
+    return _extract(r.text)
 
 
-def _extract(rtree):
+def _movies_from_data(data):
+    movies = []
+    item_list = data.get("itemListElement") if isinstance(data, dict) else None
+    if isinstance(item_list, dict):
+        nested = item_list.get("itemListElement")
+        if isinstance(nested, list):
+            movies = nested
+        elif isinstance(nested, dict):
+            movies = [nested]
+    elif isinstance(item_list, list):
+        movies = item_list
+
+    if not movies:
+        # Fall back to a recursive search for movie entries.
+        stack = [data]
+        while stack:
+            current = stack.pop()
+            if isinstance(current, dict):
+                if current.get("@type") == "Movie":
+                    movies.append(current)
+                for value in current.values():
+                    if isinstance(value, (dict, list)):
+                        stack.append(value)
+            elif isinstance(current, list):
+                stack.extend(current)
+    return movies
+
+
+def _extract(text):
     results = PlayItemList()
-    for i in rtree:
-        img = i["posters"]["primary"]
-        title = i["title"]
-        subtitle = "DVD Release Date: " + i["dvdReleaseDate"]
-        tomatoScore = "Unknown"
-        if "tomatoScore" in i:
-            tomatoScore = str(i["tomatoScore"]) + "%"
-        popcornScore = "Unknown"
-        if "popcornScore" in i:
-            popcornScore = str(i["popcornScore"]) + "%"
-        synopsis = "Tomato Score: " + tomatoScore
-        synopsis = synopsis + ", Popcorn Score: " + popcornScore
-        results.add(SearchItem(title, img, subtitle, synopsis))
+    doc = lxml.html.fromstring(text)
+    for script in doc.xpath('//script[@type="application/ld+json"]'):
+        try:
+            data = json.loads(script.text_content())
+        except (ValueError, TypeError):
+            continue
+        if not isinstance(data, dict):
+            continue
+        for item in _movies_from_data(data):
+            if not isinstance(item, dict) or item.get("@type") != "Movie":
+                continue
+            name = item.get("name")
+            image = item.get("image")
+            url = item.get("url")
+            subtitle = item.get("dateCreated")
+            synopsis = None
+            aggregate_rating = item.get("aggregateRating")
+            if isinstance(aggregate_rating, dict):
+                synopsis = aggregate_rating.get("ratingValue")
+            results.add(PlayItem(name, image, url, subtitle, synopsis))
     return results

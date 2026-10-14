@@ -51,16 +51,27 @@ def feedlist():
 
 def feed(idx):
     doc = get_doc(_FEEDLIST[idx]["url"])
-    rtree = select_all(doc, "div.post-block")
+    rtree = select_all(doc, "div.loop-card")
+    if not rtree:
+        rtree = select_all(doc, "div.post-block")
     results = PlayItemList()
     for l in rtree:
-        el = select_one(l, "a")
-        url = get_attr(el, "href")
-        el = select_one(l, "img")
-        img = get_attr(el, "src")
-        el = select_one(l, "div.post-block__content")
-        subtitle = get_text(el)
-        el = select_one(l, "a.post-block__title__link")
-        title = get_text(el)
+        loop_title = select_one(l, "a.loop-card__title-link")
+        if loop_title is not None:
+            url = get_attr(loop_title, "href")
+            title = get_text(loop_title)
+            img_el = select_one(l, "img")
+            img = get_attr(img_el, "src")
+            content_el = select_one(l, "div.loop-card__content")
+            subtitle = get_text(content_el)
+        else:
+            url_el = select_one(l, "a")
+            url = get_attr(url_el, "href")
+            img_el = select_one(l, "img")
+            img = get_attr(img_el, "src")
+            content_el = select_one(l, "div.post-block__content")
+            subtitle = get_text(content_el)
+            title_el = select_one(l, "a.post-block__title__link")
+            title = get_text(title_el)
         results.add(PlayItem(title, img, url, subtitle))
     return results
