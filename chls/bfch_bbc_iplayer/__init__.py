@@ -109,6 +109,42 @@ def showmore(link):
 def _extract_grid(doc):
     rtree = select_all(doc, "li.grid__item")
     results = PlayItemList()
+
+    if not rtree:
+        seen = set()
+        for a in doc.xpath(
+            '//a[contains(@href, "/iplayer/episode") or contains(@href, "/iplayer/episodes")]'
+        ):
+            url = get_attr(a, "href")
+            if not url or url in seen:
+                continue
+            if url.startswith("/iplayer"):
+                url = "http://www.bbc.co.uk" + url
+            seen.add(url)
+
+            title = " ".join((a.text_content() or "").split())
+            if not title:
+                continue
+            if title.endswith("..."):
+                title = title[:-3]
+
+            img = None
+            img_nodes = a.xpath(".//img")
+            if not img_nodes:
+                img_nodes = a.xpath("ancestor::li[1]//img")
+            if img_nodes:
+                img_el = img_nodes[0]
+                srcset = get_attr(img_el, "srcset")
+                if srcset:
+                    img = str(srcset).split()[0]
+                else:
+                    img = get_attr(img_el, "src")
+            if not img:
+                continue
+
+            results.add(PlayItem(title, img, url))
+        return results
+
     for l in rtree:
         a = select_one(l, "a")
         url = get_attr(a, "href")
@@ -162,7 +198,9 @@ def _extract_grid(doc):
                     pass
 
         sdiv = select_one(l, "div.content-item__info__text")
-        avail = select_one(sdiv, "div.content-item__labels") if sdiv is not None else None
+        avail = (
+            select_one(sdiv, "div.content-item__labels") if sdiv is not None else None
+        )
         if get_text_content(avail) == "Not available":
             continue
         if any(get_text_content(_el) == "Not available" for _el in l.iter()):
@@ -172,7 +210,9 @@ def _extract_grid(doc):
         subtitle = None
         if sdiv is not None:
             title = get_text_content(select_one(sdiv, "div.content-item__title"))
-            subtitle = get_text_content(select_one(sdiv, "div.content-item__description"))
+            subtitle = get_text_content(
+                select_one(sdiv, "div.content-item__description")
+            )
         if not title:
             for _expr in (
                 "div.content-item-root__title",
