@@ -188,21 +188,32 @@ exec /usr/bin/systemctl poweroff
 _contents
     chmod 755 /usr/local/sbin/blissflixx-halt
 
+    # Who ran this. SUDO_USER is what sudo sets it to, and it is the only one
+    # of these that is right when configure.sh is run over ssh with no
+    # terminal, which is how it usually is. A wrong name here means a grant
+    # nobody matches, and the buttons stay dead with no way to tell why.
+    BF_USER="${SUDO_USER:-$(logname 2>/dev/null || whoami)}"
+
     cat << _contents > /etc/sudoers.d/blissflixx
 # Written by configure.sh. Each script takes no arguments, which is why the
 # empty pair of quotes at the end of each: that is how a sudoers command with
 # no arguments is spelled, and passing an argument -- even an empty one -- makes
 # sudo ask for a password again.
-$(logname) ALL=(root) NOPASSWD: /usr/local/sbin/blissflixx-restart "", /usr/local/sbin/blissflixx-reboot "", /usr/local/sbin/blissflixx-halt ""
+$BF_USER ALL=(root) NOPASSWD: /usr/local/sbin/blissflixx-restart "", /usr/local/sbin/blissflixx-reboot "", /usr/local/sbin/blissflixx-halt ""
 _contents
     chmod 440 /etc/sudoers.d/blissflixx
 
     # Checked before going any further, and removed if it is wrong: a sudoers
     # file that does not parse stops sudo working for everyone on the machine,
-    # and the symptom of that is not finding out now.
-    if ! visudo -cf /etc/sudoers.d/blissflixx > /dev/null 2>&1 ; then
-        rm -f /etc/sudoers.d/blissflixx
-        echo "The sudo grant could not be written; reboot and shutdown stay off." 1>&2
+    # and the symptom of that is not finding out now. By its full path, since a
+    # non-interactive shell may not have /usr/sbin on its PATH -- and the check
+    # must not be the thing that skips itself when it cannot find visudo.
+    if [ -x /usr/sbin/visudo ] ; then
+        if ! /usr/sbin/visudo -cf /etc/sudoers.d/blissflixx > /dev/null 2>&1 ; then
+            rm -f /etc/sudoers.d/blissflixx
+            echo "The sudo grant did not parse, so it was removed;" 1>&2
+            echo "reboot and shutdown will not work until it is fixed." 1>&2
+        fi
     fi
     stage "the reboot and shutdown buttons"
 fi
