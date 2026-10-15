@@ -235,16 +235,28 @@ _SEEK_SECONDS = {
 
 #: VLC's own volume scale. Its maximum is 512, not 100. The cli has no command
 #: to read the level back, so the level in force is tracked from the last one set.
-_VOLUME_MAX = 512
+_VOLUME_SCALE = 512
 
 #: VLC's own 100%: 256 on its 0-512 scale. VLC's default is 256, so this is the
 #: level it uses when nothing has been set, and it is what a viewer means by
 #: "full" -- no software gain applied to the stream, no chance of clipping it.
 _VOLUME_NOMINAL = 256
 
-#: What the player starts at: VLC's 100%. The start used to be _VOLUME_MAX,
-#: which is VLC's 200%, while the overlay called it 100% -- so a film opened at
-#: twice normal level and audibly distorted. Applied at readiness; see
+#: How far above VLC's 100% the buttons may go: 120%, or 307 of VLC's units.
+#:
+#: A film opens at _VOLUME_START, which is 100%, so this is headroom rather than
+#: the usual setting -- for a quiet source or a room with noise. It is a ceiling
+#: and not a recommendation: the distortion that came before was not a film
+#: recorded too loud but this player opening at twice normal level, and there is
+#: nothing past 120% that a film needs.
+#:
+#: Enforced in _set_volume() rather than only through the volume_max setting,
+#: because an install that already has the old 512 saved keeps it, and a setting
+#: left over from the era when 512 was called 100% would otherwise put that
+#: distortion straight back.
+_VOLUME_MAX = 307
+
+#: What the player starts at: VLC's 100%. Applied at readiness; see
 #: _apply_start_volume.
 _VOLUME_START = _VOLUME_NOMINAL
 
@@ -404,15 +416,15 @@ class VlcProcess(PlayerBackend):
         "osd_size": "84",
         "osd_opacity": "220",
         "start_timeout": _START_TIMEOUT,
-        # As a percentage of VLC's 0-512 scale, not a number of its units: the
-        # step used to be 5, which is 5 of 512 -- about one percent, so the
-        # button appeared to do nothing at all. It is converted on the way out.
+        # As a percentage of VLC's own 100%, not a number of its units: the step
+        # used to be 5, which was 5 of 512 -- about one percent, so the button
+        # appeared to do nothing at all. It is converted on the way out.
         #
         # Ten rather than five because five was still too small to see from a
         # sofa: the confirmation went from "Volume 50%" to "Volume 55%" and
         # read as no change at all.
         "volume_step": 10,
-        "volume_max": 512,
+        "volume_max": _VOLUME_MAX,
     }
 
     def __init__(self, config=None):
@@ -1331,7 +1343,11 @@ class VlcProcess(PlayerBackend):
         return self._volume
 
     def _set_volume(self, value):
-        value = min(value, self.opt("volume_max"))
+        # Clamped to _VOLUME_MAX as well as the setting, because an install
+        # that already has the old 512 saved would otherwise climb straight back
+        # to VLC's 200% and distort -- which is the bug _VOLUME_MAX exists to
+        # stop. See its comment.
+        value = min(value, self.opt("volume_max"), _VOLUME_MAX)
         self._volume = value
         # "volume N", not "vol N": the verb is "volume", and there is no "vol".
         # The cli interface reports an unrecognised command by echoing the

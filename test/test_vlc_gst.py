@@ -437,7 +437,8 @@ class TestVlcControl:
     def test_the_volume_step_is_a_percentage_not_vlcs_own_units(self):
         """
         So that "10" in the settings means 10% to whoever edits it, rather than
-        10 of 512 -- which is what it used to mean, and looked like a typo.
+        10 of VLC's 0-512 units -- which is what it used to mean, and looked
+        like a typo.
         """
         proc = VlcProcess()
         proc._send_command = lambda c: True
@@ -453,7 +454,19 @@ class TestVlcControl:
         assert proc._volume == 0
         for _ in range(60):
             proc.control("volup")
-        assert proc._volume == 512
+        assert proc._volume == 307
+
+    def test_the_ceiling_is_a_hundred_and_twenty_percent(self):
+        """
+        120% of VLC's own 100% (256) is 307. 512 -- the top of VLC's scale,
+        which this player used to call 100% -- is its 200% and is exactly the
+        level that distorted the audio, so it must not be reachable.
+        """
+        from lib.player.vlcproc import _VOLUME_MAX, _VOLUME_NOMINAL
+
+        assert _VOLUME_MAX == round(_VOLUME_NOMINAL * 1.20)
+        assert _volume_percent(_VOLUME_MAX) == 120
+        assert _volume_percent(512) == 200
 
     def test_volume_never_goes_below_zero(self):
         proc = VlcProcess()
@@ -468,6 +481,22 @@ class TestVlcControl:
         for _ in range(200):
             proc.control("volup")
         assert proc._volume == proc.opt("volume_max")
+
+    def test_a_saved_volume_max_cannot_lift_the_ceiling(self):
+        """
+        An install that already has the old 512 in its settings must not be able
+        to put the distortion back. The clamp is in code for exactly that case,
+        so it holds whatever the setting says.
+        """
+        proc = VlcProcess()
+        proc._send_command = lambda c: True
+        proc.config["volume_max"] = 512
+
+        for _ in range(200):
+            proc.control("volup")
+
+        assert proc._volume == 307
+        assert _volume_percent(proc._volume) == 120
 
     def test_the_start_level_is_put_on_the_player(self):
         """
