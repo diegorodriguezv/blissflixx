@@ -3,8 +3,6 @@ import lxml.html
 from lib.chanutils import get
 from lib.playitem import PlayItem, PlayItemList
 
-_SEARCH_URL = "https://vimeo.com/search"
-
 _FEEDLIST = [
     {
         "title": "Ads and Commercials",
@@ -47,9 +45,24 @@ def feed(idx):
     return _extract(r.text)
 
 
-def search(q):
-    r = get(_SEARCH_URL, params={"q": q})
-    return _extract(r.text)
+# No search(). Vimeo blocks it.
+#
+# The channel used to offer one, pointed at https://vimeo.com/search, and it
+# failed every time: vimeo.com/search answers 403 to everything, and that is not
+# a rate limit or a user-agent problem. Measured, all of these are 403 --
+#
+#     /search?q=the            /search?type=videos&q=the
+#     /search?q=the&type=videos        the same with a browser User-Agent
+#
+# -- while the category pages this channel actually reads answer 200 and parse.
+# So the categories work and the search does not, and there is no variant of the
+# URL that changes it.
+#
+# Leaving the function out is what stops the interface offering the box. A module
+# with search() gets a search field; without one it gets none, and the channel
+# still has its ten categories. What it had instead was a search box that could
+# only ever produce a 500 and an error page -- which is worse than no box, because
+# it looked like the channel had a search and the search was broken.
 
 
 def _extract(text):

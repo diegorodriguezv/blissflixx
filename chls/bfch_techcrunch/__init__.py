@@ -1,9 +1,29 @@
 from lib.chanutils import get_attr, get_doc, get_text, select_all, select_one
 from lib.playitem import PlayItem, PlayItemList
 
+# "TCTV News" used to be here and is not any more.
+#
+# Every show on this list is written as /shows/<slug>/ and redirects to
+# /collection/<slug>/. Eighteen of them resolve; TCTV News redirects to
+# /collection/tctv-news, which is a 404. The show page has been taken off the
+# site, and its 404 body is a full page that happens to carry seventeen
+# loop-card elements -- so a selector count says "17 items found" on a page that
+# does not exist. Only the status code tells the truth, which is why this was
+# found by asking the server rather than by counting cards.
+#
+# Its videos do still exist, in the WordPress API, but there is no page to point
+# a feed at. The obvious repairs were both worse than removal:
+#
+#   /video/?s=tctv                     200, twelve cards -- and the term is
+#                                      ignored, so it is a generic recent-
+#                                      videos listing, i.e. "All Videos" again
+#   /?s=tctv+news&post_type=tc_video   200, eight cards -- also unfiltered
+#
+# Both answer 200 and would have looked fine while quietly showing something else
+# entirely, under a name promising TCTV News. A feed that lies about its
+# contents is worse than a feed that is not there.
 _FEEDLIST = [
     {"title": "All Videos", "url": "http://techcrunch.com/video/"},
-    {"title": "TCTV News", "url": "http://techcrunch.com/shows/tctv-news/"},
     {"title": "TC Gadgets", "url": "http://techcrunch.com/shows/gadgets/"},
     {"title": "Features", "url": "http://techcrunch.com/shows/features/"},
     {"title": "Reviews", "url": "http://techcrunch.com/shows/reviews/"},
