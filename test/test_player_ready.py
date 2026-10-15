@@ -144,7 +144,7 @@ class TestPeerflixReady:
 class TestYoutubeDlReady:
     def test_json_url_becomes_the_output(self):
         """Piped playback hands the player the direct stream url."""
-        proc = feed(stub_proc(YoutubeDlProcess("u")), '{"url": "http://direct/x.mp4"}')
+        proc = feed(stub_proc(YoutubeDlProcess("u")), '"http://direct/x.mp4"', "false")
         proc.args = {}
         assert proc._ready() == {
             "pid": 4242,
@@ -162,23 +162,52 @@ class TestYoutubeDlReady:
         so, and telling them apart would mean polling, which is what stopped
         the cli interface answering at all. yt-dlp already knows.
         """
-        proc = feed(
-            stub_proc(YoutubeDlProcess("u")),
-            '{"url": "http://live/x.m3u8", "is_live": true}',
-        )
+        proc = feed(stub_proc(YoutubeDlProcess("u")), '"http://live/x.m3u8"', "true")
         proc.args = {}
         out = proc._ready()
         assert out["is_live"] is True, out
         assert out["outfile"] == "http://live/x.m3u8", out
 
-    def test_a_missing_url_is_still_an_error_not_a_crash(self):
+    def test_a_site_that_does_not_report_live_still_plays(self):
         """
-        #j quotes a value the extractor does not have, so a missing URL arrives
-        as the string NA. Recognising that is the point of quoting it: bare NA
-        inside the object would not parse at all, and the failure would be an
-        unhandled JSON error instead of the message the user sees.
+        xnxx reports no is_live field at all, and yt-dlp prints a bare NA for a
+        field it does not have.
+
+        That is the case this shape exists for, and it was found by shipping the
+        other one: printed inside a single object, {"url": "...", "is_live": NA}
+        is not JSON, so the line cannot be parsed at all and the film never
+        starts. An absence of information about whether something is live took
+        the video down with it. On its own line a bare NA parses as itself and
+        means only that this site does not say.
         """
-        proc = feed(stub_proc(YoutubeDlProcess("u")), '{"url": "NA", "is_live": false}')
+        proc = feed(stub_proc(YoutubeDlProcess("u")), '"http://hls-cdn/x.m3u8"', "NA")
+        proc.args = {}
+        out = proc._ready()
+        assert out["outfile"] == "http://hls-cdn/x.m3u8", out
+        assert out["is_live"] is False, "missing is not the same as live"
+
+    def test_a_warning_between_the_two_lines_does_not_hide_the_answer(self):
+        """
+        The two answers are printed one after the other, but the player writes
+        warnings of its own in between.
+        """
+        proc = feed(
+            stub_proc(YoutubeDlProcess("u")),
+            '"http://live/x.m3u8"',
+            'WARNING: "-f best" selects the best pre-merged format',
+            "true",
+        )
+        proc.args = {}
+        assert proc._ready()["is_live"] is True
+
+    def test_a_url_that_never_arrives_is_an_error_not_a_crash(self):
+        proc = feed(stub_proc(YoutubeDlProcess("u")), "NA")
+        proc.args = {}
+        with pytest.raises(ProcessException, match="No URL in YTDL"):
+            proc._ready()
+
+    def test_a_missing_url_inside_an_object_is_still_an_error(self):
+        proc = feed(stub_proc(YoutubeDlProcess("u")), '{"url": "NA"}')
         proc.args = {}
         with pytest.raises(ProcessException, match="No URL in YTDL"):
             proc._ready()
@@ -199,7 +228,7 @@ class TestYoutubeDlReady:
         the form the player now uses because the full extraction JSON was one
         11 MB line for a video with many automatic caption tracks.
         """
-        proc = feed(stub_proc(YoutubeDlProcess("u")), '"http://direct/x.mp4"')
+        proc = feed(stub_proc(YoutubeDlProcess("u")), '"http://direct/x.mp4"', "false")
         proc.args = {}
         assert proc._ready()["outfile"] == "http://direct/x.mp4"
 

@@ -93,21 +93,29 @@ class TestYoutubeDl:
         assert not any(
             "%(url)j" in part for part in piped
         ), "the raw url form came back"
-        # #j, not j: a field the extractor has no value for comes out as bare
-        # NA under j, and bare NA inside an object is not JSON, so a missing URL
-        # would arrive as an unparseable line instead of a clear error.
-        assert any("%(url)#j" in part for part in piped), piped
         assert "--dump-single-json" not in piped
 
-    def test_the_printed_line_carries_whether_it_is_live(self):
+    def test_the_url_and_whether_it_is_live_are_printed_separately(self):
         """
         A live stream has no total to show, and VLC answers with the size of its
         sliding window anyway -- 11 on one IPTV channel, 13 two seconds later.
         The only honest source for whether it is live is yt-dlp.
+
+        Two lines, not one object. A field an extractor has no value for comes
+        out as a bare NA, and inside an object that makes the whole line
+        unparseable, so the URL goes down with the missing flag. is_live is
+        missing for some sites -- xnxx reports it not at all -- and a film that
+        cannot say whether it is live is still a film.
         """
         cmd = YoutubeDlProcess(SHORT_URL)._get_cmd({})
-        template = cmd[cmd.index("--print") + 1]
-        assert "is_live" in template, template
+        templates = [cmd[i + 1] for i, part in enumerate(cmd) if part == "--print"]
+        assert len(templates) == 2, templates
+        assert any("url" in t for t in templates), templates
+        assert any("is_live" in t for t in templates), templates
+        for template in templates:
+            assert (
+                "{" not in template
+            ), f"{template!r} reads as one object, which a bare NA would break"
 
     def test_download_when_not_skipped(self):
         """

@@ -8,6 +8,11 @@ from .processpipe import OUT_FILE, ExternalProcess, ProcessException
 YTDL_PATH = os.path.join(YTUBE_PATH, "yt_dlp")
 YTDL_PATH = os.path.join(YTDL_PATH, "__main__.py")
 
+#: How many lines to look through for the is_live answer. It is printed right
+#: after the URL, so this only has to cover the player's own warnings landing
+#: between the two.
+_IS_LIVE_SCAN = 4
+
 
 class YoutubeDlProcess(ExternalProcess):
     def __init__(self, url):
@@ -42,21 +47,23 @@ class YoutubeDlProcess(ExternalProcess):
 
         if ythelper.skip_download(url):
             cmd.append("--simulate")
-            # Print the direct media URL, and whether this is a live stream, as
-            # one small JSON object. Not the full extraction JSON: that includes
-            # every automatic caption track yt-dlp knows about, and one YouTube
-            # documentary here was 11 MB of subtitle metadata on a single line
-            # for the output tail to buffer before it could be parsed. Two
-            # fields is all this stage needs.
+            # Two short lines rather than the full extraction JSON. That JSON
+            # includes every automatic caption track yt-dlp knows about, and one
+            # YouTube documentary here was 11 MB of subtitle metadata on a
+            # single line for the output tail to buffer before it could be
+            # parsed. Two fields is all this stage needs.
             #
-            # The #j form rather than j. j emits the value raw, and a field the
-            # extractor does not have comes out as bare NA -- which inside an
-            # object is not JSON at all, and would turn a missing URL into an
-            # unparseable line rather than the clear error it is. #j quotes
-            # whatever it finds, so the line parses and the missing field is
-            # still recognisable as missing.
+            # Separate lines, not one object, because a field an extractor does
+            # not have comes out as a bare NA -- and inside an object that makes
+            # the whole line unparseable, so one missing field would take the URL
+            # down with it. is_live is missing for some sites (xnxx does not
+            # report it at all) and that is not a reason a film should stop
+            # playing. On its own line a bare NA is a whole readable answer
+            # meaning "this one does not say", which is what it is.
             cmd.append("--print")
-            cmd.append('{"url": %(url)#j, "is_live": %(is_live)#j}')
+            cmd.append("%(url)#j")
+            cmd.append("--print")
+            cmd.append("%(is_live)#j")
 
         cmd.append("--format")
         fmat = ythelper.get_format(url)
@@ -75,12 +82,13 @@ class YoutubeDlProcess(ExternalProcess):
                 self.args["outfile"] = OUT_FILE
                 return self.args
             elif line.startswith('"'):
-                # The --print %(url)j form emits a JSON string rather than the
+                # The --print %(url)#j form emits a JSON string rather than the
                 # full extraction object.
                 url = json.loads(line)
-                if not url:
+                if not url or url == "NA":
                     raise ProcessException("No URL in YTDL")
                 self.args["outfile"] = url
+                self.args["is_live"] = self._read_is_live()
                 return self.args
             elif line.startswith("{"):
                 obj = json.loads(line)
@@ -91,21 +99,37 @@ class YoutubeDlProcess(ExternalProcess):
                         raise ProcessException("No URL in YTDL")
                 else:
                     url = obj["url"]
-                # #j quotes a value the extractor did not have, so a missing URL
-                # arrives as the string NA rather than as nothing.
                 if not url or url == "NA":
                     raise ProcessException("No URL in YTDL")
                 self.args["outfile"] = url
-                # Whether this is live is not decoration: it is the only thing
-                # that says a running total means anything. A live stream's
-                # "length" is a sliding window and keeps counting up, so the
-                # player stage has to be told not to put one on screen.
                 self.args["is_live"] = obj.get("is_live") is True
                 return self.args
             elif line == "NA" or line == "null":
                 raise ProcessException("No URL in YTDL")
             elif line.startswith("ERROR:"):
                 raise ProcessException(self._get_ytdl_err(line[7:]))
+
+    def _read_is_live(self):
+        """
+        Read the line after the URL: whether this is a live stream.
+
+        Only true means live. A site whose extractor does not report the field
+        at all prints NA, and that is an absence of information rather than a
+        statement -- so it reads as not live, which keeps a film showing its
+        length rather than losing it.
+
+        Scans a few lines rather than taking the very next one, because the
+        player writes warnings of its own in between. Bounded, because a stream
+        that reported a URL and nothing after it is not a reason to keep
+        waiting: nothing is reported and the film plays.
+        """
+        for _ in range(_IS_LIVE_SCAN):
+            line = self._readline()
+            if line == "true":
+                return True
+            if line in ("false", "NA", "null"):
+                return False
+        return False
 
     def _get_ytdl_err(self, msg):
         if msg.strip() == "":
