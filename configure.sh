@@ -202,6 +202,13 @@ _contents
     systemctl restart blissflixx.service
     stage "the startup service"
 
+    # Who ran this. SUDO_USER is what sudo sets it to, and it is the only one
+    # of these that is right when configure.sh is run over ssh with no
+    # terminal, which is how it usually is. A wrong name here means a grant
+    # nobody matches, and a check below that passes for the wrong person.
+    # Defined before both uses, which are far apart in this block.
+    BF_USER="${SUDO_USER:-$(logname 2>/dev/null || whoami)}"
+
     # The interface has a REBOOT button, and it could not work.
     #
     # Not because of permissions, which is where this went looking first. The
@@ -231,10 +238,6 @@ _contents
     # Numbered 99 so it sorts after the distribution's own rules, which is the
     # order polkit applies them in.
   cat << _contents > /etc/polkit-1/rules.d/99-blissflixx-power.rules
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE policyconfig PUBLIC
- "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
- "http://www.freedesktop.org/standards/PolicyKit/1/policyconfig.dtd">
 <policyconfig>
   <vendor>BlissFlixx</vendor>
   <action id="org.freedesktop.login1.reboot">
@@ -276,6 +279,38 @@ _contents
 </policyconfig>
 _contents
     chmod 644 /etc/polkit-1/rules.d/99-blissflixx-power.rules
+
+    # No <?xml ?> declaration and no DOCTYPE, which is the whole difference
+    # between a rule polkit loads and one it refuses.
+    #
+    # It refused this one, by name, in its own log:
+    #
+    #     Error compiling script .../99-blissflixx-power.rules:
+    #         SyntaxError: parse error (line 1)
+    #
+    # on a file that was byte for byte what was written. polkit parses rules
+    # with GMarkup, which reads "<?xml ... ?>" as a processing instruction
+    # called xml, and a processing instruction called xml is not a policy
+    # element -- so it is a parse error on the very first line, and the whole
+    # rule is discarded. The rest of the file, every action in it, never
+    # happens. Every example of a polkit rule carries that declaration.
+    #
+    # So the file starts at <policyconfig> and nothing is declared. It is not
+    # XML any more, but polkit was never reading it as XML.
+
+    # Reloaded and then checked, so a rule that does not load is reported by
+    # the install that wrote it rather than discovered later by pressing the
+    # button. pkcheck with no --process asks about the calling process, so this
+    # runs it as the user who will be asking.
+    systemctl reload polkit
+    if sudo -u "$BF_USER" pkcheck --action-id org.freedesktop.login1.reboot > /dev/null 2>&1 ; then
+        :
+    else
+        echo "  WARNING: the reboot rule did not load; reboot and shutdown will" 1>&2
+        echo "  not work. polkit's own log says why:" 1>&2
+        journalctl -u polkit --since "1 min ago" --no-pager 2>/dev/null | \
+            grep -i "99-blissflixx" | tail -3 | sed 's/^/    /' 1>&2
+    fi
     stage "the reboot and shutdown buttons"
 
     # The restart helper stays a sudo grant, because it runs from a terminal
@@ -289,12 +324,7 @@ exec /usr/bin/systemctl restart blissflixx.service
 _contents
     chmod 755 /usr/local/sbin/blissflixx-restart
 
-    # Who ran this. SUDO_USER is what sudo sets it to, and it is the only one
-    # of these that is right when configure.sh is run over ssh with no
-    # terminal, which is how it usually is. A wrong name here means a grant
-    # nobody matches.
-    BF_USER="${SUDO_USER:-$(logname 2>/dev/null || whoami)}"
-
+    # Who ran this, for the sudo grant below. Set at the top of this block.
     cat << _contents > /etc/sudoers.d/blissflixx
 # Written by configure.sh. The script takes no arguments, which is why the empty
 # pair of quotes at the end: that is how a sudoers command with no arguments is
