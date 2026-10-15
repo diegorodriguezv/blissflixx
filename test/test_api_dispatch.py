@@ -76,6 +76,69 @@ class TestADirectoryWithNoModuleIsNotAChannel:
         assert reported == [], "a deleted channel still logs a traceback"
 
 
+class TestAChannelIsDescribedAsADesc:
+    """
+    A channel's description is published as "desc".
+
+    It used to be published as "subtitle", which is already a loaded word here:
+    a media item carries a subtitle -- one line of detail under its title, like
+    "Score: 12, 3 comments" -- and PlayItem.to_dict() serialises it under exactly
+    that name. An API response holding a channel and a list of its items
+    therefore carried the same key meaning two unrelated things.
+
+    Nothing read the channel's field, so renaming it broke nothing. That is
+    exactly why it is worth a test: a rename nobody notices is a rename nobody
+    notices being undone.
+    """
+
+    def _channel(self, tmp_path, monkeypatch, request):
+        import sys
+
+        import lib.api.channels as api_channels
+
+        ch = tmp_path / "bfch_demo"
+        ch.mkdir()
+        (ch / "__init__.py").write_text(
+            "def name(): return 'Demo'\n"
+            "def description(): return 'A channel about demo'\n"
+            "def image(): return 'icon.png'\n"
+        )
+        (ch / "icon.png").write_bytes(b"x")
+
+        # CHAN_PATH only reaches sys.path when lib.api.channels is first
+        # imported, so patching it afterwards is not enough to make a stub
+        # importable. Both are needed.
+        monkeypatch.setattr(sys, "path", [str(tmp_path)] + list(sys.path))
+        monkeypatch.setattr(api_channels, "CHAN_PATH", str(tmp_path))
+        monkeypatch.setattr(api_channels, "load", lambda name: {})
+        # The stub is imported during the test, so it has to be dropped
+        # afterwards rather than before. Left in sys.modules it would satisfy a
+        # later import of the same name, and that test would silently get this
+        # stub instead of the channel it meant to load.
+        request.addfinalizer(lambda: sys.modules.pop("bfch_demo", None))
+        return api_channels.InstalledChannels()
+
+    def test_the_field_is_named_desc(self, tmp_path, monkeypatch, request):
+        installed = self._channel(tmp_path, monkeypatch, request)
+        info = installed.getAll()[0].getInfo()
+        assert info["desc"] == "A channel about demo", info
+
+    def test_it_no_longer_answers_to_subtitle(self, tmp_path, monkeypatch, request):
+        installed = self._channel(tmp_path, monkeypatch, request)
+        assert "subtitle" not in installed.getAll()[0].getInfo()
+
+    def test_an_item_subtitle_is_still_called_subtitle(self, tmp_path, monkeypatch):
+        """
+        The other half. Renaming the channel's field must not have renamed the
+        media item's one, which PlayItem.to_dict() still emits as "subtitle" and
+        which the interface renders under every video.
+        """
+        from lib.playitem import PlayItem
+
+        item = PlayItem("A title", "img.jpg", "http://example.com/v.mp4", "2 min")
+        assert item.to_dict()["subtitle"] == "2 min"
+
+
 class TestModuleResolution:
     def test_unknown_module_is_404(self, api):
         resp, result = body(api, "definitely_not_a_module", "list_all")

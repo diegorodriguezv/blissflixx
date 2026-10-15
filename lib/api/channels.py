@@ -31,7 +31,7 @@ class Channel:
         chid = path.basename(cpath)
         module = __import__(chid, globals(), locals(), [])
         name = module.name()
-        subtitle = module.description()
+        desc = module.description()
         image = chid + "/" + module.image()
         if plugin:
             self.image = "/api/pluginimage/" + image
@@ -48,7 +48,16 @@ class Channel:
             "id": chid,
             "img": self.image,
             "search": search,
-            "subtitle": subtitle,
+            # "desc", not "subtitle". A media item carries a subtitle -- one
+            # line of detail under its title, "Score: 12, 3 comments" or "Size:
+            # 1.2GB" -- and PlayItem.to_dict() serialises it under that name.
+            # This is the channel's description, a different thing entirely,
+            # and it was arriving under the same key. Nothing read it: the
+            # interface renders channel.img, title, search, feeds and id, and
+            # never the description. So the collision cost nothing so far, but
+            # it would mislead anyone reading an API response holding both a
+            # channel and a list of its items.
+            "desc": desc,
             "feeds": feeds,
         }
         self.chid = chid
