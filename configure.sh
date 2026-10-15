@@ -11,14 +11,43 @@
 # from the log. Stage timings make that visible without a timestamp on every
 # file.
 SECONDS=0
-STAGE_START=0
+# Empty, not 0. SECONDS is also 0 when the script starts, so a zero sentinel
+# collided with it: the first stage set STAGE_START to 0, the "has a stage
+# started" test kept reading 0 as "no", and that stage was never reported at
+# all. Running a single stage printed nothing and looked like the work had been
+# skipped. Tested with -n rather than arithmetic, because a string is what says
+# "unset" without having to pick a number nothing legitimate can be.
+STAGE_START=""
+STAGE_NAME=""
 
 stage() {
     local now=$SECONDS
-    if [ $STAGE_START -ne 0 ]; then
-        printf '  %-28s %s\n' "$1" "$(elapsed $((now - STAGE_START)))"
+    # The name printed here is the stage that just finished, beside its own
+    # duration.
+    #
+    # It used to be the name of the stage starting, beside the duration of the
+    # one before it, so every line named one stage and timed another. Read
+    # plainly it said something false: installing the reboot and shutdown
+    # buttons reported "the reboot and shutdown buttons 0s", which reads as
+    # those buttons having taken no time, when it was the stage before them
+    # that had. A line that misreports its own subject is worse than none.
+    #
+    # So the previous name is kept and printed when the next stage begins. The
+    # last stage has no next stage, so it is flushed explicitly -- otherwise
+    # running a single stage prints nothing at all.
+    if [ -n "$STAGE_START" ]; then
+        printf '  %-28s %s\n' "$STAGE_NAME" "$(elapsed $((now - STAGE_START)))"
     fi
     STAGE_START=$now
+    STAGE_NAME=$1
+}
+
+stage_flush() {
+    if [ -n "$STAGE_START" ]; then
+        printf '  %-28s %s\n' "$STAGE_NAME" "$(elapsed $((SECONDS - STAGE_START)))"
+        STAGE_START=""
+        STAGE_NAME=""
+    fi
 }
 
 # Seconds as 1h02m03s or 45s, whichever is readable.
@@ -232,6 +261,10 @@ _contents
         fi
     fi
     stage "the reboot and shutdown buttons"
+    # Nothing follows this block to print it, and this is usually the last thing
+    # anyone runs: without the flush, "configure.sh -boot -only" reports on the
+    # startup service and says nothing at all about the buttons.
+    stage_flush
 fi
 
 if [[ $@ == *-blank* ]] ; then

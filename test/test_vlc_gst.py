@@ -1907,8 +1907,18 @@ class TestTheOverlayStartsBlank:
         """
         A space, not nothing: getline() returns -1 at end of file and marq
         reports that as "Invalid argument" once per refresh tick.
+
+        Asserted as exactly a space rather than merely "not empty", because
+        every test in here writes to the same real path -- /tmp/blissflixx/
+        marq.txt -- so "not empty" was satisfied by whatever the previous test
+        happened to leave on disk. It could pass without stop() having written
+        anything at all. It failed once in a full run and could not be
+        reproduced in nine, which is what an order-sensitive test looks like.
         """
         proc = on_screen_proc()
+        # "Paused" is what on_screen_proc leaves behind. Set to something else
+        # so stop() has a genuinely different thing to write, rather than one
+        # that happens to match what is already there.
         proc._overlay_shown = "Pause"
         proc.proc = m.Mock(pid=os.getpid(), poll=lambda: None)
         proc.proc.wait = m.Mock(return_value=0)
@@ -1916,7 +1926,7 @@ class TestTheOverlayStartsBlank:
         with m.patch("lib.player.processpipe.os.killpg"):
             proc.stop()
 
-        assert open(MARQ_FILE, encoding="utf-8").read() != ""
+        assert open(MARQ_FILE, encoding="utf-8").read() == " "
 
 
 class TestWhatCountsAsAnAnswer:
