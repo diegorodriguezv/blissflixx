@@ -255,7 +255,35 @@ class ProcessPipe:
                 # finished, and the film on screen cannot be ended by anything
                 # the interface sends. Reported from an IPTV stream on a Pi:
                 # stop cleared the interface and the video carried on.
-                if idx in self._ready_seen or idx in self._finished_seen:
+                if self.stopping:
+                    # A ready that arrives after this pipe was stopped must not
+                    # start anything.
+                    #
+                    # stop() can be called from outside, and when it is it does
+                    # not end this loop -- it only tells the stages to die and
+                    # reports the pipe finished to the player. The loop stays
+                    # blocked here waiting for a message, and a stage that is
+                    # still resolving can still deliver one.
+                    #
+                    # It happened on IPTV, and the gap is wide enough to hit by
+                    # accident: the player asked for a second stream while the
+                    # first was still resolving, so the pipe was stopped and
+                    # reported finished, and then the resolver finished anyway
+                    # and its late ready started a VLC for a pipe that had
+                    # already let go of it. Nothing owned that VLC afterwards.
+                    # One click, two players.
+                    #
+                    # The other VLC holds the DRM lease, so this one could not
+                    # get one and retried a video output for ever:
+                    #
+                    #     drm_vout vout display error: Failed to get xlease
+                    #
+                    # at 96% CPU, with the interface showing one film playing.
+                    #
+                    # Checked before the stage bookkeeping below, because a
+                    # stopped pipe starts nothing at all.
+                    cherrypy.log("IGNORING READY AFTER STOP: " + name)
+                elif idx in self._ready_seen or idx in self._finished_seen:
                     cherrypy.log("IGNORING SECOND READY: " + name)
                 elif not self._is_last_proc(idx):
                     self._ready_seen.add(idx)

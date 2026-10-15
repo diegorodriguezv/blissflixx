@@ -882,6 +882,81 @@ class TestAStageStoppedBeforeItRunsNeverStarts:
         stage.stop()
 
 
+class TestAStragglingReadyDoesNotStartTheNextStage:
+    """
+    A ready that arrives after the pipe was stopped must start nothing.
+
+    stop() called from outside does not end the pipe's loop. It tells the stages
+    to die and reports the pipe finished to the player, and the loop stays
+    blocked waiting for a message. A stage that was still working can then
+    deliver one anyway, and starting the next stage from it runs a process for a
+    pipe that has already let go of it.
+
+    On IPTV this needed one click. The player asked for a second stream while
+    the first was still resolving, the first pipe stopped and reported itself
+    finished, and the resolver's late ready started a VLC that nothing owned.
+    Two players, one at 96% CPU retrying a video output it could not get because
+    the other held the DRM lease, and the interface showing one film.
+
+    The late ready has to be a stage's *first*. A second one is already covered
+    by the duplicate-ready guard, which is why a test built that way passes with
+    or without this fix -- and would have proved nothing.
+    """
+
+    def _pipe(self, first_outcome="wait"):
+        pipe = ProcessPipe("A film")
+        first = FakeProcess("first", outcome=first_outcome)
+        second = FakeProcess("second", outcome="ready")
+        pipe.add_process(first)
+        pipe.add_process(second)
+        return pipe, first, second
+
+    def test_a_late_first_ready_starts_nothing(self):
+        pipe, first, second = self._pipe("wait")
+        pmsgq, thread = start_pipe(pipe)
+        try:
+            # The resolver has not reported yet, so only it has been started.
+            assert pipe.next_proc == 1, pipe.next_proc
+
+            pipe.stop()
+            assert pipe.is_stopping()
+            assert pmsgq.get(timeout=2) is MSG_PLAYER_PIPE_STOPPED
+
+            # It finishes anyway, and reports for the first and only time --
+            # three seconds after the pipe said it was finished.
+            first.msg_ready({"url": "http://x"})
+            time.sleep(0.3)
+
+            assert pipe.next_proc == 1, (
+                "a stopped pipe started the next stage from a late ready: "
+                f"next_proc is {pipe.next_proc}"
+            )
+            assert second.started_with is None, "the player ran for a stopped pipe"
+        finally:
+            pipe.stop()
+            thread.join(timeout=5)
+
+    def test_the_same_ready_starts_the_stage_when_nothing_stopped_it(self):
+        """
+        The other half, and the reason the guard cannot simply be "ignore every
+        ready": on a pipe that is running, that ready is what starts the player.
+        """
+        pipe, first, second = self._pipe("wait")
+        pmsgq, thread = start_pipe(pipe)
+        try:
+            assert not pipe.is_stopping()
+            first.msg_ready({"url": "http://x"})
+            time.sleep(0.3)
+
+            assert pipe.next_proc == 2, pipe.next_proc
+            # The pipe adds the title to what it passes along, so only the
+            # url is compared -- what matters is that the args arrived.
+            assert second.started_with["url"] == "http://x", second.started_with
+        finally:
+            pipe.stop()
+            thread.join(timeout=5)
+
+
 class TestOneReaderPerProcess:
     """
     stdout is read once, by the copier that start() launches.
