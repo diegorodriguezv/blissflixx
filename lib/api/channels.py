@@ -128,6 +128,19 @@ class InstalledChannels:
         channels = []
         cpaths = glob.glob(path.join(CHAN_PATH, CHANID_GLOB))
         for p in cpaths:
+            # A directory with no __init__.py is not a channel.
+            #
+            # It happens after a channel is removed: git deletes the tracked
+            # files but leaves the directory when something untracked is still
+            # in it, and __pycache__ is exactly that. Python then imports the
+            # directory as an implicit namespace package -- an empty module that
+            # raises AttributeError on the first attribute read -- so every
+            # restart logged a traceback for a channel that had been deliberately
+            # deleted. Harmless, because the loader catches it, but it is noise
+            # on every boot and it reads as a fault rather than as the absence
+            # of something.
+            if not path.isfile(path.join(p, "__init__.py")):
+                continue
             try:
                 channels.append(Channel(p, False))
             except Exception:
@@ -138,6 +151,8 @@ class InstalledChannels:
                 traceback.print_exc()
         cpaths = glob.glob(path.join(PLUGIN_PATH, CHANID_GLOB))
         for p in cpaths:
+            if not path.isfile(path.join(p, "__init__.py")):
+                continue
             try:
                 channels.append(Channel(p, True))
             except Exception:

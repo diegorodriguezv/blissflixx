@@ -29,6 +29,53 @@ def body(api, modname, fn=None, data=None):
     return resp, result
 
 
+class TestADirectoryWithNoModuleIsNotAChannel:
+    """
+    Removing a channel can leave its directory behind.
+
+    git deletes the tracked files, but not the directory, when something
+    untracked is still inside it -- and __pycache__ always is. Python imports
+    such a directory as an implicit namespace package: an empty module that
+    raises AttributeError the moment anything reads an attribute from it, so the
+    loader printed a traceback on every restart for a channel that had been
+    deliberately deleted.
+
+    It was caught, so it was harmless. It was also wrong: it named a fault where
+    there was nothing to fault.
+    """
+
+    def test_a_directory_without_init_is_skipped_quietly(self, tmp_path, monkeypatch):
+        """
+        One test for the whole thing, because it is one thing: a directory with
+        no __init__.py yields no channel, and no traceback either.
+
+        The traceback is the part that was visible. The loader caught the failure
+        either way, so the channel's absence never needed proving; what needed
+        proving is that a deleted channel stops being reported as a fault.
+        """
+        import lib.api.channels as api_channels
+
+        gone = tmp_path / "bfch_vanished"
+        gone.mkdir()
+        (gone / "__pycache__").mkdir()
+        (gone / "icon.png").write_bytes(b"x")
+
+        monkeypatch.setattr(api_channels, "CHAN_PATH", str(tmp_path))
+        monkeypatch.setattr(api_channels, "load", lambda name: {})
+
+        reported = []
+        monkeypatch.setattr(
+            api_channels,
+            "traceback",
+            type("t", (), {"print_exc": staticmethod(lambda: reported.append(1))}),
+        )
+
+        installed = api_channels.InstalledChannels()
+
+        assert installed.getAll() == [], "a directory with no module was loaded"
+        assert reported == [], "a deleted channel still logs a traceback"
+
+
 class TestModuleResolution:
     def test_unknown_module_is_404(self, api):
         resp, result = body(api, "definitely_not_a_module", "list_all")
