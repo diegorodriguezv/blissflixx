@@ -164,6 +164,13 @@ WantedBy=default.target
 _contents
     systemctl daemon-reload
     systemctl enable blissflixx.service
+    # Started, not just enabled. The unit was stopped at the top of this block,
+    # and enabling only says "start it next time the machine boots" -- so
+    # running this took the server down and left it there, and the interface
+    # answered "It looks like the server is not running" to everything until the
+    # next reboot. Found by installing the reboot button and then pressing it:
+    # the click reached a server that this script had already taken away.
+    systemctl restart blissflixx.service
     stage "the startup service"
 
     # The interface has a REBOOT button, and it could not work. The server runs
