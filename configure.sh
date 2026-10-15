@@ -178,9 +178,18 @@ _contents
     # for a password it will never be given.
     #
     # So each is a script that takes no arguments -- the only form a sudoers
-    # entry matches -- and the grant names those two paths and nothing more
-    # general. The restart helper is in the grant too: a fresh install has no
-    # way to get one otherwise, and the update feature needs it.
+    # entry matches -- and the grant names those paths and nothing more
+    # general. The restart helper is in there too, and installed here for the
+    # same reason: the grant named it, and nothing created it, so on a clean
+    # install the entry pointed at a file that did not exist. It is what the
+    # update feature restarts the server with.
+  cat << _contents > /usr/local/sbin/blissflixx-restart
+#!/bin/sh
+# Restart BlissFlixx. Unit is hardcoded; arguments ignored.
+exec /usr/bin/systemctl restart blissflixx.service
+_contents
+    chmod 755 /usr/local/sbin/blissflixx-restart
+
   cat << _contents > /usr/local/sbin/blissflixx-reboot
 #!/bin/sh
 # Reboot the machine. Action is hardcoded; arguments ignored.

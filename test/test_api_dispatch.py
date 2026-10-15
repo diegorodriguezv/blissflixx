@@ -387,16 +387,45 @@ class TestThePowerButtons:
 
         assert "password is required" in result["error"], result
         # And it says what to do about it, not merely that it failed.
-        assert "configure.sh" in result["error"], result
+        assert "-boot" in result["error"], result
 
-    def test_a_failure_names_the_helper_it_needed(self, api, monkeypatch):
+    def test_the_message_carries_the_whole_command_to_paste(self):
+        """
+        The person reading this has a button that does nothing. "Run
+        configure.sh -boot" is not enough: it names a script without saying
+        where, and omits -only, which without it reinstalls every system
+        dependency first and takes most of an hour on a Pi 3.
+
+        So the message carries the whole line, with this checkout's own path in
+        it -- configure.sh writes the unit with WorkingDirectory set to wherever
+        it was run from, so "run it in the right directory" is not a detail that
+        can be left to the reader.
+        """
+        message = blissflixx.POWER_SETUP_COMMAND
+
+        assert message.startswith("cd "), message
+        assert message.endswith("sudo ./configure.sh -boot -only"), message
+        assert str(blissflixx.locations.ROOT_PATH) in message, message
+        # One line, so it pastes as one line.
+        assert "\n" not in message, message
+
+    def test_the_pasted_command_is_the_whole_fix(self, api, monkeypatch):
+        """
+        The command in the message has to be the one that installs the helper
+        the message names. A message that says "blissflixx-reboot is missing"
+        and then gives a command that does not install it is worse than useless,
+        because it looks like it worked and the button stays dead.
+        """
         monkeypatch.setattr(
-            blissflixx.subprocess, "run", lambda cmd, **kw: self._ok(returncode=1)
+            blissflixx.subprocess,
+            "run",
+            lambda cmd, **kw: self._ok(returncode=1),
         )
 
         result = api.default("server", fn="reboot")
 
-        assert blissflixx.REBOOT_HELPER in result["error"], result
+        assert "blissflixx-reboot" in result["error"], result
+        assert blissflixx.POWER_SETUP_COMMAND in result["error"], result
 
 
 class TestModuleImportIsolation:

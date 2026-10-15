@@ -40,6 +40,18 @@ RESTARTING = False
 REBOOT_HELPER = "/usr/local/sbin/blissflixx-reboot"
 HALT_HELPER = "/usr/local/sbin/blissflixx-halt"
 
+#: The command that installs them, quoted in full wherever the button is
+#: reported as not working.
+#:
+#: The whole command, and not just the script's name, because the person
+#: reading it has a broken button and will not go looking: it has to be
+#: something they can copy, paste and have work. So it carries the directory
+#: this checkout is in -- the script writes the unit with WorkingDirectory set
+#: to wherever configure.sh was run, so "from the checkout" is not a detail that
+#: can be left out -- and the -only flag, without which it reinstalls every
+#: system dependency first and takes most of an hour on a Pi 3.
+POWER_SETUP_COMMAND = "cd %s && sudo ./configure.sh -boot -only" % locations.ROOT_PATH
+
 
 def check_not_root():
     # Do not allow running as root
@@ -142,9 +154,15 @@ class Api:
         said = (result.stderr or result.stdout or "").strip().splitlines()
         return self._error(
             500,
-            "Could not %s. %s has to be allowed to run without a password; "
-            "run configure.sh -boot as root to set that up. sudo said: %s"
-            % (verb, helper, said[-1] if said else "nothing"),
+            "Could not %s: nothing was done and the machine is as it was.\n\n"
+            "%s is not allowed to run without a password. To allow it, run "
+            "this on the Pi:\n\n    %s\n\nsudo said: %s"
+            % (
+                verb,
+                os.path.basename(helper),
+                POWER_SETUP_COMMAND,
+                said[-1] if said else "nothing",
+            ),
         )
 
     @cherrypy.expose
