@@ -100,20 +100,65 @@ class TestDispatchBehaviour:
         assert seen == {"chid": "a", "idx": 1}
         assert result == [{"title": "x"}]
 
-    def test_api_error_becomes_a_500_with_traceback(self, api, monkeypatch):
+    def test_api_error_carries_its_own_message_and_status(self, api, monkeypatch):
         """
-        ApiError carries a user-facing message ("Channel ID is missing") but is
-        caught by the generic handler, so it still surfaces as a 500. This is
-        pre-existing behaviour, pinned here so that changing it is deliberate.
+        ApiError's message is written for the person using the interface, so it
+        is returned as the error rather than as a stack trace with the message
+        buried in it.
+
+        It used to be caught by the generic handler, so "Channel ID is missing"
+        reached the screen wrapped in a 500 and a traceback. That is right for a
+        bug and wrong for a sentence somebody has to read, and the test here
+        pinned the old shape so that changing it would be deliberate -- which is
+        what this is.
         """
+        seen = {}
 
         def boom(chid=None):
             raise ApiError("Channel ID is missing")
 
+        def spy(status, msg):
+            seen["status"] = status
+            seen["msg"] = msg
+            return {"error": msg}
+
         monkeypatch.setattr(blissflixx.api_modules["channels"], "feed", boom)
+        monkeypatch.setattr(api, "_error", spy)
+
         result = api.default("channels", fn="feed")
-        assert "error" in result
-        assert "Channel ID is missing" in result["error"]
+
+        assert seen["status"] == 400
+        assert seen["msg"] == "Channel ID is missing"
+        assert result["error"] == "Channel ID is missing"
+        assert "Traceback" not in seen["msg"]
+
+    def test_a_busy_archive_is_503_not_500(self, api, monkeypatch):
+        """
+        The server is fine and the archive is not, and the status says so.
+
+        This is the case the whole thing exists for: a feed load that fails
+        because a third party is overloaded used to come back as an empty list,
+        and the interface said "There are no items for this feed." about a
+        category that has always had films in it.
+        """
+        seen = {}
+
+        def boom(chid=None, idx=None):
+            raise ApiError(
+                "The Reddit archive is busy and did not answer.",
+                status=ApiError._SERVICE_UNAVAILABLE,
+            )
+
+        def spy(status, msg):
+            seen["status"] = status
+            return {"error": msg}
+
+        monkeypatch.setattr(blissflixx.api_modules["channels"], "feed", boom)
+        monkeypatch.setattr(api, "_error", spy)
+
+        api.default("channels", fn="feed")
+
+        assert seen["status"] == 503
 
     def test_unexpected_exception_is_reported_not_raised(self, api, monkeypatch):
         def boom(link=None):

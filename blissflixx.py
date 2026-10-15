@@ -20,6 +20,7 @@ import lib.locations as locations
 # rather than eagerly from lib/api/__init__.py. Importing them also attaches
 # them as attributes of the package, so the getattr dispatch below works.
 from lib.api import channels, playlink, playlists, playr, torrent
+from lib.api.common import ApiError
 from lib.player import processpipe
 from lib.player.pflixproc import BUFFER_DIR
 
@@ -150,6 +151,14 @@ class Api:
                     ret["Msg"] = "Server Restarting & Updating..."
                     ret["Restart"] = True
                 return ret
+        except ApiError as exc:
+            # A message written for the person using the interface, and the
+            # status it belongs to. Returned as-is rather than as a 500 with a
+            # traceback, which is right for a bug and wrong for "the Reddit
+            # archive is busy" -- the interface puts this text on screen, and it
+            # used to put a stack trace there instead, for every ApiError the
+            # server raises.
+            return self._error(exc.status, str(exc))
         except Exception:
             return self._error(500, traceback.format_exc())
 

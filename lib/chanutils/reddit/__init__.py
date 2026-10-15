@@ -50,12 +50,17 @@ _TIMEOUT = 15
 
 #: Seconds to allow for the whole call, retries included. The alternative to
 #: waiting is a request that never comes back and a UI that never stops
-#: spinning, but the ceiling has to be well under what retrying would take on
-#: its own: five slow attempts in a row is over a minute of a user watching a
-#: spinner. The point of retrying is to rescue the query that fails fast, not to
-#: wait out one that is genuinely struggling. Past this the caller gets an
-#: empty listing and can try again.
-_MAX_SECONDS = 25
+#: spinning. Every attempt is bounded by what is left of this, so it is a real
+#: ceiling rather than the gaps between attempts.
+#:
+#: It used to be 25, and it was not the ceiling it claimed to be: the deadline
+#: was only checked between attempts and each attempt was allowed the full
+#: _TIMEOUT, so two slow attempts came to about 32 seconds. Fifteen is still
+#: longer than any single successful attempt needs -- a plain listing answers in
+#: under two seconds and even a successful narrowed query took about seven when
+#: measured -- and it leaves room for the full retry budget on the queries that
+#: fail fast, which is the case worth retrying.
+_MAX_SECONDS = 15
 
 #: How far back a "top" listing looks, as a date the archive accepts. Reddit's
 #: own was "of all time", which the archive cannot do: it stores no score
@@ -83,9 +88,41 @@ _CACHE_TTL = 5 * 60
 _RETRIES = 3
 _SEARCH_RETRIES = 5
 
-#: Pause between those retries, in seconds. Long enough not to pile onto the
-#: archive while it is already struggling, short enough to stay invisible.
-_RETRY_WAIT = 2
+#: Pause between retries, in seconds. Flat, and short.
+#:
+#: This used to escalate -- 2, then 4, then 6, then 8 -- which spent twenty of
+#: the twenty-five second budget asleep and turned a recoverable blip into half
+#: a minute of nothing happening. It bought nothing: the archive answers its own
+#: overload in about a second and a half, and the identical query works moments
+#: later, so what a retry needs is a small gap, not a growing one.
+#:
+#: A second is also the right size for the person waiting. It keeps the gap
+#: invisible next to the request itself, and it stops a burst of feed-clicks
+#: from queueing up behind each other's sleeps -- each feed is a distinct query,
+#: so nothing is served from cache to save the wait.
+_RETRY_WAIT = 1
+
+
+class ArchiveBusy(Exception):
+    """
+    The archive could not be read, and the caller is told so.
+
+    This exists so that "the archive is busy" and "this category has no posts"
+    stop being the same thing on screen. They used to be: a failed read became
+    an empty listing, the interface showed "There are no items for this feed.",
+    and a category that has always had films in it looked like it had lost them.
+    Nothing on screen distinguished the two, and the only evidence was a line in
+    a log file nobody opens.
+
+    It is raised rather than returned so it can travel: lib.api.channels turns it
+    into an ApiError, and the interface has an error page for exactly this. The
+    message is written for the person reading it rather than for the log, which
+    is why it is built here instead of by the layer that catches it.
+
+    Search across every channel catches this and skips the channel that failed,
+    so one busy archive cannot empty a search of forty others.
+    """
+
 
 _cache = {}
 
@@ -189,31 +226,61 @@ def _query_one(params, retries=None):
 
     Split out of _query() so that a feed made of more than one request can merge
     them; the retry logic itself belongs to the single request.
+
+    Every attempt is bounded by what is left of _MAX_SECONDS rather than by
+    _TIMEOUT outright. That is the difference between the ceiling being real and
+    being only the gaps between attempts: with the full timeout allowed each
+    time, a slow archive could take two attempts and thirty-two seconds through a
+    budget written as twenty-five. An attempt that would run past the deadline is
+    not started at all.
     """
     last = None
     deadline = time.monotonic() + _MAX_SECONDS
-    for attempt in range(_RETRIES if retries is None else retries):
+    attempts = _RETRIES if retries is None else retries
+    for attempt in range(attempts):
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            break
+        # Pause only when there is going to be another attempt. Sleeping after
+        # the last one is a second added to every total failure -- the caller is
+        # already giving up and is simply made to wait before it hears so.
+        another_attempt = attempt < attempts - 1
         try:
             response = requests.get(
                 _API,
                 params=params,
-                timeout=_TIMEOUT,
+                timeout=min(_TIMEOUT, remaining),
                 headers={"user-agent": "blissflixx/1.0"},
             )
             if response.status_code == 422:
                 last = "the archive reported the query timed out"
-                if time.monotonic() >= deadline:
-                    break
-                time.sleep(_RETRY_WAIT * (attempt + 1))
+                if another_attempt:
+                    _pause_before_retry(deadline)
                 continue
             response.raise_for_status()
             return response.json().get("data") or []
         except requests.RequestException as exc:
             last = exc
-            if time.monotonic() >= deadline:
-                break
-            time.sleep(_RETRY_WAIT * (attempt + 1))
-    raise Exception("arctic shift: could not be read (%s)" % last)
+            if another_attempt:
+                _pause_before_retry(deadline)
+    raise ArchiveBusy(
+        "The Reddit archive is busy and did not answer. "
+        "This is not a fault of this server -- try again in a moment. (%s)" % last
+    )
+
+
+def _pause_before_retry(deadline):
+    """
+    Wait before the next attempt, but never past the deadline.
+
+    The sleep used to run to completion even when it began near the end of the
+    budget, so a 422 arriving in the last moment still cost its full wait and
+    pushed the caller past _MAX_SECONDS. Truncated to what is left, it is a
+    pause rather than an overrun.
+    """
+    remaining = deadline - time.monotonic()
+    if remaining > 0:
+        time.sleep(min(_RETRY_WAIT, remaining))
 
 
 def search(subreddit, q, moviesubs=False):
@@ -283,13 +350,14 @@ def get_feed(feed, moviesubs=False):
 
 def _cached_reading(key, params, retries=None):
     """
-    A cached listing, or an empty one if the archive could not be read in time --
-    and a failure is never the thing that gets cached.
+    A cached listing, or ArchiveBusy if the archive could not be read.
 
-    This is why there is a function here at all, rather than calling _read inside
-    _cached. _read returned an empty list when the archive could not be read, and
-    _cached stored whatever it was handed, so one unlucky moment put an empty
-    list into the cache and kept it there for the full five minutes:
+    Two things are arranged here, and both were wrong before.
+
+    The first is that a failure must never be cached. An earlier version caught
+    the failure and returned an empty list, and _cached stored whatever it was
+    handed, so one unlucky moment put an empty list into the cache and kept it
+    there for the full five minutes:
 
         20:34:15  archive timed out, five attempts, feed empty
         20:36:25  same feed, still empty -- and the archive was never asked again
@@ -301,24 +369,21 @@ def _cached_reading(key, params, retries=None):
     to the person clicking it, on r/Shortfilms' "Gay & Lesbian", the day the
     archive happened to be slow.
 
-    So the failure now propagates out of the fetch, past the cache, and becomes
-    an empty listing here instead: logged, and stored nowhere. The next click
-    asks the archive again. A genuine empty result is still cached, because the
-    archive answering "no such posts" is an answer, not a failure.
+    The second is that a failure has to be visible. Turning one into an empty
+    listing is what made "the archive is busy" and "this category has no posts"
+    the same thing on screen. It is raised instead, and raised rather than
+    returned so that it stays distinguishable from an empty answer all the way
+    to the interface, which has an error page for exactly this.
 
-    The archive being unreliable is expected rather than exceptional -- it is
-    volunteer-run and answers a narrowed query unreliably -- so this still
-    returns an empty listing rather than raising. Raising turned a busy archive
-    into an error page over the whole channel, for a feed the user can simply
-    ask for again. Silently empty would be worse than either: an empty category
-    and a failed fetch have to stay distinguishable in the log, which is why the
-    failure is logged here.
+    A genuine empty result is still cached: the archive answering "no such posts"
+    is an answer, and caching it is what stops every click hammering a
+    volunteer-run archive.
     """
     try:
         return _cached(key, lambda: _query(params, retries=retries))
-    except Exception as exc:
+    except ArchiveBusy as exc:
         cherrypy.log("reddit listing unavailable: %s" % exc)
-        return []
+        raise
 
 
 def _feed_params(url):

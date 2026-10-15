@@ -8,6 +8,11 @@ items. That translation is pure and worth pinning down; a change to it silently
 empties a channel rather than raising.
 """
 
+import time
+import unittest.mock as m
+
+import pytest
+
 import lib.chanutils.reddit as reddit
 
 
@@ -279,22 +284,192 @@ class TestRedditTop:
         assert len(reddit.top("trailers", days=7).to_list()) == reddit._LIMIT
 
 
-class TestAFailedReadingIsNotCached:
+class TestTheRetryBudgetIsHonoured:
+    """
+    _MAX_SECONDS is a ceiling on how long a person waits, so it has to bound the
+    whole call rather than the gaps between attempts.
+
+    It did not. The deadline was only checked between attempts and each attempt
+    was allowed the full _TIMEOUT, so two slow attempts came to about 32 seconds
+    through a budget written as 25 -- and measured on the Pi, a narrowed feed
+    took 31.8 seconds before saying nothing.
+
+    The waits were escalating too: 2, 4, 6, 8 seconds. That is twenty of the
+    twenty-five second budget asleep, spent on a delay that buys nothing when the
+    archive clears in about a second and a half.
+    """
+
+    class _Clock:
+        """
+        A monotonic clock the test drives, so time passing is an assertion
+        rather than a real sleep.
+        """
+
+        def __init__(self):
+            self.now = 1000.0
+            self.slept = []
+
+        def monotonic(self):
+            return self.now
+
+        def sleep(self, seconds):
+            self.slept.append(seconds)
+            self.now += seconds
+
+    def _install(self, monkeypatch, clock):
+        monkeypatch.setattr(reddit.time, "monotonic", clock.monotonic)
+        monkeypatch.setattr(reddit.time, "sleep", clock.sleep)
+
+    def test_the_waits_do_not_grow(self, monkeypatch):
+        """
+        Flat, and short. An escalating wait turned a recoverable blip into half a
+        minute of nothing happening, and a burst of feed-clicks into a queue of
+        each other's sleeps -- every feed is a distinct query, so nothing is
+        served from cache to save the wait.
+        """
+        clock = self._Clock()
+        self._install(monkeypatch, clock)
+        calls = []
+
+        def always_422(*args, **kwargs):
+            calls.append(1)
+            response = m.Mock(status_code=422)
+            return response
+
+        monkeypatch.setattr(reddit.requests, "get", always_422)
+
+        with pytest.raises(reddit.ArchiveBusy):
+            reddit._query_one({"title": "gay"}, retries=reddit._SEARCH_RETRIES)
+
+        assert len(clock.slept) == len(calls) - 1
+        assert clock.slept, "nothing was retried"
+        assert set(clock.slept) == {reddit._RETRY_WAIT}, clock.slept
+        assert reddit._RETRY_WAIT == 1
+
+    def test_the_whole_call_fits_inside_the_budget(self, monkeypatch):
+        """
+        Five fast failures and the waits between them, which is the measured
+        shape of the archive being busy: about a second and a half per attempt.
+        """
+        clock = self._Clock()
+        self._install(monkeypatch, clock)
+
+        def slow_422(*args, **kwargs):
+            clock.now += 1.3
+            return m.Mock(status_code=422)
+
+        monkeypatch.setattr(reddit.requests, "get", slow_422)
+
+        started = clock.monotonic()
+        with pytest.raises(reddit.ArchiveBusy):
+            reddit._query_one({"title": "gay"}, retries=reddit._SEARCH_RETRIES)
+        elapsed = clock.monotonic() - started
+
+        assert elapsed <= reddit._MAX_SECONDS, elapsed
+
+    def test_an_attempt_is_not_given_more_than_the_budget_left(self, monkeypatch):
+        """
+        This is the one that was measured at 31.8s. Each attempt used to be
+        allowed the full _TIMEOUT regardless of what was left, so a slow archive
+        spent the whole _TIMEOUT twice.
+        """
+        clock = self._Clock()
+        self._install(monkeypatch, clock)
+        timeouts = []
+
+        def slow_timeout(*args, **kwargs):
+            timeouts.append(kwargs["timeout"])
+            clock.now += kwargs["timeout"]  # the whole allowance is consumed
+            raise reddit.requests.ReadTimeout("slow")
+
+        monkeypatch.setattr(reddit.requests, "get", slow_timeout)
+
+        with pytest.raises(reddit.ArchiveBusy):
+            reddit._query_one({"title": "gay"}, retries=reddit._SEARCH_RETRIES)
+
+        assert timeouts, "nothing was attempted"
+        assert max(timeouts) <= reddit._MAX_SECONDS
+        # Shrinking, never growing: no attempt is given more than the one before.
+        assert timeouts == sorted(timeouts, reverse=True), timeouts
+
+    def test_a_sleep_is_never_larger_than_the_time_left(self, monkeypatch):
+        """
+        The wait used to run to completion even when it began near the end of the
+        budget, so a 422 arriving in the last moment still cost its full sleep and
+        pushed the caller past the ceiling.
+        """
+        clock = self._Clock()
+        self._install(monkeypatch, clock)
+
+        def nearly_there(*args, **kwargs):
+            # Burn almost all of the budget, then be busy.
+            clock.now += reddit._MAX_SECONDS - 0.1
+            return m.Mock(status_code=422)
+
+        monkeypatch.setattr(reddit.requests, "get", nearly_there)
+
+        with pytest.raises(reddit.ArchiveBusy):
+            reddit._query_one({"title": "gay"}, retries=reddit._SEARCH_RETRIES)
+
+        assert sum(clock.slept) <= reddit._MAX_SECONDS, clock.slept
+        assert max(clock.slept) <= reddit._RETRY_WAIT
+
+    def test_a_success_on_a_later_attempt_is_still_a_success(self, monkeypatch):
+        """
+        The point of retrying at all: the archive's own overload clears in
+        seconds and the identical query works moments later.
+        """
+        clock = self._Clock()
+        self._install(monkeypatch, clock)
+        calls = []
+
+        def busy_then_ok(*args, **kwargs):
+            calls.append(1)
+            if len(calls) < 3:
+                return m.Mock(status_code=422)
+            return m.Mock(status_code=200, json=lambda: {"data": [_post("a post", 1)]})
+
+        monkeypatch.setattr(reddit.requests, "get", busy_then_ok)
+
+        rows = reddit._query_one({"title": "gay"}, retries=reddit._SEARCH_RETRIES)
+
+        assert len(rows) == 1
+        assert len(calls) == 3
+
+    def test_the_ceiling_leaves_room_for_the_retry_budget(self, monkeypatch):
+        """
+        Pinned as a relationship rather than a number: the ceiling has to be long
+        enough that the fast-failing case -- the only one worth retrying -- can
+        actually use all of its attempts, or the retry count is a fiction.
+
+        Five attempts at the measured 1.3s plus the waits between them is about
+        eleven seconds, so a fifteen second ceiling runs the full budget.
+        """
+        attempts = reddit._SEARCH_RETRIES
+        per_attempt = 1.3
+        waits = (attempts - 1) * reddit._RETRY_WAIT
+        assert attempts * per_attempt + waits <= reddit._MAX_SECONDS
+
+
+class TestABusyArchiveIsNeitherEmptyNorSticky:
     """
     A busy archive must not look like an empty category, and must not stay that
     way.
 
     This is the bug that emptied "Gay & Lesbian" on r/Shortfilms. The archive
-    timed out, the five attempts all came back 422, and the helper returned an
-    empty listing -- which the cache then stored for its full five minutes:
+    timed out, all five attempts came back 422, and the helper returned an empty
+    listing -- which the cache then stored for its full five minutes:
 
         20:34:15  archive timed out, five attempts, feed empty
         20:36:25  same feed, still empty, and the archive was never asked again
 
-    The second request was answered from cache. The archive had recovered by
-    then, so the feed stayed empty for a category that has always had posts in
-    it, and nothing in the interface said the difference between "no such posts"
-    and "could not ask".
+    Two separate faults, and both are pinned here. The empty listing was cached,
+    so one unlucky moment held the feed down for the rest of the cache's life.
+    And the empty listing was indistinguishable from a category with no posts, so
+    the interface said "There are no items for this feed." about a feed that has
+    always had films in it, and the only evidence was a line in a log nobody
+    opens. A failure is now raised as ArchiveBusy so it can travel to the
+    interface as a message, and it is not cached so the next click tries again.
     """
 
     def _feed(self):
@@ -303,32 +478,81 @@ class TestAFailedReadingIsNotCached:
             "url": "http://www.reddit.com/r/Shortfilms/search.json?q=gay",
         }
 
-    def test_a_failure_does_not_stick_in_the_cache(self, monkeypatch):
+    def _flaky(self, monkeypatch, failures):
+        """
+        An archive that answers on attempt `failures` and is busy before that.
+        """
         monkeypatch.setattr(reddit, "_cache", {})
-
         attempts = []
 
-        def flaky(params, retries=None):
+        def query(params, retries=None):
             attempts.append(1)
-            if len(attempts) == 1:
-                raise Exception("arctic shift: could not be read")
+            if len(attempts) <= failures:
+                raise reddit.ArchiveBusy(
+                    "The Reddit archive is busy and did not answer."
+                )
             return [_post("a post", 1)]
 
-        monkeypatch.setattr(reddit, "_query", flaky)
+        monkeypatch.setattr(reddit, "_query", query)
+        return attempts
 
-        first = reddit.get_feed(self._feed())
-        assert len(first.to_list()) == 0, "the first attempt is meant to fail"
+    def test_a_failure_is_raised_rather_than_returned_as_an_empty_feed(
+        self, monkeypatch
+    ):
+        """
+        The distinction the interface needs. An empty list here is what made a
+        busy archive and an empty category look the same on screen.
+        """
+        self._flaky(monkeypatch, failures=1)
 
+        with pytest.raises(reddit.ArchiveBusy):
+            reddit.get_feed(self._feed())
+
+    def test_the_message_says_the_archive_is_busy(self, monkeypatch):
+        """
+        Driven through _query_one so it is the real message being checked rather
+        than one written by the test.
+
+        It reaches a person, so it has to say something to a person: what the
+        cause is, and that it is not this server's fault -- which is the thing
+        the reader cannot see and would otherwise go and check the television
+        for. What it must not say is "Process exit" or a stack trace.
+        """
+        # No clock: the archive here never takes any time, and the only pause is
+        # stubbed out, so the whole thing costs nothing in real seconds.
+        monkeypatch.setattr(reddit.time, "sleep", lambda seconds: None)
+        monkeypatch.setattr(
+            reddit.requests, "get", lambda *a, **k: m.Mock(status_code=422)
+        )
+
+        with pytest.raises(reddit.ArchiveBusy) as caught:
+            reddit._query_one({"title": "gay"}, retries=2)
+
+        message = str(caught.value)
+        assert "archive is busy" in message
+        assert "not a fault of this server" in message
+        assert "Traceback" not in message
+
+    def test_a_failure_does_not_stick_in_the_cache(self, monkeypatch):
+        attempts = self._flaky(monkeypatch, failures=1)
+
+        with pytest.raises(reddit.ArchiveBusy):
+            reddit.get_feed(self._feed())
+
+        # The second click must reach the archive again, not a cached empty list.
         second = reddit.get_feed(self._feed())
 
         assert len(attempts) == 2, "the second click was answered from cache"
-        assert len(second.to_list()) == 1, "the archive was never asked again"
+        assert len(second.to_list()) == 1
 
     def test_a_genuinely_empty_result_is_cached(self, monkeypatch):
         """
         The other side of it: the archive answering "no such posts" is an answer,
         not a failure, and caching that is the point of the cache -- it is what
         stops every click being a request to a volunteer-run archive.
+
+        An empty list here must not raise, or a category with nothing in it would
+        show an error instead of saying so.
         """
         monkeypatch.setattr(reddit, "_cache", {})
         attempts = []
@@ -343,3 +567,120 @@ class TestAFailedReadingIsNotCached:
         assert len(reddit.get_feed(self._feed()).to_list()) == 0
 
         assert len(attempts) == 1, "a real empty answer was asked for twice"
+
+
+class TestABusyArchiveReachesTheInterfaceAsAMessage:
+    """
+    The last link in the chain: a busy archive has to arrive at the screen as
+    something a person reads.
+
+    Before this, a failed read came back as an empty list and the interface said
+    "There are no items for this feed." The archive being busy was
+    indistinguishable from the category being empty, and there was nothing to
+    tell anyone the difference.
+    """
+
+    def _install_channel(self, monkeypatch, feed):
+        """
+        Install one channel whose every read goes to the archive, so a busy
+        archive is reached through the same path a real one would be.
+        """
+        import lib.api.channels as api_channels
+
+        class Channel:
+            def getFeed(self, idx):
+                return reddit.get_feed(feed)
+
+            def search(self, q):
+                return reddit.search("Shortfilms", q)
+
+        class Installed:
+            def getChannel(self, chid):
+                return Channel()
+
+        monkeypatch.setattr(api_channels, "_installed", Installed())
+        return api_channels
+
+    def test_a_busy_feed_becomes_a_service_unavailable_api_error(self, monkeypatch):
+        from lib.api.common import ApiError
+
+        api_channels = self._install_channel(
+            monkeypatch,
+            {
+                "title": "Gay & Lesbian",
+                "url": "http://www.reddit.com/r/Shortfilms/search.json?q=gay",
+            },
+        )
+
+        def busy(params, retries=None):
+            raise reddit.ArchiveBusy("The Reddit archive is busy and did not answer.")
+
+        monkeypatch.setattr(reddit, "_query", busy)
+
+        with pytest.raises(ApiError) as caught:
+            api_channels.feed(chid="bfch_r_shortfilms", idx=11)
+
+        assert caught.value.status == ApiError._SERVICE_UNAVAILABLE
+        assert "archive is busy" in str(caught.value)
+
+    def test_a_busy_search_becomes_the_same_error(self, monkeypatch):
+        """
+        Search within the channel too, not just the feed list -- it is the same
+        request and the same failure.
+        """
+        from lib.api.common import ApiError
+
+        api_channels = self._install_channel(
+            monkeypatch,
+            {
+                "title": "x",
+                "url": "http://www.reddit.com/r/Shortfilms.json",
+            },
+        )
+
+        def busy(params, retries=None):
+            raise reddit.ArchiveBusy("The Reddit archive is busy.")
+
+        monkeypatch.setattr(reddit, "_query", busy)
+
+        with pytest.raises(ApiError) as caught:
+            api_channels.search(chid="bfch_r_shortfilms", q="anything")
+
+        assert caught.value.status == ApiError._SERVICE_UNAVAILABLE
+
+    def test_an_empty_feed_is_not_an_error(self, monkeypatch):
+        """
+        The other half, and the reason the two had to be separated. A category
+        with genuinely nothing in it must still say so in its own words rather
+        than through the error page.
+        """
+        import lib.api.channels as api_channels
+
+        api_channels = self._install_channel(
+            monkeypatch,
+            {
+                "title": "x",
+                "url": "http://www.reddit.com/r/Shortfilms.json",
+            },
+        )
+        monkeypatch.setattr(reddit, "_query", lambda params, retries=None: [])
+
+        # An empty PlayItemList, and no exception: the interface's own wording
+        # for "nothing here" still applies, and it is the right one.
+        assert len(api_channels.feed(chid="bfch_r_shortfilms", idx=0).to_list()) == 0
+
+    def test_a_busy_archive_does_not_empty_a_search_of_every_channel(self):
+        """
+        Search across all channels catches this per channel and skips the one
+        that failed. If it did not, one busy archive would fail the search of
+        every other channel -- the opposite of the fault this fixes, where one
+        quiet archive looked like one empty category.
+        """
+        import inspect
+
+        import lib.api.channels as api_channels
+
+        source = inspect.getsource(api_channels._search_thread)
+        assert (
+            "except Exception" in source
+        ), "a busy archive would take the whole cross-channel search with it"

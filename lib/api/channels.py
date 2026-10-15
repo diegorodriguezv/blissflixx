@@ -11,6 +11,13 @@ from ..locations import CHAN_PATH, PLUGIN_PATH, ROOT_PATH
 from ..settings import load, save
 from .common import ApiError
 
+#: The one channel backend that reads from a third party, imported for the
+#: failure it raises when that third party cannot answer. A dependency being
+#: unavailable is not a bug in this server and must not be reported as one, so it
+#: is translated here into an ApiError that says what happened in words the
+#: interface can put on screen.
+from ..chanutils.reddit import ArchiveBusy
+
 CHANID_GLOB = "bfch_*"
 
 # Installed channels are imported by bare module name, so their directories
@@ -260,22 +267,52 @@ def feedlist(chid=None):
     return get_installed().getChannel(chid).getFeeds()
 
 
+def _reading_a_feed(call, *args):
+    """
+    Run a call that reads from a channel, turning a busy archive into an error.
+
+    The interface has two states for a feed and they are not the same thing:
+
+        []                              "There are no items for this feed."
+        an error                        "The Reddit archive is busy..."
+
+    Only the first of those used to be reachable. A failure to read the archive
+    came back as an empty list, so a category that had always had films in it
+    looked like it had lost them, and the only evidence was a line in a log
+    nobody opens. The distinction is the whole of this function.
+
+    503 rather than 500: the server is fine and the archive is not, and that is
+    worth saying in the status as well as in the words.
+
+    Search across every channel is deliberately not routed through here -- it
+    catches this itself, so one busy archive skips one channel rather than
+    failing the search of forty.
+    """
+    try:
+        return call(*args)
+    except ArchiveBusy as exc:
+        raise ApiError(str(exc), status=ApiError._SERVICE_UNAVAILABLE) from exc
+
+
 def feed(chid=None, idx=None):
     if chid is None or idx is None:
         raise ApiError("Both Channel ID and feed index must be defined")
-    return get_installed().getChannel(chid).getFeed(idx)
+    channel = get_installed().getChannel(chid)
+    return _reading_a_feed(channel.getFeed, idx)
 
 
 def feed_by_name(chid=None, idx=None, name=None):
     if chid is None or idx is None or name is None:
         raise ApiError("All of Channel ID, feed index and name must be defined")
-    return get_installed().getChannel(chid).getFeedByName(idx, name)
+    channel = get_installed().getChannel(chid)
+    return _reading_a_feed(channel.getFeedByName, idx, name)
 
 
 def search(chid=None, q=None):
     if chid is None or q is None:
         raise ApiError("Both Channel ID and search query must be defined")
-    return get_installed().getChannel(chid).search(q)
+    channel = get_installed().getChannel(chid)
+    return _reading_a_feed(channel.search, q)
 
 
 def showmore(chid=None, link=None):
