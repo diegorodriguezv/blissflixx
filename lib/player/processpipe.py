@@ -443,6 +443,32 @@ class ExternalProcess(Process):
 
     def start(self, args):
         cmd = self._get_cmd(args)
+        if self.killing:
+            # Asked to stop before the process exists, so do not start it.
+            #
+            # _start_next() creates this thread and stop() joins it, so the gap
+            # between the two is where this stage sits: created, not yet run.
+            # stop() runs in that gap and finds self.proc is None, so there is
+            # nothing to kill -- and then the join hands this thread the very
+            # time it needed to get here, and it would spawn a process the
+            # pipeline has already finished with.
+            #
+            # Nothing tracks that process. The pipe has sent
+            # MSG_PLAYER_PIPE_STOPPED and the player loop has cleared its
+            # handle, so no later stop can reach it, and it plays for ever. On
+            # an IPTV stream that leaves a VLC holding the DRM lease, so the
+            # next one cannot get it --
+            #
+            #     drm_vout vout display error: Failed to get xlease
+            #
+            # -- and retries a video output it will never get, once every half
+            # second, at full CPU. Two players on screen, and the interface
+            # reporting nothing playing. Reported from IPTV on a Pi.
+            #
+            # Checked here, immediately before the spawn, because that is the
+            # last point at which there is still nothing to clean up.
+            cherrypy.log("NOT STARTING, ALREADY STOPPED: " + self.name())
+            return
         if isinstance(cmd, str):
             cherrypy.log("RUN: " + cmd)
         else:
@@ -665,6 +691,15 @@ class ExternalProcess(Process):
             pass
 
     def stop(self):
+        # Always, and before the check for a process, not inside it.
+        #
+        # This flag is the stage's record of "you are being stopped", and the
+        # only thing that can set it is this call. Setting it only when there was
+        # a process to kill meant a stage stopped before it had one recorded
+        # nothing at all -- so nothing knew it must not start, and start() went
+        # on to spawn a process for a pipeline that had already finished with
+        # it. See start().
+        self.killing = True
         if self.proc is not None:
             # Before _terminate(), not after. _terminate() waits up to
             # _TERMINATE_GRACE for the process to leave, and _wait() runs in
@@ -677,7 +712,6 @@ class ExternalProcess(Process):
             # which is the opposite of what was asked for. SIGTERM by
             # definition makes it exit, so this is the one case that must be
             # marked before it can possibly be observed.
-            self.killing = True
             self._terminate()
 
         # The download is not deleted. It used to be, right here, by removing

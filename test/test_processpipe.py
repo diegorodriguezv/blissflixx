@@ -797,6 +797,91 @@ class TestReadlineAtEndOfOutput:
         assert stage.drain_lines(reader, writer, 1) == ["real"]
 
 
+class TestAStageStoppedBeforeItRunsNeverStarts:
+    """
+    A stage asked to stop before its process exists must not start one.
+
+    This is the gap between _start_next() creating the stage's thread and that
+    thread actually running. A stop landing in the gap finds stage.proc is
+    None -- there is nothing to kill -- and then stop() joins the thread, which
+    hands that pending thread the time it needed. It would spawn a process the
+    pipeline has already finished with.
+
+    Nothing tracks that process afterwards. The pipe has sent
+    MSG_PLAYER_PIPE_STOPPED and the player loop has dropped its handle, so no
+    later stop reaches it. On an IPTV stream it leaves a VLC holding the DRM
+    lease, so the next VLC cannot get it, and retries a video output it will
+    never get once every half second at full CPU. Two players on screen, and
+    the interface reporting nothing playing.
+    """
+
+    def _stage(self, cmd_hook=None):
+        # ExternalProcess, because that is where start() builds a command and
+        # spawns a real subprocess -- the code being guarded here.
+        class Stage(pp.ExternalProcess):
+            def __init__(self):
+                super().__init__()
+                self.built = []
+
+            def name(self):
+                return "stage"
+
+            def _get_cmd(self, args):
+                if cmd_hook is not None:
+                    cmd_hook()
+                self.built.append(args)
+                return ["/bin/true"]
+
+            def _ready(self):
+                return {}
+
+            def _wait(self):
+                return None
+
+        return Stage()
+
+    def test_stop_before_start_spawns_nothing(self):
+        stage = self._stage()
+
+        stage.stop()
+        assert stage.killing is True, "stopping a stage that never ran recorded nothing"
+        assert stage.proc is None
+        stage.start({})
+
+        assert stage.proc is None, "a stage stopped before it ran started anyway"
+
+    def test_a_stop_during_command_build_is_also_honoured(self):
+        """
+        The same race by the other route: the thread has begun and is building
+        its command when the stop lands. proc is still None, so the check has to
+        come after _get_cmd rather than before it.
+        """
+        seen = {}
+
+        def during_build():
+            seen["killing_before_build"] = stage.killing
+            stage.stop()
+            seen["killing_after_stop"] = stage.killing
+
+        stage = self._stage(cmd_hook=during_build)
+        stage.start({})
+
+        assert seen["killing_before_build"] is False
+        assert seen["killing_after_stop"] is True
+        assert stage.proc is None, "a stop mid-build still left a process running"
+
+    def test_a_stage_started_normally_is_unaffected(self):
+        """
+        The guard is on being stopped, not on starting. A stage nothing has
+        asked to stop still spawns, or the whole player is dead.
+        """
+        stage = self._stage()
+        stage.set_msgq(queue.Queue(), 0)
+        stage.start({})
+        assert stage.proc is not None, "a stage with no stop request did not start"
+        stage.stop()
+
+
 class TestOneReaderPerProcess:
     """
     stdout is read once, by the copier that start() launches.
