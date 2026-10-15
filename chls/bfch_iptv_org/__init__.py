@@ -62,7 +62,12 @@ _MAXRESULTS = 300
 
 
 def name():
-    return "/iptv-org"
+    # No leading slash. It has been here since the channel was first written in
+    # 2023 and it is not a convention: of the fifteen channel names this is the
+    # only one that starts with anything but a letter, so it reads as a typo
+    # that made it onto the menu. Nothing keys off the name -- channels are
+    # addressed by chid everywhere -- so dropping it is safe.
+    return "iptv-org"
 
 
 def image():
