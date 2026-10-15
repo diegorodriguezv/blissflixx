@@ -47,6 +47,202 @@ class TestRedditFeedParams:
         )
 
 
+class TestFlairFeedsAreFiltered:
+    """
+    A feed that names a flair has to ask the archive for that flair.
+
+    Reddit accepts the value quoted or bare, and the channels use both:
+
+        bfch_r_documentaries       flair:'Art'      quoted
+        bfch_r_fullmoviesonyoutube  flair:Action     bare
+
+    Only the quoted form used to be recognised, and a missed filter is silent:
+    the feed falls back to the whole subreddit, so every flair feed in a channel
+    returns the identical listing. Picking "Crime" showed the same thirty newest
+    posts as "Western", with nothing on screen to say the choice was ignored.
+    """
+
+    def _feeds(self, module):
+        return {f["title"]: f for f in module.feedlist()}
+
+    def test_a_quoted_flair_is_the_filter(self):
+        params = reddit._feed_params(
+            "http://www.reddit.com/r/Documentaries/search.json"
+            "?q=flair%3A%27Art%27&sort=top"
+        )
+        assert params["link_flair_text"] == "Art"
+
+    def test_a_bare_flair_is_the_filter_too(self):
+        """
+        The regression. Twenty-two of the twenty-three feeds on
+        bfch_r_fullmoviesonyoutube are written this way and every one of them
+        was reaching the archive with no filter on it.
+        """
+        params = reddit._feed_params(
+            "http://www.reddit.com/r/fullmoviesonyoutube/search.json"
+            "?q=flair%3AAction&sort=top&restrict_sr=on"
+        )
+        assert params["link_flair_text"] == "Action"
+        assert "title" not in params
+
+    def test_every_flair_feed_of_a_channel_reaches_a_different_query(self):
+        from chls import bfch_r_fullmoviesonyoutube as movies
+
+        queries = set()
+        for feed in movies.feedlist():
+            params = reddit._feed_params(feed["url"])
+            assert params is not None, feed["title"]
+            queries.add(tuple(sorted(params.items(), key=lambda kv: kv[0])))
+
+        # 23 feeds: Latest, 21 single flairs, and Misc/Adult which names two.
+        assert len(queries) == len(
+            movies.feedlist()
+        ), "these feeds are not distinct queries; they will show the same posts"
+
+    def test_the_documentaries_channel_was_already_distinct(self):
+        """
+        The other side of it: the channel that quotes its flairs was never
+        affected, which is why this went unnoticed for so long.
+        """
+        from chls import bfch_r_documentaries as docs
+
+        queries = set()
+        for feed in docs.feedlist():
+            params = reddit._feed_params(feed["url"])
+            if params is None:
+                continue
+            queries.add(tuple(sorted(params.items(), key=lambda kv: kv[0])))
+        assert len(queries) == len(docs.feedlist())
+
+
+class TestAFeedNamingTwoFlairs:
+    """
+    "Misc/Adult" is flair:Misc OR flair:Adult, and the archive has no OR for it.
+
+    link_flair_text is a single-value filter: "Misc OR Adult" and "Misc,Adult"
+    both come back 422, and sending the key twice is a 400. So the feed is asked
+    as two requests and merged here.
+    """
+
+    def _or_feed(self):
+        return {
+            "title": "Misc/Adult",
+            "url": "http://www.reddit.com/r/fullmoviesonyoutube/search.json"
+            "?q=flair%3AMisc+OR+flair%3AAdult&sort=top&restrict_sr=on",
+        }
+
+    def test_both_flairs_are_found_and_kept_in_order(self):
+        params = reddit._feed_params(self._or_feed()["url"])
+        assert params["link_flair_text"] == ("Misc", "Adult")
+
+    def test_a_single_flair_is_not_wrapped_in_a_tuple(self):
+        """
+        The tuple is what marks a feed as needing more than one request, so one
+        flair must stay a plain string or every flair feed would be doubled.
+        """
+        params = reddit._feed_params(
+            "http://www.reddit.com/r/fullmoviesonyoutube/search.json?q=flair%3AAction"
+        )
+        assert params["link_flair_text"] == "Action"
+
+    def test_it_becomes_one_request_each(self):
+        queries = reddit._split_queries(reddit._feed_params(self._or_feed()["url"]))
+        assert [q["link_flair_text"] for q in queries] == ["Misc", "Adult"]
+
+    def test_a_single_flair_stays_one_request(self):
+        params = reddit._feed_params(
+            "http://www.reddit.com/r/fullmoviesonyoutube/search.json?q=flair%3AAction"
+        )
+        assert len(reddit._split_queries(params)) == 1
+
+    def test_the_two_listings_are_merged_without_duplicates(self, monkeypatch):
+        """
+        A post can carry both flairs -- "Action | Drama" is a real flair value
+        here -- so the same film comes back from both requests and must appear
+        once, not twice in one feed.
+        """
+        monkeypatch.setattr(reddit, "_cache", {})
+        shared = _post("Action | Drama", 10)
+        shared["id"] = "same"
+        shared["created_utc"] = 100
+        only_misc = _post("just misc", 5)
+        only_misc["id"] = "misc"
+        only_misc["created_utc"] = 50
+        only_adult = _post("just adult", 5)
+        only_adult["id"] = "adult"
+        only_adult["created_utc"] = 75
+
+        asked = []
+
+        def fake_query_one(params, retries=None):
+            asked.append(params["link_flair_text"])
+            return {"Misc": [shared, only_misc], "Adult": [shared, only_adult]}[
+                params["link_flair_text"]
+            ]
+
+        monkeypatch.setattr(reddit, "_query_one", fake_query_one)
+
+        items = reddit.get_feed(self._or_feed()).to_list()
+
+        assert asked == ["Misc", "Adult"]
+        assert [i.title for i in items] == [
+            "Action | Drama",
+            "just adult",
+            "just misc",
+        ]
+
+    def test_the_merged_feed_is_still_one_screenful(self, monkeypatch):
+        """
+        Two requests is up to sixty rows, and every other feed shows thirty.
+        A feed that showed sixty would look like a different kind of feed
+        rather than the same one, twice the length.
+        """
+        monkeypatch.setattr(reddit, "_cache", {})
+
+        def fake_query_one(params, retries=None):
+            flair = params["link_flair_text"]
+            posts = []
+            for n in range(reddit._LIMIT):
+                post = _post("%s %d" % (flair, n), 1)
+                post["id"] = "%s-%d" % (flair, n)
+                post["created_utc"] = n
+                posts.append(post)
+            return posts
+
+        monkeypatch.setattr(reddit, "_query_one", fake_query_one)
+
+        assert len(reddit.get_feed(self._or_feed()).to_list()) == reddit._LIMIT
+
+    def test_a_two_flair_feed_does_not_share_a_cache_entry(self, monkeypatch):
+        """
+        The cache key is built from the params, and it has to cover both flairs:
+        a feed showing Misc-or-Adult must never be answered from an entry
+        belonging to Misc alone.
+        """
+        monkeypatch.setattr(reddit, "_cache", {})
+        keys = []
+        real_cached = reddit._cached
+
+        def spy_cached(key, fetch):
+            keys.append(key)
+            return real_cached(key, fetch)
+
+        monkeypatch.setattr(reddit, "_cached", spy_cached)
+        monkeypatch.setattr(reddit, "_query_one", lambda params, retries=None: [])
+
+        reddit.get_feed(self._or_feed())
+        reddit.get_feed(
+            {
+                "title": "Action",
+                "url": "http://www.reddit.com/r/fullmoviesonyoutube/search.json"
+                "?q=flair%3AAction",
+            }
+        )
+
+        assert keys[0] != keys[1], "a two-flair feed shares a cache entry"
+        assert dict(keys[0])["link_flair_text"] == ("Misc", "Adult"), keys[0]
+
+
 class TestRedditTop:
     def test_top_ranks_recent_posts_by_score(self, monkeypatch):
         """

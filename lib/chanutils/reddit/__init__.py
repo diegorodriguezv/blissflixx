@@ -108,19 +108,87 @@ def _cached(key, fetch):
     return data
 
 
+def _split_queries(params):
+    """
+    The requests one feed needs, as a list of parameter dicts.
+
+    A feed normally needs exactly one. The exception is a feed naming more than
+    one flair, as "Misc/Adult" does with
+
+        flair:Misc OR flair:Adult
+
+    The archive cannot be asked for either of those: link_flair_text=Misc OR
+    Adult and link_flair_text=Misc,Adult both come back 422, and sending the key
+    twice is a 400. It is a single-value filter and that is the whole of it, so
+    the OR is done here instead -- one request per flair, rows merged below.
+
+    The flairs are carried in params as a tuple, which _feed_params writes and
+    this reads, so that the cache key covers the whole set: a two-flair feed must
+    not share a cache entry with either of its halves.
+    """
+    flairs = params.get("link_flair_text")
+    if not isinstance(flairs, tuple):
+        return [params]
+    queries = []
+    for flair in flairs:
+        one = dict(params)
+        one["link_flair_text"] = flair
+        queries.append(one)
+    return queries
+
+
 def _query(params, retries=None):
     """
-    Ask the archive, retrying the case where it says it was too slow.
+    Ask the archive for one feed, which may be more than one request.
 
-    A 422 with its own "maybe slow down" message means the archive gave up on
-    the query, not that the query was wrong, so it is retried rather than
-    raised. A genuine failure -- the archive down, a network problem -- is
+    Each query is asked on its own, retrying the case where the archive says it
+    was too slow. A 422 with its own "maybe slow down" message means the archive
+    gave up on the query, not that the query was wrong, so it is retried rather
+    than raised. A genuine failure -- the archive down, a network problem -- is
     left to propagate as the exception it is.
 
     Stops at _MAX_SECONDS however the attempts are going, so one query the
     archive is struggling with cannot hold the caller for a minute. What is
     left unasked is asked next time: nothing is cached from a failed call, so
     a retry by the user starts fresh rather than inheriting this staleness.
+
+    The rows from a multi-flair feed are merged here rather than left to the
+    channel, because a post can carry both flairs ("Action | Drama") and would
+    otherwise appear twice in the same feed.
+    """
+    queries = _split_queries(params)
+    if len(queries) == 1:
+        return _query_one(queries[0], retries=retries)
+
+    rows = []
+    seen = set()
+    for query in queries:
+        for post in _query_one(query, retries=retries):
+            # The id is what identifies a post; the permalink is the fallback
+            # for a row that somehow arrives without one.
+            key = post.get("id") or post.get("permalink")
+            if key in seen:
+                continue
+            seen.add(key)
+            rows.append(post)
+    # Each query comes back newest-first on its own, so merging two of them
+    # interleaves them unless they are put back in one order.
+    rows.sort(key=lambda post: post.get("created_utc") or 0, reverse=True)
+    # Two queries means up to twice _LIMIT rows, and a feed is a screenful: left
+    # alone this one feed would show 60 films where every other shows 30. Capped
+    # here rather than in _query_one, which does not cap -- a single query is
+    # already bounded by the limit asked for, and top() deliberately asks for
+    # three times that and needs every row it gets.
+    return rows[:_LIMIT]
+
+
+def _query_one(params, retries=None):
+    """
+    One request's worth: ask the archive, retrying the case where it says it was
+    too slow, and return its rows.
+
+    Split out of _query() so that a feed made of more than one request can merge
+    them; the retry logic itself belongs to the single request.
     """
     last = None
     deadline = time.monotonic() + _MAX_SECONDS
@@ -304,9 +372,11 @@ def _feed_params(url):
     # The documentaries channel is mostly these -- thirty-odd feeds that are
     # one flair each -- so parsing them is most of that channel working. The
     # archive filters on link_flair_text, which is the same string.
-    flair = _flair_from_query(query)
-    if flair:
-        params["link_flair_text"] = flair
+    flairs = _flairs_from_query(query)
+    if flairs:
+        # A tuple when the feed names more than one, because the archive has no
+        # OR; _split_queries() turns that into one request each. See it.
+        params["link_flair_text"] = flairs[0] if len(flairs) == 1 else tuple(flairs)
         return params
     # The shortfilms channel instead searches on words: ?q=action%20adventure.
     # Those are titles containing the phrase, which the archive can do with the
@@ -356,23 +426,47 @@ def _term_from_query(query):
     return value or None
 
 
-def _flair_from_query(query):
+def _flairs_from_query(query):
     """
-    The flair out of "?q=flair%3A%27Art%27", or None if there is not one.
+    Every flair named in a "?q=..." filter, in the order written.
 
     The flair is a label a subreddit applies to a post, and the subreddits that
     use them write their feeds exactly like this. So the feed the user chose in
-    the interface is recovered here and asked for as itself: "Crime" in the
-    list still means posts flaired Crime.
+    the interface is recovered here and asked for as itself: "Crime" in the list
+    still means posts flaired Crime.
+
+    Both spellings Reddit accepts are read, and the difference matters:
+
+        flair:'Art'      what bfch_r_documentaries writes, quoted
+        flair:Action     what bfch_r_fullmoviesonyoutube writes, unquoted
+
+    Only the quoted one used to be recognised, and the effect of missing the
+    unquoted one was not an error -- it was a feed with no filter on it at all.
+    All 22 of the fullmoviesonyoutube flair feeds were the same unfiltered
+    /r/fullmoviesonyoutube listing: picking "Crime" showed the same thirty
+    newest posts as "Western", and there was nothing on screen to say so.
+    _term_from_query() does not rescue it either; it deliberately refuses to read
+    "flair:Action" as title words, so the filter simply vanished.
+
+    More than one flair is returned for a feed that ORs them:
+
+        flair:Misc OR flair:Adult
+
+    The archive cannot be asked for that in one request; see _split_queries().
     """
     for field in urllib.parse.parse_qsl(query):
         key, value = field
         if key != "q":
             continue
-        match = re.search(r"flair\s*:\s*['\"]([^'\"]+)['\"]", value, re.IGNORECASE)
-        if match:
-            return match.group(1)
-    return None
+        # Either a quoted value or a bare one running to whitespace, whichever
+        # comes first, so both spellings are taken from the same expression.
+        found = re.findall(
+            r"flair\s*:\s*(?:['\"]([^'\"]+)['\"]|([^\s'\"]+))", value, re.IGNORECASE
+        )
+        names = [quoted or bare for quoted, bare in found]
+        if names:
+            return names
+    return []
 
 
 def _listing(posts):
