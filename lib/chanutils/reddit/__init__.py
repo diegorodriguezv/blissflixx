@@ -161,9 +161,8 @@ def search(subreddit, q, moviesubs=False):
         "limit": _LIMIT,
         "sort": "desc",
     }
-    data = _cached(
-        ("search", subreddit, q.lower()),
-        lambda: _read(params, retries=_SEARCH_RETRIES),
+    data = _cached_reading(
+        ("search", subreddit, q.lower()), params, retries=_SEARCH_RETRIES
     )
     return _extract(_listing(data), moviesubs)
 
@@ -185,9 +184,7 @@ def top(subreddit, days=7, moviesubs=False):
         "sort": "desc",
         "after": after,
     }
-    data = _cached(
-        ("top", subreddit, days), lambda: _read(params, retries=_SEARCH_RETRIES)
-    )
+    data = _cached_reading(("top", subreddit, days), params, retries=_SEARCH_RETRIES)
     data.sort(key=lambda post: int(post.get("score") or 0), reverse=True)
     return _extract(_listing(data[:_LIMIT]), moviesubs)
 
@@ -212,28 +209,45 @@ def get_feed(feed, moviesubs=False):
     # plain subreddit listing answers without trouble, flair and title queries
     # both time out intermittently.
     retries = _SEARCH_RETRIES if _is_filtered(params) else None
-    data = _cached(
-        tuple(sorted(params.items())), lambda: _read(params, retries=retries)
-    )
+    data = _cached_reading(tuple(sorted(params.items())), params, retries=retries)
     return _extract(_listing(data), moviesubs)
 
 
-def _read(params, retries=None):
+def _cached_reading(key, params, retries=None):
     """
-    The listing, or an empty one if the archive could not be read in time.
+    A cached listing, or an empty one if the archive could not be read in time --
+    and a failure is never the thing that gets cached.
 
-    The archive is volunteer-run and answers a narrowed query unreliably, so
-    some failure is expected rather than exceptional. Raising it turned that
+    This is why there is a function here at all, rather than calling _read inside
+    _cached. _read returned an empty list when the archive could not be read, and
+    _cached stored whatever it was handed, so one unlucky moment put an empty
+    list into the cache and kept it there for the full five minutes:
+
+        20:34:15  archive timed out, five attempts, feed empty
+        20:36:25  same feed, still empty -- and the archive was never asked again
+
+    That second line is the symptom. The archive had long since recovered; the
+    second click was answered from the cache, so the feed read as an empty
+    category rather than as a busy archive and nothing said which. It looked
+    like the channel had lost its posts -- which is exactly what it looked like
+    to the person clicking it, on r/Shortfilms' "Gay & Lesbian", the day the
+    archive happened to be slow.
+
+    So the failure now propagates out of the fetch, past the cache, and becomes
+    an empty listing here instead: logged, and stored nowhere. The next click
+    asks the archive again. A genuine empty result is still cached, because the
+    archive answering "no such posts" is an answer, not a failure.
+
+    The archive being unreliable is expected rather than exceptional -- it is
+    volunteer-run and answers a narrowed query unreliably -- so this still
+    returns an empty listing rather than raising. Raising turned a busy archive
     into an error page over the whole channel, for a feed the user can simply
-    ask for again. An empty listing is the smaller failure: the channel still
-    loads, the other feeds still work, and the next attempt starts clean --
-    nothing is cached when this returns nothing, so it never sticks.
-
-    The failure is still logged. Silently empty would be worse than either --
-    it would be indistinguishable from a subreddit with nothing in it.
+    ask for again. Silently empty would be worse than either: an empty category
+    and a failed fetch have to stay distinguishable in the log, which is why the
+    failure is logged here.
     """
     try:
-        return _query(params, retries=retries)
+        return _cached(key, lambda: _query(params, retries=retries))
     except Exception as exc:
         cherrypy.log("reddit listing unavailable: %s" % exc)
         return []
