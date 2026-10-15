@@ -417,11 +417,11 @@ class TestVlcControl:
     def test_the_volume_buttons_step_the_level_by_ten_percent(self):
         """
         The level is tracked from the last known set point, starting at VLC's
-        mid-scale default of 256. The cli interface has no query for it either.
+        own 100% (256). The cli interface has no query for it either.
 
-        Ten percent of VLC's 0-512 scale is about 51 units. The step was 5
-        units, about one percent, so the button looked like it did nothing; then
-        five percent, which from a sofa still read as no change at all.
+        Ten percent of VLC's 100% is about 26 units. The step was 5 units,
+        about one percent, so the button looked like it did nothing; then five
+        percent, which from a sofa still read as no change at all.
         """
         proc = VlcProcess()
         proc._send_command = lambda c: True
@@ -430,7 +430,7 @@ class TestVlcControl:
         # still says what it means if the start ever changes again.
         start = proc._volume
         proc.control("voldown")
-        assert start - proc._volume == 51  # 10% of VLC's 0-512 scale
+        assert start - proc._volume == 26  # 10% of VLC's own 100% (256)
         proc.control("volup")
         assert proc._volume == start
 
@@ -488,10 +488,16 @@ class TestVlcControl:
         assert sent == ["volume %d" % _VOLUME_START]
         assert proc._volume == _VOLUME_START
 
-    def test_the_start_level_is_full_scale(self):
+    def test_the_start_level_is_vlcs_own_full_scale(self):
         """
-        At 100% rather than VLC's own 256, which is half of the scale.
+        At VLC's own 100% (256) rather than the top of its scale (512, which is
+        VLC's 200% and distorted the audio). This is the regression: the start
+        used to be 512 while the overlay called it 100%.
         """
+        from lib.player.vlcproc import _VOLUME_NOMINAL
+
+        assert _VOLUME_NOMINAL == 256
+        assert _VOLUME_START == _VOLUME_NOMINAL
         assert _volume_percent(_VOLUME_START) == 100
 
     def test_audio_track_actions_reach_the_track_interface(self):
@@ -1582,14 +1588,14 @@ class TestWhatTheOverlaySays:
         assert _track_label("subtitle", None, None) == "subtitle"
 
     @pytest.mark.parametrize(
-        "level,expected", [(0, 0), (128, 25), (256, 50), (512, 100)]
+        "level,expected", [(0, 0), (128, 50), (256, 100), (512, 200)]
     )
     def test_volume_is_shown_as_a_percentage(self, level, expected):
         """
-        VLC's scale runs to 512 and starts at 256, so the overlay read "Volume
-        261" after one press -- a number that means nothing to a viewer. The
-        default is the halfway mark, so 50% is what the first press is read
-        against.
+        VLC's scale runs 0-512 with its own 100% at 256, so the overlay used to
+        read "Volume 261" after one press -- a number that means nothing to a
+        viewer. 256 is what VLC itself calls 100%, so that is what the overlay
+        now shows, and 512 is 200%.
         """
         from lib.player.vlcproc import _volume_percent
 
@@ -1627,10 +1633,10 @@ class TestWhatTheOverlaySays:
         proc._current_volume = lambda: 256
         proc._set_volume = lambda level: True
 
-        # 256 + a step of 10 percent, which is VLC's 307 of 512.
+        # 256 + a step of 10 percent, which is VLC's 282: 110% of VLC's own 100%.
         proc.control("volup")
 
-        assert shown == ["Volume 60%"], shown
+        assert shown == ["Volume 110%"], shown
 
 
 class TestAConfirmationAlwaysSaysSomething:

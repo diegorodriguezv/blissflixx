@@ -237,22 +237,28 @@ _SEEK_SECONDS = {
 #: to read the level back, so the level in force is tracked from the last one set.
 _VOLUME_MAX = 512
 
-#: What the player starts at: full scale. VLC's own default is 256, half of that,
-#: and the level actually in use was whatever VLC last saved, so a film could
-#: open silent. Applied at readiness; see _apply_start_volume.
-_VOLUME_START = _VOLUME_MAX
+#: VLC's own 100%: 256 on its 0-512 scale. VLC's default is 256, so this is the
+#: level it uses when nothing has been set, and it is what a viewer means by
+#: "full" -- no software gain applied to the stream, no chance of clipping it.
+_VOLUME_NOMINAL = 256
+
+#: What the player starts at: VLC's 100%. The start used to be _VOLUME_MAX,
+#: which is VLC's 200%, while the overlay called it 100% -- so a film opened at
+#: twice normal level and audibly distorted. Applied at readiness; see
+#: _apply_start_volume.
+_VOLUME_START = _VOLUME_NOMINAL
 
 
 def _volume_percent(level):
     """
-    VLC's level as a percentage.
+    VLC's level as a percentage of its own 100%.
 
-    Shown this way because 512 is VLC's internal scale and means nothing to
-    anyone watching. The player starts at _VOLUME_START, so the first thing
-    seen after pressing volume is "Volume 100%", rather than the 512 that used
-    to appear.
+    Shown this way because 256 is VLC's internal scale and means nothing to
+    anyone watching. VLC's own 100% -- 256 -- reads as 100%, and the top of the
+    range -- 512, VLC's 200% -- reads as 200%, so the number on the overlay
+    means the same thing it would mean anywhere else.
     """
-    return round(level * 100 / _VOLUME_MAX)
+    return round(level * 100 / _VOLUME_NOMINAL)
 
 
 def _track_label(name, chosen, language=None):
@@ -1007,8 +1013,11 @@ class VlcProcess(PlayerBackend):
             self._seek(_SEEK_SECONDS[action])
             self._report_progress(label="Seek")
         elif action in ("volup", "voldown"):
-            # The step is a percentage; VLC counts in its own units.
-            step = round(_VOLUME_MAX * int(self.opt("volume_step")) / 100)
+            # The step is a percentage; VLC counts in its own units. Measured
+            # against VLC's own 100% (256) rather than the top of its scale, so
+            # "10" in the settings is 10% to the viewer at every level --
+            # previously 10% of 512, which was 20% on screen.
+            step = round(_VOLUME_NOMINAL * int(self.opt("volume_step")) / 100)
             if action == "voldown":
                 step = -step
             # Floored at zero, as it always was: repeatedly holding voldown
