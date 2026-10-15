@@ -34,6 +34,12 @@ api_modules = {
 
 RESTARTING = False
 
+#: The reboot and shutdown buttons reach root through these, not through
+#: "sudo shutdown". They take no arguments, because that is the only form the
+#: sudo grant in configure.sh matches. See Api._power().
+REBOOT_HELPER = "/usr/local/sbin/blissflixx-reboot"
+HALT_HELPER = "/usr/local/sbin/blissflixx-halt"
+
 
 def check_not_root():
     # Do not allow running as root
@@ -104,11 +110,42 @@ class Api:
             gitutils.pull_subdirs(locations.PLUGIN_PATH)
             os.kill(os.getpid(), signal.SIGUSR2)
         elif fn == "shutdown":
-            os.system("sudo shutdown -h 0")
+            return self._power("shut down", HALT_HELPER)
         elif fn == "reboot":
-            os.system("sudo shutdown -r 0")
+            return self._power("reboot", REBOOT_HELPER)
         else:
             return self._error(404, "API Function '" + str(fn) + "' is not defined")
+
+    def _power(self, verb, helper):
+        """
+        Reboot or halt, through a helper that has been allowed to do it.
+
+        This used to be os.system("sudo shutdown -r 0"). The server runs from a
+        service, so it has no terminal, and sudo cannot ask for a password it
+        will never be given -- the command failed, os.system said so in a return
+        value nobody read, and the interface reported success for a button that
+        did nothing. Rebooting had never worked.
+
+        So the grant names a script that takes no arguments, which is the only
+        form a sudoers entry for it matches, and the failure is reported rather
+        than swallowed. Without that second half, an install that is missing the
+        grant looks exactly like one where the button was not pressed.
+        """
+        try:
+            result = subprocess.run(
+                ["sudo", "-n", helper], capture_output=True, text=True, timeout=30
+            )
+        except Exception as exc:
+            return self._error(500, "Could not run %s: %s" % (helper, exc))
+        if result.returncode == 0:
+            return None
+        said = (result.stderr or result.stdout or "").strip().splitlines()
+        return self._error(
+            500,
+            "Could not %s. %s has to be allowed to run without a password; "
+            "run configure.sh -boot as root to set that up. sudo said: %s"
+            % (verb, helper, said[-1] if said else "nothing"),
+        )
 
     @cherrypy.expose
     def chanimage(self, chid, img):

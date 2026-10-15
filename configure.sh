@@ -165,6 +165,46 @@ _contents
     systemctl daemon-reload
     systemctl enable blissflixx.service
     stage "the startup service"
+
+    # The interface has a REBOOT button, and it could not work. The server runs
+    # from this service, so it has no terminal, and "sudo shutdown" cannot ask
+    # for a password it will never be given.
+    #
+    # So each is a script that takes no arguments -- the only form a sudoers
+    # entry matches -- and the grant names those two paths and nothing more
+    # general. The restart helper is in the grant too: a fresh install has no
+    # way to get one otherwise, and the update feature needs it.
+  cat << _contents > /usr/local/sbin/blissflixx-reboot
+#!/bin/sh
+# Reboot the machine. Action is hardcoded; arguments ignored.
+exec /usr/bin/systemctl reboot
+_contents
+    chmod 755 /usr/local/sbin/blissflixx-reboot
+
+  cat << _contents > /usr/local/sbin/blissflixx-halt
+#!/bin/sh
+# Halt the machine. Action is hardcoded; arguments ignored.
+exec /usr/bin/systemctl poweroff
+_contents
+    chmod 755 /usr/local/sbin/blissflixx-halt
+
+    cat << _contents > /etc/sudoers.d/blissflixx
+# Written by configure.sh. Each script takes no arguments, which is why the
+# empty pair of quotes at the end of each: that is how a sudoers command with
+# no arguments is spelled, and passing an argument -- even an empty one -- makes
+# sudo ask for a password again.
+$(logname) ALL=(root) NOPASSWD: /usr/local/sbin/blissflixx-restart "", /usr/local/sbin/blissflixx-reboot "", /usr/local/sbin/blissflixx-halt ""
+_contents
+    chmod 440 /etc/sudoers.d/blissflixx
+
+    # Checked before going any further, and removed if it is wrong: a sudoers
+    # file that does not parse stops sudo working for everyone on the machine,
+    # and the symptom of that is not finding out now.
+    if ! visudo -cf /etc/sudoers.d/blissflixx > /dev/null 2>&1 ; then
+        rm -f /etc/sudoers.d/blissflixx
+        echo "The sudo grant could not be written; reboot and shutdown stay off." 1>&2
+    fi
+    stage "the reboot and shutdown buttons"
 fi
 
 if [[ $@ == *-blank* ]] ; then

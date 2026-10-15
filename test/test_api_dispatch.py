@@ -9,6 +9,8 @@ instead of the intended 404. These tests pin the resolution rules.
 Importing blissflixx is safe because startup moved under a __main__ guard.
 """
 
+import unittest.mock as m
+
 import pytest
 
 import blissflixx
@@ -297,9 +299,10 @@ class TestDispatchBehaviour:
 class TestServerSpecialCase:
     """
     "server" is handled before the module registry, so it must not appear there.
-    Its other functions (restart, shutdown, reboot) are destructive and are
-    deliberately not exercised here: restart kills the process with SIGUSR2 and
-    the others shell out to sudo shutdown.
+
+    Restart is destructive -- it kills the process with SIGUSR2 -- and is not
+    exercised here. Shutdown and reboot are driven with sudo mocked out, so the
+    command is checked without touching the machine.
     """
 
     def test_server_is_not_in_the_module_registry(self):
@@ -312,6 +315,88 @@ class TestServerSpecialCase:
     def test_server_missing_function_is_404(self, api):
         result = api.default("server", fn=None)
         assert "not defined" in result["error"]
+
+
+class TestThePowerButtons:
+    """
+    Reboot and shutdown have to reach root from a service, which has no terminal.
+
+    They used to run "sudo shutdown -r 0". From a service sudo cannot prompt for
+    a password, so the command failed, os.system's return value went unread, and
+    the interface answered 200 for a button that did nothing. Rebooting had
+    never worked and nothing said so.
+
+    Three things are pinned here. The command goes through a named helper rather
+    than through sudo shutdown, because the grant names a script. The helper is
+    called with no arguments, because that is the only form the sudoers entry
+    matches -- passing even an empty argument makes sudo ask for a password
+    again, which is the whole reason the grant is written with a trailing "".
+    And a failure is reported, so an install missing the grant looks like a fault
+    rather than like a button nobody pressed.
+    """
+
+    @staticmethod
+    def _ok(returncode=0, stderr=""):
+        return m.Mock(returncode=returncode, stdout="", stderr=stderr)
+
+    def test_reboot_runs_the_helper_and_not_sudo_shutdown(self, api, monkeypatch):
+        ran = {}
+
+        def fake_run(cmd, **kwargs):
+            ran["cmd"] = cmd
+            return self._ok()
+
+        monkeypatch.setattr(blissflixx.subprocess, "run", fake_run)
+
+        api.default("server", fn="reboot")
+
+        assert ran["cmd"][0] == "sudo", ran
+        assert ran["cmd"][1] == "-n", "without -n, sudo waits for a password"
+        assert ran["cmd"][2] == blissflixx.REBOOT_HELPER, ran
+        # No argument at all: the grant matches only that form.
+        assert len(ran["cmd"]) == 3, ran
+
+    def test_shutdown_uses_its_own_helper(self, api, monkeypatch):
+        ran = {}
+
+        def fake_run(cmd, **kwargs):
+            ran["cmd"] = cmd
+            return self._ok()
+
+        monkeypatch.setattr(blissflixx.subprocess, "run", fake_run)
+
+        api.default("server", fn="shutdown")
+
+        assert ran["cmd"][2] == blissflixx.HALT_HELPER, ran
+
+    def test_a_failure_is_reported_rather_than_swallowed(self, api, monkeypatch):
+        """
+        The silent version of this is the bug. The button reports success, the
+        machine does not reboot, and there is nothing in the response, the log
+        or the screen to say the two facts are connected.
+        """
+        monkeypatch.setattr(
+            blissflixx.subprocess,
+            "run",
+            lambda cmd, **kw: self._ok(
+                returncode=1, stderr="sudo: a password is required"
+            ),
+        )
+
+        result = api.default("server", fn="reboot")
+
+        assert "password is required" in result["error"], result
+        # And it says what to do about it, not merely that it failed.
+        assert "configure.sh" in result["error"], result
+
+    def test_a_failure_names_the_helper_it_needed(self, api, monkeypatch):
+        monkeypatch.setattr(
+            blissflixx.subprocess, "run", lambda cmd, **kw: self._ok(returncode=1)
+        )
+
+        result = api.default("server", fn="reboot")
+
+        assert blissflixx.REBOOT_HELPER in result["error"], result
 
 
 class TestModuleImportIsolation:
