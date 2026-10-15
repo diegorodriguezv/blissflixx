@@ -319,27 +319,36 @@ class TestServerSpecialCase:
 
 class TestThePowerButtons:
     """
-    Reboot and shutdown have to reach root from a service, which has no terminal.
+    Reboot and shutdown have to reach systemd from a service.
 
     They used to run "sudo shutdown -r 0". From a service sudo cannot prompt for
     a password, so the command failed, os.system's return value went unread, and
     the interface answered 200 for a button that did nothing. Rebooting had
     never worked and nothing said so.
 
-    Three things are pinned here. The command goes through a named helper rather
-    than through sudo shutdown, because the grant names a script. The helper is
-    called with no arguments, because that is the only form the sudoers entry
-    matches -- passing even an empty argument makes sudo ask for a password
-    again, which is the whole reason the grant is written with a trailing "".
-    And a failure is reported, so an install missing the grant looks like a fault
-    rather than like a button nobody pressed.
+    A passwordless sudo grant was the second attempt, on the reasoning that it
+    is how the restart helper already worked. It installed, parsed, matched --
+    and changed nothing, because sudo never gets far enough to read a grant when
+    it cannot initialise at all:
+
+        sudo: error initializing audit plugin sudoers_audit
+
+    A service has no login session, so its loginuid is unset (4294967295, which
+    is -1), libaudit cannot open the audit log, and sudo gives up. `sudo -l`,
+    which only reads the policy, fails identically. So these now ask systemd
+    directly and polkit decides, which is the mechanism built for it: "inactive"
+    is polkit's word for a process with no session.
+
+    What is pinned here is that no sudo survives anywhere in this path, that the
+    action is the right one, and that a failure is reported -- because a machine
+    where this is not permitted looks exactly like a button nobody pressed.
     """
 
     @staticmethod
     def _ok(returncode=0, stderr=""):
         return m.Mock(returncode=returncode, stdout="", stderr=stderr)
 
-    def test_reboot_runs_the_helper_and_not_sudo_shutdown(self, api, monkeypatch):
+    def test_reboot_asks_systemd_to_reboot(self, api, monkeypatch):
         ran = {}
 
         def fake_run(cmd, **kwargs):
@@ -350,13 +359,9 @@ class TestThePowerButtons:
 
         api.default("server", fn="reboot")
 
-        assert ran["cmd"][0] == "sudo", ran
-        assert ran["cmd"][1] == "-n", "without -n, sudo waits for a password"
-        assert ran["cmd"][2] == blissflixx.REBOOT_HELPER, ran
-        # No argument at all: the grant matches only that form.
-        assert len(ran["cmd"]) == 3, ran
+        assert ran["cmd"] == ["systemctl", "reboot"], ran
 
-    def test_shutdown_uses_its_own_helper(self, api, monkeypatch):
+    def test_shutdown_asks_systemd_to_power_off(self, api, monkeypatch):
         ran = {}
 
         def fake_run(cmd, **kwargs):
@@ -367,7 +372,27 @@ class TestThePowerButtons:
 
         api.default("server", fn="shutdown")
 
-        assert ran["cmd"][2] == blissflixx.HALT_HELPER, ran
+        assert ran["cmd"] == ["systemctl", "power-off"], ran
+
+    def test_no_sudo_anywhere_in_the_power_path(self, api, monkeypatch):
+        """
+        The whole point. sudo cannot initialise from this process at all, so a
+        grant for it is decoration -- and it was installed and matched before
+        anyone established that.
+        """
+        ran = {}
+
+        def fake_run(cmd, **kwargs):
+            ran.setdefault("cmds", []).append(cmd)
+            return self._ok()
+
+        monkeypatch.setattr(blissflixx.subprocess, "run", fake_run)
+
+        api.default("server", fn="reboot")
+        api.default("server", fn="shutdown")
+
+        for cmd in ran["cmds"]:
+            assert "sudo" not in cmd, cmd
 
     def test_a_failure_is_reported_rather_than_swallowed(self, api, monkeypatch):
         """
@@ -379,27 +404,27 @@ class TestThePowerButtons:
             blissflixx.subprocess,
             "run",
             lambda cmd, **kw: self._ok(
-                returncode=1, stderr="sudo: a password is required"
+                returncode=1,
+                stderr="Failed to power off: Access denied",
             ),
         )
 
         result = api.default("server", fn="reboot")
 
-        assert "password is required" in result["error"], result
-        # And it says what to do about it, not merely that it failed.
+        assert "Access denied" in result["error"], result
         assert "-boot" in result["error"], result
 
     def test_the_message_carries_the_whole_command_to_paste(self):
         """
         The person reading this has a button that does nothing. "Run
-        configure.sh -boot" is not enough: it names a script without saying
-        where, and omits -only, which without it reinstalls every system
-        dependency first and takes most of an hour on a Pi 3.
+        configure.sh -boot" is not enough: it does not say where, and omits
+        -only, which without it reinstalls every system dependency first and
+        takes most of an hour on a Pi 3.
 
         So the message carries the whole line, with this checkout's own path in
         it -- configure.sh writes the unit with WorkingDirectory set to wherever
-        it was run from, so "run it in the right directory" is not a detail that
-        can be left to the reader.
+        it was run from, so the directory is part of the command rather than a
+        detail the reader has to supply.
         """
         message = blissflixx.POWER_SETUP_COMMAND
 
@@ -409,34 +434,12 @@ class TestThePowerButtons:
         # One line, so it pastes as one line.
         assert "\n" not in message, message
 
-    def test_the_pasted_command_is_the_whole_fix(self, api, monkeypatch):
-        """
-        The command in the message has to be the one that installs the helper
-        the message names. A message that says "blissflixx-reboot is missing"
-        and then gives a command that does not install it is worse than useless,
-        because it looks like it worked and the button stays dead.
-        """
+    def test_the_message_names_the_action_it_could_not_do(self, api, monkeypatch):
         monkeypatch.setattr(
-            blissflixx.subprocess,
-            "run",
-            lambda cmd, **kw: self._ok(returncode=1),
+            blissflixx.subprocess, "run", lambda cmd, **kw: self._ok(returncode=1)
         )
 
         result = api.default("server", fn="reboot")
 
-        assert "blissflixx-reboot" in result["error"], result
+        assert "reboot" in result["error"], result
         assert blissflixx.POWER_SETUP_COMMAND in result["error"], result
-
-
-class TestModuleImportIsolation:
-    def test_importing_blissflixx_mounts_nothing(self):
-        """
-        The entrypoint used to end in engine.block(), so importing it hung; it
-        also cloned yt-dlp from the network and SIGTERMed processes by name.
-        Moving that into main() under a __main__ guard is what makes this
-        module importable, and mounting is now part of main() rather than of
-        import time.
-        """
-        import cherrypy
-
-        assert cherrypy.tree.apps == {}

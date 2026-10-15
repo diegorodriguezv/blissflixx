@@ -34,11 +34,30 @@ api_modules = {
 
 RESTARTING = False
 
-#: The reboot and shutdown buttons reach root through these, not through
-#: "sudo shutdown". They take no arguments, because that is the only form the
-#: sudo grant in configure.sh matches. See Api._power().
-REBOOT_HELPER = "/usr/local/sbin/blissflixx-reboot"
-HALT_HELPER = "/usr/local/sbin/blissflixx-halt"
+#: Reboot and halt go to systemd directly, and polkit decides whether this
+#: process may ask.
+#:
+#: Not through sudo. sudo cannot work here at all, and the failure looks like
+#: nothing to do with permissions:
+#:
+#:     sudo: error initializing audit plugin sudoers_audit
+#:
+#: which is sudo failing to initialise at all -- `sudo -l`, which only reads the
+#: policy, fails the same way. The cause is that a service has no login session,
+#: so its loginuid is unset (4294967295, which is -1):
+#:
+#:     $ cat /proc/self/loginuid
+#:     4294967295
+#:
+#: libaudit needs a loginuid to record which user invoked a command, finds
+#: none, and cannot open the audit log. The same call over ssh, where loginuid is
+#: 1000, works every time. So a passwordless sudo grant does not fix it,
+#: because sudo never gets as far as reading the grant.
+#:
+#: polkit is the mechanism for this: it authorises a named action for a subject,
+#: and "inactive" is its word for a process with no session -- which is what a
+#: service is. configure.sh installs the rule.
+POWER_ACTIONS = {"reboot": "reboot", "shutdown": "power-off"}
 
 #: The command that installs them, quoted in full wherever the button is
 #: reported as not working.
@@ -122,46 +141,51 @@ class Api:
             gitutils.pull_subdirs(locations.PLUGIN_PATH)
             os.kill(os.getpid(), signal.SIGUSR2)
         elif fn == "shutdown":
-            return self._power("shut down", HALT_HELPER)
+            return self._power("shut down", POWER_ACTIONS["shutdown"])
         elif fn == "reboot":
-            return self._power("reboot", REBOOT_HELPER)
+            return self._power("reboot", POWER_ACTIONS["reboot"])
         else:
             return self._error(404, "API Function '" + str(fn) + "' is not defined")
 
-    def _power(self, verb, helper):
+    def _power(self, verb, action):
         """
-        Reboot or halt, through a helper that has been allowed to do it.
+        Reboot or halt, by asking systemd and letting polkit decide.
 
         This used to be os.system("sudo shutdown -r 0"). The server runs from a
         service, so it has no terminal, and sudo cannot ask for a password it
-        will never be given -- the command failed, os.system said so in a return
+        will never be given. The command failed, os.system said so in a return
         value nobody read, and the interface reported success for a button that
-        did nothing. Rebooting had never worked.
+        did nothing. Rebooting had never worked from a service.
 
-        So the grant names a script that takes no arguments, which is the only
-        form a sudoers entry for it matches, and the failure is reported rather
-        than swallowed. Without that second half, an install that is missing the
-        grant looks exactly like one where the button was not pressed.
+        A passwordless sudo grant was tried next, on the reasoning that it is how
+        the restart helper already works. The grant installed, parsed, matched,
+        and made no difference at all -- because sudo never gets far enough to
+        read a grant when it cannot initialise. See POWER_ACTIONS for why it
+        cannot initialise here, and why `sudo -l` fails identically.
+
+        The failure is still reported. os.system's status being discarded is what
+        made the original invisible: a machine where this is not permitted looks
+        exactly like a button nobody pressed.
         """
         try:
             result = subprocess.run(
-                ["sudo", "-n", helper], capture_output=True, text=True, timeout=30
+                ["systemctl", action], capture_output=True, text=True, timeout=30
             )
         except Exception as exc:
-            return self._error(500, "Could not run %s: %s" % (helper, exc))
+            return self._error(500, "Could not %s: %s" % (verb, exc))
         if result.returncode == 0:
             return None
         said = (result.stderr or result.stdout or "").strip().splitlines()
         return self._error(
             500,
             "Could not %s: nothing was done and the machine is as it was.\n\n"
-            "%s is not allowed to run without a password. To allow it, run "
-            "this on the Pi:\n\n    %s\n\nsudo said: %s"
+            "This account is not allowed to %s the machine. To allow it, run "
+            "this on the Pi:\n\n    %s\n\nsystemctl said: %s"
             % (
                 verb,
-                os.path.basename(helper),
+                action,
                 POWER_SETUP_COMMAND,
-                said[-1] if said else "nothing",
+                " ".join(said[-3:]) if said else "nothing",
             ),
         )
 

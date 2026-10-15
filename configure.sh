@@ -202,16 +202,86 @@ _contents
     systemctl restart blissflixx.service
     stage "the startup service"
 
-    # The interface has a REBOOT button, and it could not work. The server runs
-    # from this service, so it has no terminal, and "sudo shutdown" cannot ask
-    # for a password it will never be given.
+    # The interface has a REBOOT button, and it could not work.
     #
-    # So each is a script that takes no arguments -- the only form a sudoers
-    # entry matches -- and the grant names those paths and nothing more
-    # general. The restart helper is in there too, and installed here for the
-    # same reason: the grant named it, and nothing created it, so on a clean
-    # install the entry pointed at a file that did not exist. It is what the
-    # update feature restarts the server with.
+    # Not because of permissions, which is where this went looking first. The
+    # server runs from this service, and a service has no login session, so its
+    # loginuid is unset:
+    #
+    #     $ cat /proc/self/loginuid
+    #     4294967295
+    #
+    # which is -1. libaudit needs a loginuid to record which user invoked a
+    # command, finds none, cannot open the audit log, and sudo gives up before
+    # it has read anything at all:
+    #
+    #     sudo: error initializing audit plugin sudoers_audit
+    #
+    # `sudo -l`, which only reads the policy and asks no question, fails
+    # identically. So no sudo grant can fix it, however carefully written --
+    # sudo never reaches the point of reading one. The same command over ssh,
+    # where loginuid is 1000, works every time, which is what makes this look
+    # like a permissions problem from a terminal and not one from a service.
+    #
+    # polkit is the mechanism built for this. It authorises a named action for a
+    # subject, and "inactive" is its word for a process with no session, which
+    # is exactly what this service is. So the rule below allows the two power
+    # actions, and nothing else.
+    #
+    # Numbered 99 so it sorts after the distribution's own rules, which is the
+    # order polkit applies them in.
+  cat << _contents > /etc/polkit-1/rules.d/99-blissflixx-power.rules
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE policyconfig PUBLIC
+ "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
+ "http://www.freedesktop.org/standards/PolicyKit/1/policyconfig.dtd">
+<policyconfig>
+  <vendor>BlissFlixx</vendor>
+  <action id="org.freedesktop.login1.reboot">
+    <description>Reboot the machine</description>
+    <message>Rebooting is needed to finish the requested action.</message>
+    <defaults>
+      <allow_any>no</allow_any>
+      <allow_inactive>yes</allow_inactive>
+      <allow_active>yes</allow_active>
+    </defaults>
+  </action>
+  <action id="org.freedesktop.login1.reboot-multiple">
+    <description>Reboot the machine and stop other sessions</description>
+    <message>Rebooting is needed to finish the requested action.</message>
+    <defaults>
+      <allow_any>no</allow_any>
+      <allow_inactive>yes</allow_inactive>
+      <allow_active>yes</allow_active>
+    </defaults>
+  </action>
+  <action id="org.freedesktop.login1.power-off">
+    <description>Halt the machine</description>
+    <message>Halting is needed to finish the requested action.</message>
+    <defaults>
+      <allow_any>no</allow_any>
+      <allow_inactive>yes</allow_inactive>
+      <allow_active>yes</allow_active>
+    </defaults>
+  </action>
+  <action id="org.freedesktop.login1.power-off-multiple">
+    <description>Halt the machine and stop other sessions</description>
+    <message>Halting is needed to finish the requested action.</message>
+    <defaults>
+      <allow_any>no</allow_any>
+      <allow_inactive>yes</allow_inactive>
+      <allow_active>yes</allow_active>
+    </defaults>
+  </action>
+</policyconfig>
+_contents
+    chmod 644 /etc/polkit-1/rules.d/99-blissflixx-power.rules
+    stage "the reboot and shutdown buttons"
+
+    # The restart helper stays a sudo grant, because it runs from a terminal
+    # where sudo works and is not involved in the above. It is what a manual
+    # restart after an update goes through, and nothing created it on a clean
+    # install -- the grant named a file that was not there.
   cat << _contents > /usr/local/sbin/blissflixx-restart
 #!/bin/sh
 # Restart BlissFlixx. Unit is hardcoded; arguments ignored.
@@ -219,32 +289,22 @@ exec /usr/bin/systemctl restart blissflixx.service
 _contents
     chmod 755 /usr/local/sbin/blissflixx-restart
 
-  cat << _contents > /usr/local/sbin/blissflixx-reboot
-#!/bin/sh
-# Reboot the machine. Action is hardcoded; arguments ignored.
-exec /usr/bin/systemctl reboot
-_contents
-    chmod 755 /usr/local/sbin/blissflixx-reboot
-
-  cat << _contents > /usr/local/sbin/blissflixx-halt
-#!/bin/sh
-# Halt the machine. Action is hardcoded; arguments ignored.
-exec /usr/bin/systemctl poweroff
-_contents
-    chmod 755 /usr/local/sbin/blissflixx-halt
-
     # Who ran this. SUDO_USER is what sudo sets it to, and it is the only one
     # of these that is right when configure.sh is run over ssh with no
     # terminal, which is how it usually is. A wrong name here means a grant
-    # nobody matches, and the buttons stay dead with no way to tell why.
+    # nobody matches.
     BF_USER="${SUDO_USER:-$(logname 2>/dev/null || whoami)}"
 
     cat << _contents > /etc/sudoers.d/blissflixx
-# Written by configure.sh. Each script takes no arguments, which is why the
-# empty pair of quotes at the end of each: that is how a sudoers command with
-# no arguments is spelled, and passing an argument -- even an empty one -- makes
-# sudo ask for a password again.
-$BF_USER ALL=(root) NOPASSWD: /usr/local/sbin/blissflixx-restart "", /usr/local/sbin/blissflixx-reboot "", /usr/local/sbin/blissflixx-halt ""
+# Written by configure.sh. The script takes no arguments, which is why the empty
+# pair of quotes at the end: that is how a sudoers command with no arguments is
+# spelled, and passing an argument -- even an empty one -- makes sudo ask for a
+# password again.
+#
+# Reboot and halt are deliberately absent. They are a polkit rule instead, in
+# 99-blissflixx-power.rules: sudo cannot run from the service that would use
+# them, whatever this file says.
+$BF_USER ALL=(root) NOPASSWD: /usr/local/sbin/blissflixx-restart ""
 _contents
     chmod 440 /etc/sudoers.d/blissflixx
 
@@ -256,14 +316,9 @@ _contents
     if [ -x /usr/sbin/visudo ] ; then
         if ! /usr/sbin/visudo -cf /etc/sudoers.d/blissflixx > /dev/null 2>&1 ; then
             rm -f /etc/sudoers.d/blissflixx
-            echo "The sudo grant did not parse, so it was removed;" 1>&2
-            echo "reboot and shutdown will not work until it is fixed." 1>&2
+            echo "The sudo grant did not parse, so it was removed." 1>&2
         fi
     fi
-    stage "the reboot and shutdown buttons"
-    # Nothing follows this block to print it, and this is usually the last thing
-    # anyone runs: without the flush, "configure.sh -boot -only" reports on the
-    # startup service and says nothing at all about the buttons.
     stage_flush
 fi
 
