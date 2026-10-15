@@ -238,78 +238,58 @@ _contents
     # Numbered 99 so it sorts after the distribution's own rules, which is the
     # order polkit applies them in.
   cat << _contents > /etc/polkit-1/rules.d/99-blissflixx-power.rules
-<policyconfig>
-  <vendor>BlissFlixx</vendor>
-  <action id="org.freedesktop.login1.reboot">
-    <description>Reboot the machine</description>
-    <message>Rebooting is needed to finish the requested action.</message>
-    <defaults>
-      <allow_any>no</allow_any>
-      <allow_inactive>yes</allow_inactive>
-      <allow_active>yes</allow_active>
-    </defaults>
-  </action>
-  <action id="org.freedesktop.login1.reboot-multiple">
-    <description>Reboot the machine and stop other sessions</description>
-    <message>Rebooting is needed to finish the requested action.</message>
-    <defaults>
-      <allow_any>no</allow_any>
-      <allow_inactive>yes</allow_inactive>
-      <allow_active>yes</allow_active>
-    </defaults>
-  </action>
-  <action id="org.freedesktop.login1.power-off">
-    <description>Halt the machine</description>
-    <message>Halting is needed to finish the requested action.</message>
-    <defaults>
-      <allow_any>no</allow_any>
-      <allow_inactive>yes</allow_inactive>
-      <allow_active>yes</allow_active>
-    </defaults>
-  </action>
-  <action id="org.freedesktop.login1.power-off-multiple">
-    <description>Halt the machine and stop other sessions</description>
-    <message>Halting is needed to finish the requested action.</message>
-    <defaults>
-      <allow_any>no</allow_any>
-      <allow_inactive>yes</allow_inactive>
-      <allow_active>yes</allow_active>
-    </defaults>
-  </action>
-</policyconfig>
+// Written by configure.sh. The reboot and shutdown buttons.
+//
+// This is JavaScript, not XML. polkit compiles its rules as scripts, and on
+// Debian bookworm that dialect is JavaScript -- the distribution's own rules
+// are polkit.addRule(function(action, subject) {...}). An XML rule goes to the
+// same compiler and is refused:
+//
+//     Error compiling script .../99-blissflixx-power.rules:
+//         SyntaxError: parse error (line 1)
+//
+// "SyntaxError" and "parse error" are the JavaScript compiler talking, and the
+// line is whichever line the JavaScript first went wrong on -- here line 1,
+// which held <policyconfig>. Written as XML twice before that message was read
+// as what it was: a syntax error in a script, not a malformed document. The
+// XML looked perfectly valid, and it was.
+//
+// Narrow on purpose: two actions, and only for the account BlissFlixx runs as.
+// The rule applies whether or not there is a session, and the sessionless case
+// is the one that matters -- the server is a service and has none.
+polkit.addRule(function(action, subject) {
+    if (action.id == "org.freedesktop.login1.reboot" ||
+        action.id == "org.freedesktop.login1.reboot-multiple" ||
+        action.id == "org.freedesktop.login1.power-off" ||
+        action.id == "org.freedesktop.login1.power-off-multiple") {
+        if (subject.user == "$BF_USER") {
+            return polkit.Result.YES;
+        }
+    }
+});
 _contents
     chmod 644 /etc/polkit-1/rules.d/99-blissflixx-power.rules
 
-    # No <?xml ?> declaration and no DOCTYPE, which is the whole difference
-    # between a rule polkit loads and one it refuses.
+    # Reloaded and then checked, so a rule that does not take effect is
+    # reported by the install that wrote it rather than discovered later by
+    # pressing the button.
     #
-    # It refused this one, by name, in its own log:
-    #
-    #     Error compiling script .../99-blissflixx-power.rules:
-    #         SyntaxError: parse error (line 1)
-    #
-    # on a file that was byte for byte what was written. polkit parses rules
-    # with GMarkup, which reads "<?xml ... ?>" as a processing instruction
-    # called xml, and a processing instruction called xml is not a policy
-    # element -- so it is a parse error on the very first line, and the whole
-    # rule is discarded. The rest of the file, every action in it, never
-    # happens. Every example of a polkit rule carries that declaration.
-    #
-    # So the file starts at <policyconfig> and nothing is declared. It is not
-    # XML any more, but polkit was never reading it as XML.
-
-    # Reloaded and then checked, so a rule that does not load is reported by
-    # the install that wrote it rather than discovered later by pressing the
-    # button. pkcheck with no --process asks about the calling process, so this
-    # runs it as the user who will be asking.
+    # Checked twice, and the second is the one that matters: through setsid, so
+    # the process has no session and polkit sees an inactive subject, which is
+    # what the BlissFlixx server is. Checking only from a terminal would prove
+    # the rule works for someone sitting at one, and say nothing about the case
+    # it exists for.
     systemctl reload polkit
-    if sudo -u "$BF_USER" pkcheck --action-id org.freedesktop.login1.reboot > /dev/null 2>&1 ; then
-        :
-    else
-        echo "  WARNING: the reboot rule did not load; reboot and shutdown will" 1>&2
-        echo "  not work. polkit's own log says why:" 1>&2
+    if ! sudo -u "$BF_USER" pkcheck --action-id org.freedesktop.login1.reboot > /dev/null 2>&1 ; then
+        echo "  WARNING: the reboot rule is not taking effect for $BF_USER." 1>&2
+        echo "  polkit's own log says why:" 1>&2
         journalctl -u polkit --since "1 min ago" --no-pager 2>/dev/null | \
-            grep -i "99-blissflixx" | tail -3 | sed 's/^/    /' 1>&2
+            grep -i "99-blissflixx" | tail -2 | sed 's/^/    /' 1>&2
+    elif ! sudo -u "$BF_USER" setsid pkcheck --action-id org.freedesktop.login1.reboot > /dev/null 2>&1 ; then
+        echo "  WARNING: the rule works from a terminal but NOT for a process" 1>&2
+        echo "  with no session, which is the BlissFlixx server, so the button" 1>&2
+        echo "  will still fail. polkit reports no error for this; it just" 1>&2
+        echo "  refuses." 1>&2
     fi
     stage "the reboot and shutdown buttons"
 
