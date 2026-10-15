@@ -242,35 +242,46 @@ _VOLUME_SCALE = 512
 #: "full" -- no software gain applied to the stream, no chance of clipping it.
 _VOLUME_NOMINAL = 256
 
-#: How far above VLC's 100% the buttons may go: 120%, or 307 of VLC's units.
+#: How far above VLC's 100% the buttons may go: 120%.
 #:
-#: A film opens at _VOLUME_START, which is 100%, so this is headroom rather than
-#: the usual setting -- for a quiet source or a room with noise. It is a ceiling
-#: and not a recommendation: the distortion that came before was not a film
-#: recorded too loud but this player opening at twice normal level, and there is
-#: nothing past 120% that a film needs.
+#: A film opens at 100%, so this is headroom rather than the usual setting -- for
+#: a quiet source or a room with noise. It is a ceiling and not a recommendation:
+#: the distortion that came before was not a film recorded too loud but this
+#: player opening at twice normal level, and there is nothing past 120% that a
+#: film needs.
 #:
 #: Enforced in _set_volume() rather than only through the volume_max setting,
 #: because an install that already has the old 512 saved keeps it, and a setting
 #: left over from the era when 512 was called 100% would otherwise put that
 #: distortion straight back.
-_VOLUME_MAX = 307
+_VOLUME_MAX_PERCENT = 120
 
 #: What the player starts at: VLC's 100%. Applied at readiness; see
 #: _apply_start_volume.
-_VOLUME_START = _VOLUME_NOMINAL
+_VOLUME_START_PERCENT = 100
 
 
-def _volume_percent(level):
+def _volume_units(percent):
     """
-    VLC's level as a percentage of its own 100%.
+    VLC's 0-512 level for a percentage of VLC's own 100%.
 
-    Shown this way because 256 is VLC's internal scale and means nothing to
-    anyone watching. VLC's own 100% -- 256 -- reads as 100%, and the top of the
-    range -- 512, VLC's 200% -- reads as 200%, so the number on the overlay
-    means the same thing it would mean anywhere else.
+    The percentage is what this player tracks and what the overlay shows, and
+    this is the conversion to VLC's units on the way to the cli. Converting here
+    rather than accumulating a step in units is what keeps the numbers honest:
+    a tenth of 256 is 25.6, so stepping 26 units at a time is 10.16% each time
+    and every press walked further off the percentage grid. The overlay read
+
+        100%  89%  79%  69%  59%  49%  39%  29%  18%  8%  0%
+
+    for ten presses of volume down. Rounding happens once, here, and is at most
+    half a unit -- 0.2% of full scale, well below hearing.
     """
-    return round(level * 100 / _VOLUME_NOMINAL)
+    units = round(percent * _VOLUME_NOMINAL / 100)
+    return max(0, min(units, _VOLUME_SCALE))
+
+
+#: The same ceiling in VLC's units, for the volume_max setting. 120% is 307.
+_VOLUME_MAX = _volume_units(_VOLUME_MAX_PERCENT)
 
 
 def _track_label(name, chosen, language=None):
@@ -507,10 +518,13 @@ class VlcProcess(PlayerBackend):
         self._replies = Queue()
         self.on_output_line = self._replies.put
         # The cli interface has no volume query, so it is tracked from the last
-        # set point. It starts at the level _apply_start_volume puts on the
-        # player, rather than at VLC's own half-scale default, so the two agree
-        # from the first frame instead of being reconciled later.
-        self._volume = _VOLUME_START
+        # set point. It is tracked as a percentage of VLC's own 100%, not in
+        # VLC's 0-512 units, because that is the grid the buttons step on and
+        # the grid the overlay shows; converting to units happens only on the way
+        # out, in _set_volume. It starts at the level _apply_start_volume puts on
+        # the player, so the two agree from the first frame instead of being
+        # reconciled later.
+        self._volume_percent = _VOLUME_START_PERCENT
         self._overlay_shown = None
         self._overlay_failures = 0
         # Remembered once learned; see _report_progress.
@@ -664,10 +678,10 @@ class VlcProcess(PlayerBackend):
         thing to have to do on every film.
 
         So the level the player says it is at is now also the level VLC is at.
-        Both come from _VOLUME_START, so what the interface shows and what comes
-        out of the speakers cannot disagree.
+        Both come from _VOLUME_START_PERCENT, so what the interface shows and
+        what comes out of the speakers cannot disagree.
         """
-        self._set_volume(_VOLUME_START)
+        self._set_volume(_VOLUME_START_PERCENT)
 
     def _did_not_come_up(self):
         """
@@ -1025,19 +1039,21 @@ class VlcProcess(PlayerBackend):
             self._seek(_SEEK_SECONDS[action])
             self._report_progress(label="Seek")
         elif action in ("volup", "voldown"):
-            # The step is a percentage; VLC counts in its own units. Measured
-            # against VLC's own 100% (256) rather than the top of its scale, so
-            # "10" in the settings is 10% to the viewer at every level --
-            # previously 10% of 512, which was 20% on screen.
-            step = round(_VOLUME_NOMINAL * int(self.opt("volume_step")) / 100)
+            # Stepped in percent, not in VLC's units, and that is the whole fix.
+            # A tenth of 256 is 25.6, so a unit step had to be rounded to 26 --
+            # which is 10.16%, not 10% -- so each press pushed the level a little
+            # further off the grid the overlay reads from, and ten presses down
+            # from 100% walked 100 89 79 69 59 49 39 29 18 8 0 instead of
+            # 100 90 80 ... 0. Converting to units happens once, on the way out.
+            step = int(self.opt("volume_step"))
             if action == "voldown":
                 step = -step
-            # Floored at zero, as it always was: repeatedly holding voldown
-            # must not walk the level into negatives.
-            level = max(0, self._current_volume() + step)
-            self._set_volume(level)
+            self._set_volume(self._current_volume() + step)
+            # Read back rather than computed: _set_volume clamps, and the number
+            # on the overlay is the level that was actually set -- so pressing up
+            # at the ceiling says 120%, not a larger number that was refused.
             self._show_overlay(
-                "Volume %d%%" % _volume_percent(level), hold=_CONFIRM_HOLD
+                "Volume %d%%" % self._current_volume(), hold=_CONFIRM_HOLD
             )
         elif action == "hide_subtitle":
             # -1 is VLC's "disabled", and it is always in the listing.
@@ -1340,20 +1356,34 @@ class VlcProcess(PlayerBackend):
         return self._track_names.get(command, {}).get(chosen)
 
     def _current_volume(self):
-        return self._volume
+        """
+        The level in force, as a percentage of VLC's own 100%.
+        """
+        return self._volume_percent
 
-    def _set_volume(self, value):
-        # Clamped to _VOLUME_MAX as well as the setting, because an install
-        # that already has the old 512 saved would otherwise climb straight back
-        # to VLC's 200% and distort -- which is the bug _VOLUME_MAX exists to
-        # stop. See its comment.
-        value = min(value, self.opt("volume_max"), _VOLUME_MAX)
-        self._volume = value
+    def _set_volume(self, percent):
+        """
+        Put the volume at a percentage of VLC's own 100%, and remember it.
+
+        Clamped to _VOLUME_MAX_PERCENT as well as to whatever the volume_max
+        setting says, because an install that still has the old 512 saved would
+        otherwise climb straight back to VLC's 200% and distort -- which is the
+        bug the ceiling exists to stop. See its comment.
+
+        The number kept is the clamped percentage rather than the unit level
+        that was sent, so what the overlay reads back is the number it just
+        showed, to the digit.
+        """
+        ceiling = min(
+            _VOLUME_MAX_PERCENT,
+            round(self.opt("volume_max") * 100 / _VOLUME_NOMINAL),
+        )
+        self._volume_percent = max(0, min(percent, ceiling))
         # "volume N", not "vol N": the verb is "volume", and there is no "vol".
         # The cli interface reports an unrecognised command by echoing the
         # prompt and saying nothing at all, which is indistinguishable from
         # success unless you know the verb list.
-        return self._send_command("volume " + str(value))
+        return self._send_command("volume %d" % _volume_units(self._volume_percent))
 
     def stop(self):
         # Emptied before the player goes, so the next film starts with a blank

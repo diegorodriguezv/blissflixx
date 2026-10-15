@@ -32,10 +32,10 @@ from lib.player.gstproc import GStreamerProcess
 from lib.player.processpipe import ProcessException
 from lib.player.vlcproc import (
     _REPLY_TIMEOUT,
-    _VOLUME_START,
+    _VOLUME_START_PERCENT,
     MARQ_FILE,
     VlcProcess,
-    _volume_percent,
+    _volume_units,
 )
 
 FILE_OUT = "/home/diego/testfiles/h264_1080p.mkv"
@@ -60,8 +60,10 @@ def on_screen_proc():
     """
     proc = VlcProcess()
     proc._send_command = lambda command: True
-    proc._current_volume = lambda: 100
-    proc._set_volume = lambda level: True
+    # Stateful, because control() reads the level back after setting it to
+    # report the number that was actually applied -- including after clamping.
+    proc._current_volume = lambda: proc._volume_percent
+    proc._set_volume = lambda percent: setattr(proc, "_volume_percent", percent)
     proc._show_track = lambda verb: True
     proc._step_track = lambda verb, direction: True
     proc._track_choice = {"strack": -1, "atrack": -1}
@@ -416,71 +418,122 @@ class TestVlcControl:
 
     def test_the_volume_buttons_step_the_level_by_ten_percent(self):
         """
-        The level is tracked from the last known set point, starting at VLC's
-        own 100% (256). The cli interface has no query for it either.
+        The level is tracked as a percentage of VLC's own 100%, starting at
+        100. The cli interface has no query for it either, so this is our own
+        record of the last set point.
 
-        Ten percent of VLC's 100% is about 26 units. The step was 5 units,
-        about one percent, so the button looked like it did nothing; then five
-        percent, which from a sofa still read as no change at all.
+        The step is a whole ten percent. It used to be 26 of VLC's units --
+        25.6 rounded up, which is 10.16% -- so each press walked a little
+        further off the percentage grid.
         """
         proc = VlcProcess()
         proc._send_command = lambda c: True
 
-        # Measured from the starting level rather than a fixed number, so this
-        # still says what it means if the start ever changes again.
-        start = proc._volume
+        assert proc._volume_percent == 100
         proc.control("voldown")
-        assert start - proc._volume == 26  # 10% of VLC's own 100% (256)
+        assert proc._volume_percent == 90
         proc.control("volup")
-        assert proc._volume == start
+        assert proc._volume_percent == 100
 
-    def test_the_volume_step_is_a_percentage_not_vlcs_own_units(self):
+    def test_the_overlay_shows_whole_numbers_all_the_way_down(self):
         """
-        So that "10" in the settings means 10% to whoever edits it, rather than
-        10 of VLC's 0-512 units -- which is what it used to mean, and looked
-        like a typo.
+        The regression, and the thing the log showed.
+
+        Stepping in units drifted off the grid, so ten presses of volume down
+        from 100% read 100 89 79 69 59 49 39 29 18 8 0 -- every one of them a
+        number nobody asked for. Stepped in percent they read as intended.
         """
         proc = VlcProcess()
         proc._send_command = lambda c: True
+        shown = []
+        proc._show_overlay = lambda text, hold=None: shown.append(text)
+
+        for _ in range(10):
+            proc.control("voldown")
+
+        assert shown == [
+            "Volume 90%",
+            "Volume 80%",
+            "Volume 70%",
+            "Volume 60%",
+            "Volume 50%",
+            "Volume 40%",
+            "Volume 30%",
+            "Volume 20%",
+            "Volume 10%",
+            "Volume 0%",
+        ], shown
+
+    def test_the_overlay_shows_whole_numbers_all_the_way_up(self):
+        proc = VlcProcess()
+        proc._send_command = lambda c: True
+        shown = []
+        proc._show_overlay = lambda text, hold=None: shown.append(text)
+
+        for _ in range(5):
+            proc.control("volup")
+
+        # 100 -> 110 -> 120, and then the ceiling holds: it says 120%, not a
+        # larger number that was refused.
+        assert shown == [
+            "Volume 110%",
+            "Volume 120%",
+            "Volume 120%",
+            "Volume 120%",
+            "Volume 120%",
+        ], shown
+
+    def test_the_units_sent_to_vlc_follow_the_percentage(self):
+        """
+        The percentage is tracked, but VLC is still told in its own 0-512 units.
+        The conversion rounds once, to at most half a unit.
+        """
+        proc = VlcProcess()
+        sent = []
+        proc._send_command = sent.append
 
         proc.control("voldown")
-        assert _volume_percent(proc._volume) == 90
+        proc.control("volup")
+
+        # 90% of VLC's 256 is 230.4, so 230; 100% is 256.
+        assert sent == ["volume 230", "volume 256"], sent
 
     def test_the_volume_does_not_walk_outside_its_range(self):
         proc = VlcProcess()
         proc._send_command = lambda c: True
         for _ in range(60):
             proc.control("voldown")
-        assert proc._volume == 0
+        assert proc._volume_percent == 0
         for _ in range(60):
             proc.control("volup")
-        assert proc._volume == 307
+        assert proc._volume_percent == 120
 
     def test_the_ceiling_is_a_hundred_and_twenty_percent(self):
         """
-        120% of VLC's own 100% (256) is 307. 512 -- the top of VLC's scale,
-        which this player used to call 100% -- is its 200% and is exactly the
-        level that distorted the audio, so it must not be reachable.
+        120% of VLC's own 100% (256) is 307 of its units. 512 -- the top of
+        VLC's scale, which this player used to call 100% -- is its 200% and is
+        exactly the level that distorted the audio, so it must not be reachable.
         """
-        from lib.player.vlcproc import _VOLUME_MAX, _VOLUME_NOMINAL
+        from lib.player.vlcproc import _VOLUME_MAX, _VOLUME_MAX_PERCENT
 
-        assert _VOLUME_MAX == round(_VOLUME_NOMINAL * 1.20)
-        assert _volume_percent(_VOLUME_MAX) == 120
-        assert _volume_percent(512) == 200
+        assert _VOLUME_MAX_PERCENT == 120
+        assert _VOLUME_MAX == 307
+        assert _volume_units(_VOLUME_MAX_PERCENT) == _VOLUME_MAX
+        assert _volume_units(200) == 512
 
     def test_volume_never_goes_below_zero(self):
         proc = VlcProcess()
         proc._send_command = lambda c: True
         for _ in range(60):
             proc.control("voldown")
-        assert proc._volume == 0
+        assert proc._volume_percent == 0
 
     def test_volume_is_capped(self):
         proc = VlcProcess()
         proc._send_command = lambda c: True
         for _ in range(200):
             proc.control("volup")
-        assert proc._volume == proc.opt("volume_max")
+        assert proc._volume_percent == 120
 
     def test_a_saved_volume_max_cannot_lift_the_ceiling(self):
         """
@@ -495,8 +548,21 @@ class TestVlcControl:
         for _ in range(200):
             proc.control("volup")
 
-        assert proc._volume == 307
-        assert _volume_percent(proc._volume) == 120
+        assert proc._volume_percent == 120
+
+    def test_a_lowered_setting_still_lowers_the_ceiling(self):
+        """
+        The setting is not dead weight: where it is below the built-in ceiling
+        it wins, so somebody who wants 110% gets 110%.
+        """
+        proc = VlcProcess()
+        proc._send_command = lambda c: True
+        proc.config["volume_max"] = 281  # 110% of 256
+
+        for _ in range(200):
+            proc.control("volup")
+
+        assert proc._volume_percent == 110
 
     def test_the_start_level_is_put_on_the_player(self):
         """
@@ -514,20 +580,20 @@ class TestVlcControl:
 
         proc._apply_start_volume()
 
-        assert sent == ["volume %d" % _VOLUME_START]
-        assert proc._volume == _VOLUME_START
+        assert sent == ["volume %d" % _volume_units(_VOLUME_START_PERCENT)]
+        assert proc._volume_percent == _VOLUME_START_PERCENT
 
     def test_the_start_level_is_vlcs_own_full_scale(self):
         """
-        At VLC's own 100% (256) rather than the top of its scale (512, which is
-        VLC's 200% and distorted the audio). This is the regression: the start
-        used to be 512 while the overlay called it 100%.
+        At VLC's own 100% (256 of its units) rather than the top of its scale
+        (512, which is VLC's 200% and distorted the audio). This is the
+        regression: the start used to be 512 while the overlay called it 100%.
         """
         from lib.player.vlcproc import _VOLUME_NOMINAL
 
         assert _VOLUME_NOMINAL == 256
-        assert _VOLUME_START == _VOLUME_NOMINAL
-        assert _volume_percent(_VOLUME_START) == 100
+        assert _VOLUME_START_PERCENT == 100
+        assert _volume_units(_VOLUME_START_PERCENT) == _VOLUME_NOMINAL
 
     def test_audio_track_actions_reach_the_track_interface(self):
         """
@@ -660,8 +726,8 @@ class TestVlcControl:
         proc = VlcProcess()
         sent = []
         proc._send_command = lambda c: sent.append(c) or True
-        proc._set_volume(300)
-        assert sent == ["volume 300"]
+        proc._set_volume(117)
+        assert sent == ["volume %d" % _volume_units(117)]
 
     def test_every_verb_sent_is_a_real_cli_verb(self):
         """
@@ -1617,18 +1683,16 @@ class TestWhatTheOverlaySays:
         assert _track_label("subtitle", None, None) == "subtitle"
 
     @pytest.mark.parametrize(
-        "level,expected", [(0, 0), (128, 50), (256, 100), (512, 200)]
+        "percent,expected", [(0, 0), (50, 128), (100, 256), (120, 307), (200, 512)]
     )
-    def test_volume_is_shown_as_a_percentage(self, level, expected):
+    def test_a_percentage_becomes_vlcs_own_units(self, percent, expected):
         """
         VLC's scale runs 0-512 with its own 100% at 256, so the overlay used to
         read "Volume 261" after one press -- a number that means nothing to a
-        viewer. 256 is what VLC itself calls 100%, so that is what the overlay
-        now shows, and 512 is 200%.
+        viewer. This is the one conversion between the percentage the player
+        tracks and the units VLC is given, and it rounds at most half a unit.
         """
-        from lib.player.vlcproc import _volume_percent
-
-        assert _volume_percent(level) == expected
+        assert _volume_units(percent) == expected
 
     def test_stepping_a_track_names_the_language_it_landed_on(self):
         """
@@ -1659,12 +1723,13 @@ class TestWhatTheOverlaySays:
         shown = []
         proc._show_overlay = lambda text, hold=None: shown.append(text)
         proc._send_command = lambda command: True
-        proc._current_volume = lambda: 256
-        proc._set_volume = lambda level: True
+        proc._current_volume = lambda: proc._volume_percent
+        proc._set_volume = lambda percent: setattr(proc, "_volume_percent", percent)
 
-        # 256 + a step of 10 percent, which is VLC's 282: 110% of VLC's own 100%.
         proc.control("volup")
 
+        # What the units sent are checked in the test above, which does not stub
+        # _set_volume away.
         assert shown == ["Volume 110%"], shown
 
 
