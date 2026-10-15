@@ -37,23 +37,77 @@ thing as one that works for someone who has just found it.
   advertise it and the buttons are hidden for it rather than shown and
   ineffective.
 - **The overlay is one line at one position.** A marquee reads one line from
-    one file, so two stacked messages need two overlays, and that has not been
-    shown to work.
-  - **Reddit posts come from an archive, and the filtered feeds are the weak
-    part.** Six channels read their posts from Arctic Shift rather than from
-    Reddit, which no longer answers. Measured from here: a plain subreddit
-    listing answered 6 times in 6, while queries that narrow the listing -- the
-    thirty-odd flair feeds in the documentaries channel, the word-search feeds
-    in the shortfilms channel, and the search box -- answered 4 in 10, and
-    those failures can take the full 30s timeout each. Filtered feeds and
-    search are retried five times, so they usually answer, but a term the
-    archive will not search fails rather than returning nothing, and it can
-    take half a minute. A channel with a `top` feed is also an approximation
-    now: the archive cannot rank by score, so it reads as the highest scoring
-    posts within a date window instead. See the module docstring in
-    `lib/chanutils/reddit`.
+  one file, so two stacked messages need two overlays, and that has not been
+  shown to work.
+- **Reddit posts come from an archive, and the narrowed feeds are the weak
+  part.** Six channels read their posts from Arctic Shift rather than from
+  Reddit, which no longer answers. A plain subreddit listing answers in about
+  two seconds and has not failed. Queries that narrow the listing -- the
+  thirty-odd flair feeds in the documentaries channel, the word-search feeds in
+  the shortfilms channel, and the search box -- are much weaker: they take
+  around seven seconds when they work, and roughly a third of them are refused
+  outright with a `422` in about a second and a quarter.
 
-  ## After Phoenix
+  That is a property of the archive, not a bug that can be fixed here, so the
+  work is in not letting it reach the person watching. Three things:
+
+  - A failed read is never cached. It used to be, as an empty list for five
+    minutes, which is how one feed sat there silently showing nothing.
+  - The whole read is bounded. Retries are a flat second apart rather than
+    backing off, and the ceiling is fifteen seconds rather than thirty. The
+    worst case measured went from 31.8 seconds to 10.5.
+  - A refused archive is reported as what it is. The channel answers `503` and
+    the interface shows a sentence saying the archive is busy, rather than an
+    empty list that looks like a channel with nothing in it.
+
+  A channel with a `top` feed is also an approximation: the archive cannot rank
+  by score, so it reads as the highest scoring posts within a date window
+  instead. See the module docstring in `lib/chanutils/reddit`.
+
+  One thing that was ours, and is fixed: flair filters were only being read in
+  the quoted form. Written as `flair:Action` and not `flair:"Action"`, every
+  one of the twenty-two movie feeds was being served unfiltered, and every feed
+  in the channel showed the same thirty posts.
+
+## Channels
+
+Every channel on the test instance was swept: every feed and every search, each
+one loaded and read, watching for empty lists, `500`s and stalls. That is the
+part of Phoenix that cannot be automated away, because a channel is not broken
+or working -- it answers with a list and you have to decide whether that list
+is the thing it claims to be.
+
+Most of what was wrong was quietly wrong rather than loudly wrong, which is why
+it survived so long. A feed that silently ignored its own filter and showed
+the same thirty posts every time looked like a working feed. So did a channel
+whose selector no longer matched anything, returning an empty page that parsed
+cleanly.
+
+One channel and three smaller entries could not be repaired, and were taken out
+rather than left in place:
+
+| Removed | Why |
+|---|---|
+| **Vimeo** (whole channel) | vimeo.com answers a Raspberry Pi with a Cloudflare challenge page. The page returns `200`, so it reads as success. yt-dlp finds no player config, falls back to a client that needs a login, and every item fails. Its own API is reachable but no longer carries media URLs. Playable only with a Vimeo account. |
+| **IPTV.org "NSFW"** | The whole world list holds exactly one such stream, and it did not play. A menu entry listing a single dead stream is worse than not offering it. |
+| **TechCrunch "TCTV News"** | The page is a `404`. Search results for the term answer `200` and ignore the query, which is a way of failing that looks like success. |
+| **EZTV search** | The API takes an IMDb id and nothing else. There is no title search to map a query onto. |
+
+Two needed more than a selector. **TechCrunch** items are article pages, and
+yt-dlp has no extractor for techcrunch.com, so every video in the channel
+failed with `Unsupported URL`. The page names the JW Player playlist the video
+is served from, and that playlist plays -- so the article URL is exchanged for
+the playlist before yt-dlp ever sees it.
+
+**Rotten Tomatoes**, **BBC iPlayer**, **EZTV** and **TechCrunch** had selectors
+that no longer matched anything, and were re-read against markup that has since
+moved. Rotten Tomatoes parses the structured item list the browse pages
+publish, BBC iPlayer matches the current grid and falls back to the carousel
+layout that replaced it, EZTV reads the site's own torrent API rather than
+scraping a page, and TechCrunch matches the current card and falls back to the
+one it replaced.
+
+## After Phoenix
 
 Noted, agreed, not started. In the order they were raised.
 
@@ -120,6 +174,12 @@ a stalled seek.
 Ten percent per press is what the television wants. Ten presses to silence is
 a lot of pressing, and the difference between 40% and 45% matters more at the
 bottom of the range than it does at the top. Not before Phoenix.
+
+Note that the ten percent is now a real ten percent. It used to be a fixed step
+in VLC's own units, which are 256 to the nominal 100%, so a step that was
+labelled 10% was really 10.16% -- and the overlay drifted as it counted down,
+showing 100, 89, 79, 69 rather than round numbers.
+
 ### Popular videos, from YouTube or an aggregator
 
 There was a YouTube channel (`bfch_youtube`) built on Reddit's sitewide
@@ -127,7 +187,8 @@ There was a YouTube channel (`bfch_youtube`) built on Reddit's sitewide
 linked to YouTube. Retired rather than repaired.
 
 It went the way the other Reddit channels went, and for the same reason -- see
-"Reddit posts come from an archive now" below for how those work. But this one
+"Reddit posts come from an archive, and the narrowed feeds are the weak part"
+above for how those work. But this one
 does not come back with the others, because what it listed is not a subreddit.
 It was everything across all of Reddit matching one domain, and the archive
 those channels now read can only search within a named subreddit. Substituting

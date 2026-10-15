@@ -70,7 +70,7 @@ def image():
 
 
 def description():
-    return "Collection of publicly available IPTV channels from all over the world (<a target='_blank' href='https://iptv-org.github.io/'>https://iptv-org.github.io/</a>). IPTV = Internet Protocol TeleVision."
+    return "Collection of publicly available IPTV channels from all over the world (<a target='_blank' href='https://iptv-org.github.io'>https://iptv-org.github.io</a>). IPTV = Internet Protocol TeleVision."
 
 
 def feedlist():

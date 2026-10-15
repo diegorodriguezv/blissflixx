@@ -15,7 +15,6 @@ Website: https://diegorodriguezv.github.io/blissflixx/
 BlissFlixx allows you to stream various types of video and audio content directly from the internet to your television. Supported media sources include:
 
  - Youtube
- - Vimeo
  - Facebook
  - Twitch
  - Catchup TV services such as BBC iPlayer
@@ -176,6 +175,54 @@ If you have netbios installed in your network, chances are you can access your r
 *    http://raspberrypi.local
 
 If you have an Apple device (iPad, Mac etc) read [this article](http://www.howtogeek.com/167190/how-and-why-to-assign-the-.local-domain-to-your-raspberry-pi/) for details on how to get this to work with Windows devices.
+
+## Driving it from a terminal
+
+Everything the web interface does is an HTTP call to `/api/<module>`, so the
+server can be exercised, and diagnosed, from a shell. Useful when a remote
+machine has no browser on it, or when you want to know whether a channel is
+broken or just slow.
+
+The two parameters are always the same: `fn` names the function in the module,
+and `data` is a JSON object of its keyword arguments. Give `data` as a URL
+parameter rather than pasting raw JSON into the address bar.
+
+Check what the player is doing:
+
+    curl 'http://192.168.1.4/api/playr?fn=status'
+
+Stop it:
+
+    curl --get http://192.168.1.4/api/playr \
+      --data-urlencode "fn=control" --data-urlencode 'data={"action":"stop"}'
+
+The action travels **inside** `data`. Two plausible-looking alternatives do
+nothing at all, and neither says so:
+
+| Attempted | Result |
+|---|---|
+| `?fn=stop` | `fn` must name a function in the module; there is no `stop`, so this returns 404 |
+| `?fn=control&action=stop` | `action` is not a request parameter; `control` is called with no arguments and raises "Action is undefined" |
+
+Both fail as a 404 or a 400 with a JSON body, which is easy to miss if you are
+watching the process list rather than the response. Pass the action in `data`,
+where `control(action=...)` expects it.
+
+Play something:
+
+    curl --get http://192.168.1.4/api/playr \
+      --data-urlencode "fn=play" \
+      --data-urlencode 'data={"url":"https://www.youtube.com/watch?v=i6eNK1O-RWw","title":"A test"}'
+
+List a channel's items:
+
+    curl --get http://192.168.1.4/api/channels \
+      --data-urlencode "fn=feed" \
+      --data-urlencode 'data={"chid":"bfch_bbc_iplayer","idx":0}'
+
+Errors come back as `{"error": "..."}`. The text is meant to be shown to the
+person watching: a channel that depends on a remote archive answers `503` with a
+sentence saying the archive is busy, rather than a 500 carrying a stack trace.
 
 # User guide
 
@@ -354,6 +401,13 @@ More information can be found at the [wiki](https://github.com/blissland/blissfl
 # Supported media sites
 
 BlissFlixx relies on yt-dlp for extracting media so a list of supported sites can be found on it's project site: https://github.com/yt-dlp/yt-dlp/blob/master/supportedsites.md
+
+That list is what yt-dlp supports, not what it can reach. A site that now
+sits behind a bot check will refuse a Raspberry Pi even when the extractor for
+it is listed. Vimeo is the case that matters: vimeo.com answers a Pi with a
+Cloudflare challenge page, and the only client that then works needs a Vimeo
+login, so the Vimeo channel was removed rather than left listing videos that
+all fail. A channel is only worth having if its items play.
 
 # Plugins
 
