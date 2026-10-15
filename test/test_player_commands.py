@@ -14,10 +14,12 @@ being installed.
 """
 
 import os
+import unittest.mock as m
 
 import pytest
 
 from lib.locations import BIN_PATH
+from lib.player import ythelper
 from lib.player.dlsrvproc import DlsrvProcess
 from lib.player.localproc import LocalFileProcess
 from lib.player.pflixproc import PeerflixProcess
@@ -102,6 +104,80 @@ class TestYoutubeDl:
     def test_youtube_forces_mp4(self):
         cmd = YoutubeDlProcess(YT_URL)._get_cmd({})
         assert "(mp4)" in cmd
+
+    def test_a_techcrunch_article_is_exchanged_for_its_media(self, monkeypatch):
+        """
+        A TechCrunch video post is an article page, and the article page is not
+        media. yt-dlp has no extractor for techcrunch.com and its generic one
+        gives up, so every item in the channel failed with "Unsupported URL".
+
+        The page names the JW Player playlist the video is served from, and that
+        playlist is playable. The URL yt-dlp is finally given has to be the
+        playlist, not the article -- which means the last argument is not the URL
+        this was constructed with.
+        """
+        article = "https://techcrunch.com/video/some-story/"
+        monkeypatch.setattr(
+            ythelper,
+            "get",
+            lambda url: m.Mock(
+                text="<meta itemprop='contentUrl' "
+                "content='https://cdn.jwplayer.com/v2/media/nAuWIDg0'/>"
+            ),
+        )
+        cmd = YoutubeDlProcess(article)._get_cmd({})
+
+        assert cmd[-1] == "https://cdn.jwplayer.com/v2/media/nAuWIDg0", cmd
+        assert "techcrunch.com" not in cmd[-1]
+
+    def test_a_jw_playlist_asks_for_a_progressive_file(self, monkeypatch):
+        """
+        Left alone, "best" ranks the HLS variant playlists above the plain
+        files, so it returns another playlist instead of a finished media URL.
+        Naming the protocol and the container gets the progressive MP4.
+        """
+        article = "https://techcrunch.com/video/some-story/"
+        monkeypatch.setattr(
+            ythelper,
+            "get",
+            lambda url: m.Mock(text="cdn.jwplayer.com/v2/media/nAuWIDg0"),
+        )
+        cmd = YoutubeDlProcess(article)._get_cmd({})
+
+        assert "best[protocol=https][ext=mp4]" in cmd, cmd
+
+    def test_an_unresolvable_page_is_left_alone(self, monkeypatch):
+        """
+        This is a translation, not a gate. A page that cannot be read, or one
+        that names no playlist, must reach yt-dlp exactly as it arrived --
+        failing here and failing there are the same failure, and the second one
+        is the one that reports itself.
+        """
+        article = "https://techcrunch.com/video/some-story/"
+
+        def boom(url):
+            raise Exception("Request returned: 403")
+
+        monkeypatch.setattr(ythelper, "get", boom)
+        assert YoutubeDlProcess(article)._get_cmd({})[-1] == article
+
+        monkeypatch.setattr(
+            ythelper, "get", lambda url: m.Mock(text="<html>nothing here</html>")
+        )
+        assert YoutubeDlProcess(article)._get_cmd({})[-1] == article
+
+    def test_other_sites_are_not_touched(self, monkeypatch):
+        """
+        resolve() must not reach the network for anything it does not recognise,
+        or every play would pay for a request it does not need.
+        """
+        calls = []
+        monkeypatch.setattr(ythelper, "get", lambda url: calls.append(url))
+
+        for url in (SHORT_URL, YT_URL, BBC_URL_SAMPLE):
+            assert YoutubeDlProcess(url)._get_cmd({})[-1] == url
+
+        assert calls == [], "resolve() fetched a page it did not need"
 
     def test_bbc_caps_resolution(self):
         cmd = YoutubeDlProcess(BBC_URL_SAMPLE)._get_cmd({})

@@ -24,6 +24,11 @@ class YoutubeDlProcess(ExternalProcess):
 
     def _get_cmd(self, args):
         self.args = args
+        # A page that is not itself playable is exchanged for the media URL
+        # before anything else looks at it, so skip_download, the format choice
+        # and the URL handed to yt-dlp all agree about what is being played. See
+        # ythelper.resolve().
+        url = ythelper.resolve(self.url)
         cmd = [
             "python",
             YTDL_PATH,
@@ -35,7 +40,7 @@ class YoutubeDlProcess(ExternalProcess):
             OUT_FILE,
         ]
 
-        if ythelper.skip_download(self.url):
+        if ythelper.skip_download(url):
             cmd.append("--simulate")
             # Print only the direct media URL rather than dumping yt-dlp's full
             # extraction JSON. That JSON includes every automatic caption track
@@ -46,12 +51,12 @@ class YoutubeDlProcess(ExternalProcess):
             cmd.append("%(url)j")
 
         cmd.append("--format")
-        fmat = ythelper.get_format(self.url)
+        fmat = ythelper.get_format(url)
         if fmat is not None:
             cmd.append(fmat)
         else:
             cmd.append("best")
-        cmd.append(self.url)
+        cmd.append(url)
         return cmd
 
     def _ready(self):

@@ -57,7 +57,6 @@ _FEEDLIST = [
     {"title": "German", "filter": {"language": "de"}},
     {"title": "Japanese", "filter": {"language": "ja"}},
     {"title": "Portuguese", "filter": {"language": "pt"}},
-    {"title": "NSFW", "filter": {"nsfw": True}},
 ]
 _MAXRESULTS = 300
 
@@ -160,8 +159,14 @@ def feed(idx):
             and filter["language"] in s["channel_info"]["languages"]
         ]
     elif "nsfw" in filter:
+        # Kept because the filter is a general mechanism, not because there is a
+        # feed using it. The NSFW feed was removed: the whole world list holds
+        # exactly one such stream, and it did not play. A menu entry that lists a
+        # single dead stream is worse than not offering it.
         data = [
-            s for s in streams if "channel_info" in s and s["channel_info"]["is_nsfw"]
+            s
+            for s in streams
+            if "channel_info" in s and s["channel_info"].get("is_nsfw")
         ]
     return _extract(data[:_MAXRESULTS])
 

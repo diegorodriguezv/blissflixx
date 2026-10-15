@@ -1,8 +1,28 @@
 import re
 
+from ..chanutils import get
+
 BBC_URL = re.compile(
     r"https?://(?:www\.)?bbc\.co\.uk/(?:(?:(?:programmes|iplayer(?:/[^/]+)?/(?:episode|playlist))/)|music/clips[/#])(?P<id>[\da-z]{8})"
 )
+
+#: A TechCrunch video post. The article page is not playable -- yt-dlp has no
+#: extractor for techcrunch.com and its generic one gives up with "Unsupported
+#: URL" -- but the page carries the id of the JW Player playlist the video is
+#: served from, and that playlist is directly playable. See resolve().
+TECHCRUNCH_URL = re.compile(
+    r"https?://(?:www\.)?techcrunch\.com/(?:video|20\d\d/\d\d/\d\d)/[^?#]*"
+)
+
+#: The JW Player playlist itself. cdn.jwplayer.com is not bot-protected and
+#: yt-dlp has a first-class extractor for it.
+JWPLAYER_URL = re.compile(r"https?://cdn\.jwplayer\.com/v2/media/(?P<id>[A-Za-z0-9]+)")
+
+#: The id in the article page. It appears twice -- once as a meta itemprop and
+#: once in the inline player setup -- so a single match is not proof of anything
+#: and the pattern is deliberately narrow.
+JW_ID_IN_PAGE = re.compile(r"cdn\.jwplayer\.com/v2/media/([A-Za-z0-9]+)")
+
 YOUTUBE_URL = re.compile(
     r"""(?x)^
                      (
@@ -76,12 +96,60 @@ def skip_download(url):
     return True
 
 
+def resolve(url):
+    """
+    Turn a page URL into something the player can actually open.
+
+    One case so far. A TechCrunch video post is an article page, and the article
+    page is not media: yt-dlp has no extractor for techcrunch.com, its generic
+    one gives up, and every item in the channel failed with
+
+        ERROR: Unsupported URL: https://techcrunch.com/video/...
+
+    The page embeds the video from JW Player, and names the playlist it comes
+    from:
+
+        <meta itemprop='contentUrl' content='https://cdn.jwplayer.com/v2/media/nAuWIDg0'/>
+
+    cdn.jwplayer.com is not bot-protected, and yt-dlp resolves that URL to the
+    file directly. So the article URL is exchanged for the playlist URL before
+    yt-dlp ever sees it, and the item plays.
+
+    Anything not recognised is returned unchanged, and a page that cannot be read
+    or does not name a playlist is left alone too. This is a translation, not a
+    gate: if it cannot help, the URL that came in is the URL that goes on to
+    yt-dlp, which then fails exactly as it did before rather than worse.
+    """
+    if not TECHCRUNCH_URL.match(url):
+        return url
+    try:
+        page = get(url).text
+    except Exception:
+        # A page we cannot read is not an error here. The URL that came in is
+        # still the best guess, and yt-dlp's own failure is the one that gets
+        # reported.
+        return url
+    found = JW_ID_IN_PAGE.search(page)
+    if found is None:
+        return url
+    return "https://cdn.jwplayer.com/v2/media/" + found.group(1)
+
+
 def get_format(url):
     if BBC_URL.match(url):
         # Don't download hd 1280 x 720 but the next best quality
         # (usaully 832 x 468). Sometimes rtmpdump aborts before downloading
         # all of hd quality. Lower quality seems more reliable.
         return "best[height<720]"
+    elif JWPLAYER_URL.match(url):
+        # Ask for a progressive file rather than an HLS variant playlist.
+        #
+        # Left to itself "best" ranks the m3u8 renditions above the plain ones,
+        # so it hands back another playlist -- one more level of indirection
+        # for something that is supposed to be a finished media URL. Naming the
+        # protocol and the container gets the progressive MP4 instead, which is
+        # a plain file on a CDN with no signature and no token.
+        return "best[protocol=https][ext=mp4]"
     elif YOUTUBE_URL.match(url) or VIMEO_URL.match(url):
         # Otherwise may download in webm format
         return "(mp4)"
