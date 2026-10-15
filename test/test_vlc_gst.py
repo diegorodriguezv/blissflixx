@@ -1798,9 +1798,13 @@ class TestHowLongAMessageStays:
         proc.build_command({"outfile": "/tmp/a.mkv", "title": "Lanterns"})
 
         with m.patch("lib.player.vlcproc._start_thread") as start:
-            proc._show_opening_title()
+            with m.patch("lib.player.vlcproc.time.sleep"):
+                proc._show_opening_title()
 
-        assert shown == ["Lanterns (21:37)"], shown
+        # The name goes up first and the total is added to it, which is the
+        # order the screen wants: something readable while we go looking for the
+        # length, rather than silence until we have it.
+        assert shown == ["Lanterns", "Lanterns (21:37)"], shown
         assert start.call_count == 0, "the opening title was expired early"
 
     def test_an_expired_message_never_wipes_a_newer_one(self):
@@ -1974,8 +1978,10 @@ class TestTheOpeningTitle:
         proc._read_number = lambda verb: None
         proc.build_command({"outfile": "/tmp/a.mkv", "title": "Lanterns"})
 
-        with m.patch.object(vlc, "_TITLE_ATTEMPTS", 2), m.patch.object(
-            vlc, "_TITLE_INTERVAL", 0
+        # A couple of gaps rather than all eight: this is about what is left on
+        # the screen when the player never answers, not about how long it waits.
+        with m.patch.object(vlc, "_TITLE_QUESTION_GAPS", (0, 0)), m.patch.object(
+            vlc.time, "sleep"
         ):
             proc._show_opening_title()
 
@@ -1989,20 +1995,78 @@ class TestTheOpeningTitle:
         proc._read_number = lambda verb: 7742.0 if verb == "get_length" else None
         proc.build_command({"outfile": "/tmp/a.mkv", "title": "Lanterns S01E08"})
 
-        proc._show_opening_title()
+        import lib.player.vlcproc as vlc
+
+        with m.patch.object(vlc, "_TITLE_QUESTION_GAPS", (0,)), m.patch.object(
+            vlc.time, "sleep"
+        ):
+            proc._show_opening_title()
 
         # The total length, not the position -- at the start that is 0:00.
-        assert shown == ["Lanterns S01E08 (2:09:02)"], shown
+        assert shown == ["Lanterns S01E08", "Lanterns S01E08 (2:09:02)"], shown
+
+    def test_a_torrent_length_arriving_late_is_still_picked_up(self):
+        """
+        The case this change exists for.
+
+        A torrent's total does not exist until enough of the file has arrived to
+        read it -- measured on one at somewhere between twenty and forty seconds.
+        The old code asked five times over twelve and then gave up, so a torrent
+        showed its name and never a total, while a film showed one at once. Both
+        are the same kind of thing and only one of them has a length.
+
+        The name is already on screen by then, so waiting longer costs nothing to
+        be looked at; what matters is that the window is wide enough and the
+        questions spread out enough not to stop this cli answering.
+        """
+        import lib.player.vlcproc as vlc
+
+        proc = VlcProcess({"osd_overlay": "1"})
+        shown = []
+        proc._show_overlay = lambda text, hold=None: shown.append(text)
+        proc.proc = m.Mock(poll=lambda: None)
+
+        # Nothing for the first four questions, then the length -- as it did.
+        answers = [None, None, None, None, 1536.0]
+        proc._read_number = lambda verb: answers.pop(0) if answers else 1536.0
+        proc.build_command({"outfile": "http://x/stream", "title": "A Torrent"})
+
+        with m.patch.object(
+            vlc, "_TITLE_QUESTION_GAPS", (1, 1, 1, 1, 1)
+        ), m.patch.object(vlc.time, "sleep"):
+            proc._show_opening_title()
+
+        assert shown == ["A Torrent", "A Torrent (25:36)"], shown
+
+    def test_the_window_is_long_enough_for_a_torrent_but_not_endless(self):
+        """
+        Both halves of the trade. Long enough to reach a torrent's length, and
+        few enough questions over it that the interface keeps answering.
+        """
+        import lib.player.vlcproc as vlc
+
+        gaps = vlc._TITLE_QUESTION_GAPS
+        assert (
+            sum(gaps) >= 40
+        ), f"the window is {sum(gaps)}s, too short to reach a torrent's length"
+        assert len(gaps) <= 12, f"{len(gaps)} questions is continuous questioning"
+        assert gaps == tuple(sorted(gaps)), "the gaps should back off, not hold"
+        assert sum(gaps) <= 120, "waiting over two minutes for a title is too long"
 
     def test_a_live_stream_is_named_without_a_total(self):
         """
-        An IPTV channel has no length, and VLC will answer with one anyway --
-        the size of its sliding window, which was 11 seconds on one channel and
+        This is now the only case that omits a total.
+
+        A torrent does not get to: its length is real, it just arrives late --
+        between twenty and forty seconds on the one measured, where a film
+        answers at once. So the torrent goes through the waiting path and shows
+        "A Torrent (25:36)" a while after "A Torrent", and only a live stream
+        stops at the name.
+
+        A live channel has no length, and VLC answers with one anyway -- the
+        size of its sliding window, which was 11 seconds on one channel and
         13 two seconds later. Shown as a duration that reads as "this lasts
         eleven seconds", which is not true of anything continuous.
-
-        yt-dlp says whether it is live, so there is no need to poll the player
-        and guess from whether the number is moving.
         """
         proc = VlcProcess({"osd_overlay": "1"})
         shown = []
@@ -2018,7 +2082,10 @@ class TestTheOpeningTitle:
             }
         )
 
-        proc._show_opening_title()
+        import lib.player.vlcproc as vlc
+
+        with m.patch.object(vlc.time, "sleep"):
+            proc._show_opening_title()
 
         assert shown == ["Canal 9"], shown
         # And it must not even ask: a question whose answer is thrown away is
@@ -2031,6 +2098,8 @@ class TestTheOpeningTitle:
         The download path never sets it, and a stage that forgets to must not
         silently lose its duration.
         """
+        import lib.player.vlcproc as vlc
+
         proc = VlcProcess({"osd_overlay": "1"})
         shown = []
         proc._show_overlay = lambda text, hold=None: shown.append(text)
@@ -2038,9 +2107,42 @@ class TestTheOpeningTitle:
         proc._read_number = lambda verb: 7742.0 if verb == "get_length" else None
         proc.build_command({"outfile": "/tmp/a.mkv", "title": "Lanterns S01E08"})
 
-        proc._show_opening_title()
+        with m.patch.object(vlc, "_TITLE_QUESTION_GAPS", (0,)), m.patch.object(
+            vlc.time, "sleep"
+        ):
+            proc._show_opening_title()
 
-        assert shown == ["Lanterns S01E08 (2:09:02)"], shown
+        assert shown == ["Lanterns S01E08", "Lanterns S01E08 (2:09:02)"], shown
+
+    def test_a_live_stream_is_asked_for_nothing_at_all(self):
+        """
+        The flag is the only thing that omits a total, so it has to be checked
+        before the first question rather than after one -- a question whose
+        answer is thrown away is still a question, and every needless one is a
+        chance for this cli interface to stop answering.
+        """
+        import lib.player.vlcproc as vlc
+
+        proc = VlcProcess({"osd_overlay": "1"})
+        shown = []
+        asked = []
+        proc._show_overlay = lambda text, hold=None: shown.append(text)
+        proc.proc = m.Mock(poll=lambda: None)
+        proc._read_number = lambda verb: asked.append(verb) or 11.0
+        proc.build_command(
+            {
+                "outfile": "http://live/channel/index.m3u8",
+                "title": "Canal 9",
+                "is_live": True,
+            }
+        )
+
+        with m.patch.object(vlc.time, "sleep") as slept:
+            proc._show_opening_title()
+
+        assert shown == ["Canal 9"], shown
+        assert asked == [], f"a live stream was asked {asked}"
+        assert not slept.called, "a live stream waited for a total it cannot have"
 
     def test_a_seek_confirmation_still_asks_once_when_it_must(self):
         """

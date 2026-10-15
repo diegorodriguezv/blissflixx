@@ -143,8 +143,19 @@ _SUBTITLE_WAIT_TIMEOUT = 60
 #: seeks with it. VLC can take fifteen or twenty seconds to report a length, so
 #: the count has to cover that -- but it is a bounded few questions, not a
 #: standing question, and it stops the moment the user touches anything.
-_TITLE_ATTEMPTS = 5
-_TITLE_INTERVAL = 3
+#: How long to keep asking for a total length, as the gap before each question.
+#:
+#: The gaps grow. The only thing worth waiting for is a torrent, and a torrent's
+#: length appears once enough of the file has arrived to read it -- measured on
+#: one at between twenty and forty seconds, well past the twelve this used to
+#: allow, which is why a torrent showed its name and never a total.
+#:
+#: Backing off as it goes keeps the number of questions down while the window
+#: goes up: eight over about a minute and a half, against five over twelve
+#: seconds before. This cli interface stops answering when it is questioned
+#: continuously, and the reply to the user's own seeks dies with it -- which is
+#: why the early questions are the cheap ones and the long gaps come last.
+_TITLE_QUESTION_GAPS = (2, 3, 5, 8, 12, 15, 20, 25)
 #: How long a confirmation stays up. Shorter than the opening title, which is
 #: worth reading properly, and longer than marq's own --marq-timeout could give
 #: both. marq has one timeout for the whole session, so the confirmations are
@@ -1209,12 +1220,24 @@ class VlcProcess(PlayerBackend):
         start that is 0:00 by definition, and a position reads as though
         something had gone wrong.
 
-        VLC will not say how long a torrent is until the stream starts
-        producing, so the length is asked for a few times over rather than
-        until it answers. That distinction matters: polling every second or two
-        for a minute is what stopped this interface answering anything at all,
-        and with it the reply to the user's own seeks. A handful of questions,
-        giving up early and showing the title alone, does not.
+        The name goes up straight away and the total is added to it later, if and
+        when the player can tell us. That order matters. It used to ask first and
+        fall back to the name alone, which left a torrent with nothing on screen
+        at all for its first twelve seconds -- and a torrent then showed its name
+        and nothing else, for good, because its length does not exist until enough
+        of the file has arrived to read it. Measured on one: unknown at twenty
+        seconds, 25:36 by forty.
+
+        So the waiting is real and it is why the questions are spread out and
+        then spread further. Asking every second or two for a minute is what
+        stopped this interface answering anything at all, and with it the reply
+        to the user's own seeks. Asking at most eight times over a minute and a
+        half, with the gap growing each time, is a fraction of that and still
+        finds the length of a torrent. And because the name is already up, the
+        wait costs nothing to be looked at.
+
+        A live stream has no total to report and is not asked for one -- see
+        build_command() -- so it shows the name and finishes.
 
         Stops at once if the user does anything -- see _acted.
         """
@@ -1223,30 +1246,32 @@ class VlcProcess(PlayerBackend):
         title = self._title
         if not title:
             return
-        for attempt in range(_TITLE_ATTEMPTS):
+        if self._live:
+            # Nothing to ask for and nothing to show but the name. See
+            # build_command(): asking anyway would be a question whose answer is
+            # discarded, and every needless question to this cli interface is a
+            # chance for it to stop answering.
+            self._show_overlay(title)
+            return
+        # Say what is playing before going looking for how long it is, so there
+        # is always something on the picture while we wait.
+        self._show_overlay(title)
+        for gap in _TITLE_QUESTION_GAPS:
             if self.killing or self._acted:
                 return
             proc = getattr(self, "proc", None)
             if proc is None or proc.poll() is not None:
                 return
-            if self._live:
-                # Nothing to ask for and nothing to show but the name. See
-                # build_command(): a live stream has no total to report, and
-                # asking anyway would be a question whose answer is discarded --
-                # and every needless question to this cli interface is a chance
-                # for it to stop answering.
-                self._show_overlay(title)
+            time.sleep(gap)
+            if self.killing or self._acted:
                 return
             length = self._read_number("get_length")
             if length is not None and length > 0:
                 self._length = length
                 self._show_overlay("%s (%s)" % (title, _format_clock(length)))
                 return
-            if attempt + 1 < _TITLE_ATTEMPTS:
-                time.sleep(_TITLE_INTERVAL)
-        # No length, but something is playing: say what it is rather than
-        # leaving the screen to say nothing.
-        self._show_overlay(title)
+        # Never knew. The name is already up and stays up, which is the answer
+        # this can give, not a blank screen.
 
     def _wait_for_subtitles(self, args):
         deadline = time.time() + _SUBTITLE_WAIT_TIMEOUT
