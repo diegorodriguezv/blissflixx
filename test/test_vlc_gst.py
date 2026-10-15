@@ -123,13 +123,35 @@ class TestVlcCommand:
 
     def test_the_overlay_is_big_enough_to_read_from_a_sofa(self):
         """
-        At 28px it was unreadable from where you sit. VLC sizes marquee text in
-        pixels of the source frame, so 84px is roughly triple and scales with
-        resolution.
+        The size is left to VLC, which scales it off the video -- the same way
+        it sizes subtitles.
+
+        It used to be 84 pixels, fixed. The comment here said 84 "scales with
+        resolution", and that was the belief that kept it there: a count of
+        pixels does not scale with anything. The same 84 against a 480p picture
+        is absurd, against 720p it is big, and against 1080p it is slightly big
+        -- which is exactly how it looked.
+
+        Zero is VLC's "no absolute size", not "no text". ConvertToLiveSize()
+        then uses f_font_relsize, which is 6.25 -- video height over sixteen --
+        so the text is the same size on the picture at any resolution, and the
+        same size as a subtitle.
         """
         cmd = vlc({"outfile": FILE_OUT})
         size = int([a for a in cmd if a.startswith("--marq-size=")][0].split("=")[1])
-        assert size >= 84, size
+        assert size == 0, (
+            f"--marq-size={size} is a fixed pixel count, so the overlay is "
+            "the same size on a 480p picture as on a 1080p one"
+        )
+
+    def test_a_fixed_size_can_still_be_asked_for(self):
+        """
+        Zero means "let VLC decide". A number still means pixels, for anyone who
+        wants the text the same size whatever they are watching.
+        """
+        cmd = vlc({"outfile": FILE_OUT}, osd_size="84")
+        size = int([a for a in cmd if a.startswith("--marq-size=")][0].split("=")[1])
+        assert size == 84, size
 
     def test_the_overlay_is_at_the_top_not_the_right(self):
         """

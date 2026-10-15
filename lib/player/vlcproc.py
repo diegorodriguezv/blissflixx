@@ -435,7 +435,31 @@ class VlcProcess(PlayerBackend):
         "osd_position": "4",
         # Big enough to read from a sofa. VLC measures this in pixels of the
         # source frame, so it scales with resolution: at 1080p 28px was small.
-        "osd_size": "84",
+        # Zero, which is not "invisible" but "no absolute size". VLC then sizes
+        # the text off the video itself, which is how it sizes its own subtitles.
+        #
+        # This was 84, a fixed count of pixels, and that is why the overlay was
+        # absurd over a 480p stream, big at 720p and only slightly big at 1080p --
+        # the same 84 pixels against three times the picture.
+        #
+        # With 0, marq leaves i_font_size unset, and VLC's ConvertToLiveSize()
+        # falls through to the relative size:
+        #
+        #     if( p_style->i_font_size )        absolute, pixels
+        #     else if ( p_style->f_font_relsize )
+        #         i_font_size = area_height * p_style->f_font_relsize / 100;
+        #
+        # The relative size it reaches is 6.25 -- STYLE_DEFAULT_REL_FONT_SIZE, or
+        # video height / 16 -- which is the same number VLC gives a subtitle with
+        # no size of its own. Read in modules/text_renderer/freetype and
+        # modules/spu/marq.c for VLC 3.0.
+        #
+        # --sub-text-scale then multiplies both by the same factor, so the
+        # overlay and a subtitle stay matched.
+        #
+        # A number here still overrides it, for anyone who wants the text the
+        # same size whatever they are watching.
+        "osd_size": "0",
         "osd_opacity": "220",
         "start_timeout": _START_TIMEOUT,
         # As a percentage of VLC's own 100%, not a number of its units: the step
