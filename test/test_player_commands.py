@@ -90,8 +90,24 @@ class TestYoutubeDl:
         piped = YoutubeDlProcess(SHORT_URL)._get_cmd({})
         assert "--simulate" in piped
         assert "--print" in piped
-        assert "%(url)j" in piped
+        assert not any(
+            "%(url)j" in part for part in piped
+        ), "the raw url form came back"
+        # #j, not j: a field the extractor has no value for comes out as bare
+        # NA under j, and bare NA inside an object is not JSON, so a missing URL
+        # would arrive as an unparseable line instead of a clear error.
+        assert any("%(url)#j" in part for part in piped), piped
         assert "--dump-single-json" not in piped
+
+    def test_the_printed_line_carries_whether_it_is_live(self):
+        """
+        A live stream has no total to show, and VLC answers with the size of its
+        sliding window anyway -- 11 on one IPTV channel, 13 two seconds later.
+        The only honest source for whether it is live is yt-dlp.
+        """
+        cmd = YoutubeDlProcess(SHORT_URL)._get_cmd({})
+        template = cmd[cmd.index("--print") + 1]
+        assert "is_live" in template, template
 
     def test_download_when_not_skipped(self):
         """

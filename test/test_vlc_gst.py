@@ -1994,6 +1994,54 @@ class TestTheOpeningTitle:
         # The total length, not the position -- at the start that is 0:00.
         assert shown == ["Lanterns S01E08 (2:09:02)"], shown
 
+    def test_a_live_stream_is_named_without_a_total(self):
+        """
+        An IPTV channel has no length, and VLC will answer with one anyway --
+        the size of its sliding window, which was 11 seconds on one channel and
+        13 two seconds later. Shown as a duration that reads as "this lasts
+        eleven seconds", which is not true of anything continuous.
+
+        yt-dlp says whether it is live, so there is no need to poll the player
+        and guess from whether the number is moving.
+        """
+        proc = VlcProcess({"osd_overlay": "1"})
+        shown = []
+        asked = []
+        proc._show_overlay = lambda text, hold=None: shown.append(text)
+        proc.proc = m.Mock(poll=lambda: None)
+        proc._read_number = lambda verb: asked.append(verb) or 11.0
+        proc.build_command(
+            {
+                "outfile": "http://live/channel/index.m3u8",
+                "title": "Canal 9",
+                "is_live": True,
+            }
+        )
+
+        proc._show_opening_title()
+
+        assert shown == ["Canal 9"], shown
+        # And it must not even ask: a question whose answer is thrown away is
+        # still a question, and every needless one is a chance for this cli
+        # interface to stop answering.
+        assert "get_length" not in asked, asked
+
+    def test_a_live_flag_that_is_absent_is_treated_as_not_live(self):
+        """
+        The download path never sets it, and a stage that forgets to must not
+        silently lose its duration.
+        """
+        proc = VlcProcess({"osd_overlay": "1"})
+        shown = []
+        proc._show_overlay = lambda text, hold=None: shown.append(text)
+        proc.proc = m.Mock(poll=lambda: None)
+        proc._read_number = lambda verb: 7742.0 if verb == "get_length" else None
+        proc.build_command({"outfile": "/tmp/a.mkv", "title": "Lanterns S01E08"})
+
+        proc._show_opening_title()
+
+        assert shown == ["Lanterns S01E08 (2:09:02)"], shown
+
     def test_a_seek_confirmation_still_asks_once_when_it_must(self):
         """
         Unlike the title thread, this is one question at the moment the user

@@ -550,6 +550,14 @@ class VlcProcess(PlayerBackend):
         # stays pure -- a stage that read it later could pick up the last film's
         # name if the same instance were reused.
         self._title = args.get("title") or ""
+        # Taken from yt-dlp rather than worked out here, because there is no way
+        # to work it out here. VLC's get_length answers for a live stream too,
+        # and what it answers is the size of the sliding window -- it was 11 on
+        # one IPTV channel and 13 a couple of seconds later. A number that
+        # counts up is not a length, but there is no way to tell that apart from
+        # a real one without polling it repeatedly, which is what used to stop
+        # the cli interface answering at all.
+        self._live = args.get("is_live") is True
         cmd = [self.opt("binary")]
         cmd += list(self.opt("extra_args"))
         cmd += self._osd_args()
@@ -1220,6 +1228,14 @@ class VlcProcess(PlayerBackend):
                 return
             proc = getattr(self, "proc", None)
             if proc is None or proc.poll() is not None:
+                return
+            if self._live:
+                # Nothing to ask for and nothing to show but the name. See
+                # build_command(): a live stream has no total to report, and
+                # asking anyway would be a question whose answer is discarded --
+                # and every needless question to this cli interface is a chance
+                # for it to stop answering.
+                self._show_overlay(title)
                 return
             length = self._read_number("get_length")
             if length is not None and length > 0:

@@ -42,13 +42,21 @@ class YoutubeDlProcess(ExternalProcess):
 
         if ythelper.skip_download(url):
             cmd.append("--simulate")
-            # Print only the direct media URL rather than dumping yt-dlp's full
-            # extraction JSON. That JSON includes every automatic caption track
-            # yt-dlp knows about; one YouTube documentary here was 11 MB of
-            # subtitle metadata on a single line, which the output tail had to
-            # buffer before it could be parsed. The URL is all this stage needs.
+            # Print the direct media URL, and whether this is a live stream, as
+            # one small JSON object. Not the full extraction JSON: that includes
+            # every automatic caption track yt-dlp knows about, and one YouTube
+            # documentary here was 11 MB of subtitle metadata on a single line
+            # for the output tail to buffer before it could be parsed. Two
+            # fields is all this stage needs.
+            #
+            # The #j form rather than j. j emits the value raw, and a field the
+            # extractor does not have comes out as bare NA -- which inside an
+            # object is not JSON at all, and would turn a missing URL into an
+            # unparseable line rather than the clear error it is. #j quotes
+            # whatever it finds, so the line parses and the missing field is
+            # still recognisable as missing.
             cmd.append("--print")
-            cmd.append("%(url)j")
+            cmd.append('{"url": %(url)#j, "is_live": %(is_live)#j}')
 
         cmd.append("--format")
         fmat = ythelper.get_format(url)
@@ -83,7 +91,16 @@ class YoutubeDlProcess(ExternalProcess):
                         raise ProcessException("No URL in YTDL")
                 else:
                     url = obj["url"]
+                # #j quotes a value the extractor did not have, so a missing URL
+                # arrives as the string NA rather than as nothing.
+                if not url or url == "NA":
+                    raise ProcessException("No URL in YTDL")
                 self.args["outfile"] = url
+                # Whether this is live is not decoration: it is the only thing
+                # that says a running total means anything. A live stream's
+                # "length" is a sliding window and keeps counting up, so the
+                # player stage has to be told not to put one on screen.
+                self.args["is_live"] = obj.get("is_live") is True
                 return self.args
             elif line == "NA" or line == "null":
                 raise ProcessException("No URL in YTDL")

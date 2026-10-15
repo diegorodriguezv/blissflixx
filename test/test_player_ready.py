@@ -149,7 +149,39 @@ class TestYoutubeDlReady:
         assert proc._ready() == {
             "pid": 4242,
             "outfile": "http://direct/x.mp4",
+            "is_live": False,
         }
+
+    def test_a_live_stream_is_flagged_for_the_player(self):
+        """
+        The player must be told, because it cannot work this out for itself.
+
+        VLC answers get_length for a live stream with the size of its sliding
+        window -- 11 seconds on one IPTV channel, 13 two seconds later. A
+        number that counts up is not a length, but nothing about the reply says
+        so, and telling them apart would mean polling, which is what stopped
+        the cli interface answering at all. yt-dlp already knows.
+        """
+        proc = feed(
+            stub_proc(YoutubeDlProcess("u")),
+            '{"url": "http://live/x.m3u8", "is_live": true}',
+        )
+        proc.args = {}
+        out = proc._ready()
+        assert out["is_live"] is True, out
+        assert out["outfile"] == "http://live/x.m3u8", out
+
+    def test_a_missing_url_is_still_an_error_not_a_crash(self):
+        """
+        #j quotes a value the extractor does not have, so a missing URL arrives
+        as the string NA. Recognising that is the point of quoting it: bare NA
+        inside the object would not parse at all, and the failure would be an
+        unhandled JSON error instead of the message the user sees.
+        """
+        proc = feed(stub_proc(YoutubeDlProcess("u")), '{"url": "NA", "is_live": false}')
+        proc.args = {}
+        with pytest.raises(ProcessException, match="No URL in YTDL"):
+            proc._ready()
 
     def test_pid_is_reported_for_the_next_stage(self):
         """
