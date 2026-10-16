@@ -195,19 +195,32 @@ a different thing that looked the same: posts from some subreddit about YouTube,
 not posts from everywhere about YouTube.
 
 So the channel is now exactly that, and says so: /r/youtubevideos, two feeds,
-Hot and New. The second feed it used to have came from YouTube's Data API with a
+New and Top. The second feed it used to have came from YouTube's Data API with a
 key written into the file, and is not coming back -- that key was a credential
 belonging to whoever published it, committed to a public repository. The posts
 carry their own titles, thumbnails and links, so nothing here needs it.
 
 Two things about the replacement worth knowing:
 
-- **There is no Top feed, because the subreddit does not upvote.** Measured back
-  to 2024, 98 of 100 posts score 1 and 2 score 0. A top feed would rank a
-  constant, which means the archive's time order with a re-sort on top that
-  changes nothing -- it would look like it worked and mean nothing. The
-  subreddit posts about 32 times a day, so Hot and New are both worth having.
+- **There is no Top worth having in this subreddit, because it does not
+  upvote.** Measured back to 2024, 98 of 100 posts score 1 and 2 score 0, so
+  Top here is a ranking of a constant and comes back in time order. It is kept
+  because it is a real ranking of whatever scores exist, not because it is
+  informative here. The subreddit posts about 32 times a day, so New is the
+  feed to use.
 - **Three posts in a hundred link a channel rather than a video** ("we are
+  live", "new video out"), and those are dropped. yt-dlp answers a channel URL
+  by walking the channel's whole video list -- measured on the Pi, no output and
+  no exit after 100 seconds -- and the player reads yt-dlp in a loop with no
+  timeout, so such an item does not fail and does not start. It sits there, and
+  the only way out is pressing stop.
+
+  The drop is in `lib.chanutils.reddit`, not in this channel. It was written in
+  the channel first, on the measurement that /r/youtubevideos carries these most
+  often, and that was the wrong place: /r/Shortfilms has them at about the same
+  rate, and a channel added tomorrow gets the filter by going through the same
+  `_extract()` every other Reddit channel goes through rather than by
+  remembering to copy it.- **Three posts in a hundred link a channel rather than a video** ("we are
   live", "new video out"), and those are dropped. yt-dlp answers a channel URL
   by walking the channel's whole video list -- measured on the Pi, no output and
   no exit after 100 seconds -- and the player reads yt-dlp in a loop with no

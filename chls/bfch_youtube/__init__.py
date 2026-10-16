@@ -16,11 +16,13 @@ whoever published it, committed to a public repository, and Google's terms do
 not allow that. Nothing here needs it: the posts carry their own titles,
 thumbnails and links, which is what lib.chanutils.reddit already reads.
 
-What is left is two feeds, and neither is a rating. r/youtubevideos does not get
-upvoted -- measured back to 2024, every one of a hundred posts scores 1, so
-every one is tied -- and a "Top Rated" feed over that would rank a constant and
-mean nothing. The subreddit posts about thirty times a day, so the newest and
-the hottest are both worth having.
+What is left is two feeds: New and Top, which are the two sorts the archive can
+be asked for honestly. r/youtubevideos does not get upvoted -- measured back to
+2024, every one of a hundred posts scores 1 -- so Top here ranks a constant and
+comes back in time order. It is kept anyway, because it is a real ranking of
+whatever scores exist rather than a label over something else, and dropping it
+for this subreddit alone would be a claim about the subreddit that is not true.
+New is the feed to use here: the subreddit posts about thirty times a day.
 
 The filtering of what can be played is not here. Three posts in a hundred link
 a channel rather than a video, and yt-dlp never finishes walking one; that
