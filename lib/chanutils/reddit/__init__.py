@@ -62,11 +62,28 @@ _TIMEOUT = 15
 #: fail fast, which is the case worth retrying.
 _MAX_SECONDS = 15
 
-#: How far back a "top" listing looks, as a date the archive accepts. Reddit's
-#: own was "of all time", which the archive cannot do: it stores no score
-#: ranking to ask for. A year is long enough for the highest-scoring posts in
-#: a film subreddit to be a recognisable set rather than this week.
-_TOP_WINDOW = "2025-10-01"
+#: How far back a "top" listing looks, in days.
+#:
+#: Rolling rather than a fixed date. It used to be the literal "2025-10-01",
+#: written when the archive move was made, so the window grew by a day every day
+#: and the feed got slower and less relevant the longer a server was left
+#: running -- in a year it would be reaching back two years. Reddit's own was
+#: "of all time", which the archive cannot do at all: it stores no score
+#: ranking to ask for. A year is long enough for the highest scoring posts in a
+#: film subreddit to be a recognisable set rather than this week.
+_TOP_WINDOW_DAYS = 365
+
+
+def _top_window_date():
+    """
+    The oldest date a "top" listing reaches back to, as the archive wants it.
+
+    Computed rather than written down, so the window is always a year back from
+    now and not a year back from whenever this was last edited.
+    """
+    return (
+        datetime.now(timezone.utc) - timedelta(days=_TOP_WINDOW_DAYS)
+    ).date().isoformat()
 
 #: Seconds to hold a listing before asking again. Every channel that shares a
 #: subreddit shares this too, so clicking through several of them in a row
@@ -302,6 +319,45 @@ def search(subreddit, q, moviesubs=False):
     return _extract(_listing(data), moviesubs)
 
 
+#: A feed URL naming Reddit's "top" listing, which is the one listing the
+#: archive cannot serve and so is ranked here instead.
+#:
+#: Matched anywhere in the URL rather than parsed out of it, because the channels
+#: write these several ways -- "/r/videos/top.json", "/r/videos/top.json?sort=top
+#: &t=all", "/r/trailers/top.json?t=month" -- and they all mean the same request.
+_TOP_LISTING = re.compile(r"/r/[^/?#]+/top\.json")
+
+
+def _ranked_by_score(params, key, moviesubs):
+    """
+    A listing ranked by score here, because the archive will not rank by it.
+
+    The archive sorts by time and says so plainly:
+
+        'sort' must be one of asc, desc
+
+    which leaves "top" as something this has to do itself. It asks for a wider
+    slice of the window than a screenful and sorts that by score here, so the
+    feed shows what the subreddit voted for rather than what arrived last.
+
+    Asked for wider because the archive will not sort the answer either: the top
+    thirty of a window is only the top thirty if the thirty handed back were
+    already the best thirty, and what it hands back is newest-first. Three
+    times over is what top() has always used.
+
+    Not identical to Reddit's own answer on a busy day, and not meant to be.
+    This is the highest scoring of the most recent few hundred posts in the
+    window. What it is not is what was there before, which was a feed called
+    "Top Rated" that returned the newest posts in time order -- the same first
+    item as the "Hot" feed beside it, on every channel, every day.
+    """
+    params = dict(params)
+    params["limit"] = _LIMIT * 3
+    data = _cached_reading(key, params, retries=_SEARCH_RETRIES)
+    data.sort(key=lambda post: int(post.get("score") or 0), reverse=True)
+    return _extract(_listing(data[:_LIMIT]), moviesubs)
+
+
 def top(subreddit, days=7, moviesubs=False):
     """
     Highest scoring posts from the last few days.
@@ -313,15 +369,8 @@ def top(subreddit, days=7, moviesubs=False):
     only what is newest.
     """
     after = (datetime.now(timezone.utc) - timedelta(days=days)).date().isoformat()
-    params = {
-        "subreddit": subreddit,
-        "limit": _LIMIT * 3,
-        "sort": "desc",
-        "after": after,
-    }
-    data = _cached_reading(("top", subreddit, days), params, retries=_SEARCH_RETRIES)
-    data.sort(key=lambda post: int(post.get("score") or 0), reverse=True)
-    return _extract(_listing(data[:_LIMIT]), moviesubs)
+    params = {"subreddit": subreddit, "sort": "desc", "after": after}
+    return _ranked_by_score(params, ("top", subreddit, days), moviesubs)
 
 
 def get_feed(feed, moviesubs=False):
@@ -332,19 +381,26 @@ def get_feed(feed, moviesubs=False):
     written against. That is deliberate: the channels read as they always
     did, and the move to the archive is contained here.
     """
-    params = _feed_params(feed["url"])
+    url = feed["url"]
+    params = _feed_params(url)
     if params is None:
         # Not a listing this helper knows how to serve -- currently only the
         # retired channel's sitewide domain feed. An empty list rather than an
         # error, so a feed that cannot be served reads as a channel with
         # nothing in it instead of a failure.
         return PlayItemList()
+    key = tuple(sorted(params.items()))
+    # A "top" feed is the one listing that is ranked here rather than asked for
+    # as itself. Everything else is what the archive returns, in the order the
+    # archive returns it.
+    if _TOP_LISTING.search(url):
+        return _ranked_by_score(params, key, moviesubs)
     # A flair feed is a search over the archive as much as search is, and it
     # fails the same way, so it gets the same extra attempts. Measured: a
     # plain subreddit listing answers without trouble, flair and title queries
     # both time out intermittently.
     retries = _SEARCH_RETRIES if _is_filtered(params) else None
-    data = _cached_reading(tuple(sorted(params.items())), params, retries=retries)
+    data = _cached_reading(key, params, retries=retries)
     return _extract(_listing(data), moviesubs)
 
 
@@ -412,27 +468,48 @@ def _feed_params(url):
     if len(parts) < 2 or parts[0] != "r":
         return None
     subreddit = parts[1]
-    # "new" is a listing; the bare subreddit path is the hot listing, and a
-    # trailing segment that is neither is a listing we do not recognise.
+    # The bare subreddit path is Reddit's default listing, and the two named
+    # listings below are the only ones this serves.
+    #
+    # Reddit offers five sorts and the archive answers by time and nothing
+    # else, so "hot", "best" and "rising" are not recognised here rather than
+    # being recognised and answered with a newest-first listing. They used to
+    # be recognised -- "hot" and "rising" both were -- which meant a channel
+    # writing one would have got time order under a label promising a ranking,
+    # and nothing would have said so. Refusing to parse a listing is the same
+    # path the retired sitewide domain feed takes: get_feed() returns an empty
+    # list, and the channel shows nothing rather than showing the wrong thing.
+    #
+    # No channel writes one. This is the other half of that: making sure a
+    # channel cannot ask for a ranking that would be answered with a lie.
     if len(parts) == 2:
         listing = None
-    elif parts[2] in ("new", "hot", "rising", "top"):
+    elif parts[2] in ("new", "top"):
         listing = parts[2]
     elif parts[2] == "search":
         listing = None
     else:
         return None
     params = {"subreddit": subreddit, "limit": _LIMIT, "sort": "desc"}
+    # "new" used to be sorted ascending here, on the reasoning that the bare
+    # subreddit path was "hot". The archive's ascending order is oldest-first
+    # across the whole of its record, not the newest posts, so the "New" feed
+    # of every Reddit channel served posts from 2012 -- /r/videos was offering
+    # "Short film about love and robots." as new. Ascending is only correct for
+    # something that wants the oldest, which is nothing here.
+    #
+    # This leaves "new" and the bare subreddit path asking the archive the same
+    # question, which is the truth: the archive cannot rank by anything but
+    # time, so a bare listing is not "hot", it is newest-first. Both are
+    # written as new.json by the channels that want that, and both mean it.
     if listing == "new":
-        params["sort"] = "asc"
+        params["sort"] = "desc"
     # "top" asked for the highest scoring posts of all time. The archive will
     # not rank by score -- it sorts by time and takes before/after bounds --
-    # so this is the closest honest equivalent rather than the same thing: a
-    # window of the highest scoring posts in it. Kept separate from the others
-    # because it is an approximation, and saying so here is cheaper than the
-    # user discovering the difference.
+    # so the window below is what it can give, and get_feed() ranks what comes
+    # back by score rather than presenting time order under the name "top".
     if listing == "top":
-        params["after"] = _TOP_WINDOW
+        params["after"] = _top_window_date()
     # A flair listing: /r/Documentaries/search.json?q=flair:'Art'&sort=top.
     # The documentaries channel is mostly these -- thirty-odd feeds that are
     # one flair each -- so parsing them is most of that channel working. The
@@ -579,23 +656,29 @@ def _extract(data, moviesubs):
     rtree = data["data"]["children"]
     for r in rtree:
         r = r["data"]
-        # Internal reddit question/discussion
-        if r["is_self"]:
+        # Optional fields read with .get() rather than indexed. A row the
+        # archive returned without a score took the whole feed down with a
+        # KeyError -- one post missing one number, and the channel is empty
+        # with a traceback nobody opens. title and permalink stay indexed: a
+        # row without those is not a post this can show, and there is nothing
+        # to substitute for either.
+        if r.get("is_self"):
             continue
         thumb = None
-        if r["thumbnail"] and r["thumbnail"].find("/") > -1:
-            thumb = r["thumbnail"]
-        subtitle = "Score: " + str(r["score"])
+        thumbnail = r.get("thumbnail")
+        if thumbnail and thumbnail.find("/") > -1:
+            thumb = thumbnail
+        subtitle = "Score: " + str(r.get("score") or 0)
         comments = (
             "<a target='_blank' href='http://reddit.com"
             + r["permalink"]
             + "'>Comments:"
-            + str(r["num_comments"])
+            + str(r.get("num_comments") or 0)
             + "</a>"
         )
         subtitle = subtitle + ", " + comments
         title = replace_entity(r["title"])
-        url = replace_entity(r["url"])
+        url = replace_entity(r.get("url") or "")
         # Dropped here, before the item is built, rather than by each channel
         # that asks for a listing. An item that cannot play cannot be explained
         # once it is on screen looking as playable as the rest, so it is never

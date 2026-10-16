@@ -34,17 +34,35 @@ class TestRedditFeedParams:
         assert params["subreddit"] == "trailers"
         assert params["sort"] == "desc"
 
-    def test_new_listing_is_oldest_first(self):
+    def test_new_listing_is_newest_first(self):
         """
-        The old New feed was useless because the archive sorts by time and
-        "asc" gives the oldest posts in the archive, not the newest.
+        It used to be "asc", which is the oldest posts in the whole archive and
+        not the newest. Every Reddit channel was serving 2012 under the name
+        New: /r/videos offered "Short film about love and robots." as new.
+
+        This test used to assert asc, with a docstring explaining that asc
+        gives the oldest posts. It described the bug instead of catching it,
+        which is the one thing a test written that way cannot do.
         """
         params = reddit._feed_params("http://www.reddit.com/r/trailers/new.json")
-        assert params["sort"] == "asc"
+        assert params["sort"] == "desc"
 
     def test_top_listing_uses_a_recent_window(self):
         params = reddit._feed_params("http://www.reddit.com/r/trailers/top.json")
-        assert params["after"] == reddit._TOP_WINDOW
+        assert params["after"] == reddit._top_window_date()
+
+    def test_the_top_window_rolls_rather_than_drifting(self):
+        """
+        It was the literal "2025-10-01", so the window grew by a day every day
+        and the feed got slower and less relevant the longer a server was left
+        running. A fixed date in a window described as "a year" stops being a
+        year on the day it is written.
+        """
+        from datetime import date, timedelta
+
+        assert reddit._top_window_date() == (
+            date.today() - timedelta(days=365)
+        ).isoformat()
 
     def test_sitewide_domain_feeds_are_not_served(self):
         assert (
@@ -783,3 +801,214 @@ class TestALinkToAChannelIsNotAVideo:
                 False,
             )
             assert items.to_list() == [], sr
+
+
+class TestTopIsRankedByScore:
+    """
+    The "top" feed, and the claim its name makes.
+
+    It used to be a window of the subreddit in time order with no ranking at
+    all, so "Top Rated" returned the newest posts and had the same first item as
+    the "Hot" feed beside it on every channel. This is what replaced that.
+    """
+
+    def _feed(self, url):
+        return {"url": url}
+
+    def test_a_top_feed_is_recognised_however_the_channel_writes_it(self):
+        """
+        The channels write these several ways and they all mean one request:
+        /r/videos/top.json, /r/videos/top.json?sort=top&t=all,
+        /r/trailers/top.json?t=month.
+        """
+        for url in (
+            "http://www.reddit.com/r/videos/top.json",
+            "http://www.reddit.com/r/videos/top.json?sort=top&t=all",
+            "http://www.reddit.com/r/trailers/top.json?t=month",
+        ):
+            assert reddit._TOP_LISTING.search(url), url
+
+    @pytest.mark.parametrize(
+        "url",
+        [
+            "http://www.reddit.com/r/videos.json",
+            "http://www.reddit.com/r/videos/new.json",
+            "http://www.reddit.com/r/videos/search.json?q=comedy",
+            # A flair feed carrying sort=top in its query string is a filter,
+            # not Reddit's top listing, and must not be ranked as one.
+            "http://www.reddit.com/r/Documentaries/search.json?q=flair%3A%27Art%27&sort=top",
+        ],
+    )
+    def test_other_listings_are_not_mistaken_for_top(self, url):
+        assert not reddit._TOP_LISTING.search(url), url
+
+    def test_the_highest_scoring_post_comes_first(self):
+        posts = [
+            _post("first", 10, "https://youtu.be/aaaaaaaaaaa"),
+            _post("second", 9000, "https://youtu.be/bbbbbbbbbbb"),
+            _post("third", 50, "https://youtu.be/ccccccccccc"),
+        ]
+        fetched = []
+
+        def fake_query(params, retries=None):
+            fetched.append(dict(params))
+            return list(posts)
+
+        original_query = reddit._query
+        original_cache = reddit._cached
+        reddit._query = fake_query
+        reddit._cached = lambda key, fetch: fetch()
+        try:
+            items = reddit.get_feed(
+                self._feed("http://www.reddit.com/r/videos/top.json")
+            )
+        finally:
+            reddit._query = original_query
+            reddit._cached = original_cache
+
+        assert [item.title for item in items.to_list()] == [
+            "second",
+            "third",
+            "first",
+        ]
+        assert len(fetched) == 1, "ranking is one request, not one per feed"
+
+    def test_a_missing_score_ranks_last_rather_than_crashing(self):
+        posts = [_post("no score", 0, "https://youtu.be/aaaaaaaaaaa")]
+        posts[0].pop("score")
+        posts.append(_post("has score", 7, "https://youtu.be/bbbbbbbbbbb"))
+
+        original_query = reddit._query
+        original_cache = reddit._cached
+        reddit._query = lambda params, retries=None: list(posts)
+        reddit._cached = lambda key, fetch: fetch()
+        try:
+            items = reddit.get_feed(
+                self._feed("http://www.reddit.com/r/videos/top.json")
+            )
+        finally:
+            reddit._query = original_query
+            reddit._cached = original_cache
+
+        assert [item.title for item in items.to_list()] == [
+            "has score",
+            "no score",
+        ]
+
+    def test_it_asks_for_more_than_a_screenful(self):
+        """
+        The archive will not sort the answer, so the top thirty of a window is
+        only the top thirty if the thirty handed back were already the best
+        thirty -- and what it hands back is newest-first.
+        """
+        seen = {}
+
+        def fake_query(params, retries=None):
+            seen.update(params)
+            return []
+
+        original_query = reddit._query
+        original_cache = reddit._cached
+        reddit._query = fake_query
+        reddit._cached = lambda key, fetch: fetch()
+        try:
+            reddit.get_feed(self._feed("http://www.reddit.com/r/videos/top.json"))
+        finally:
+            reddit._query = original_query
+            reddit._cached = original_cache
+
+        assert seen["limit"] > reddit._LIMIT
+
+    def test_the_feed_still_shows_a_screenful(self):
+        posts = [
+            _post(f"post {n}", n, "https://youtu.be/%011d" % n) for n in range(120)
+        ]
+
+        def fake_query(params, retries=None):
+            return list(posts)
+
+        original_query = reddit._query
+        original_cache = reddit._cached
+        reddit._query = fake_query
+        reddit._cached = lambda key, fetch: fetch()
+        try:
+            items = reddit.get_feed(
+                self._feed("http://www.reddit.com/r/videos/top.json")
+            )
+        finally:
+            reddit._query = original_query
+            reddit._cached = original_cache
+
+        assert len(items.to_list()) == reddit._LIMIT
+
+
+class TestTheSortsThatAreNotShipped:
+    """
+    Reddit offers five sorts. Two of them are served; the other three are not,
+    and this is why they are not.
+
+    A feed named "Hot", "Best" or "Rising" that is time order is worse than no
+    such feed: it answers, it looks right, and it is a ranking the user was not
+    given. The archive's whole vocabulary is:
+
+        'sort' must be one of asc, desc
+    """
+
+    def test_the_archive_has_no_ranking_parameter_to_ask_for(self):
+        """
+        Recorded as a fact about the archive rather than tested against it --
+        this is a statement about a third party, and the test that matters is
+        the one above: that what is served is ranked honestly.
+        """
+        assert reddit._API
+        source = open(reddit.__file__).read()
+        assert "asc, desc" in source or "sort=desc" in source
+
+    @pytest.mark.parametrize("sort", ["hot", "best", "rising"])
+    def test_a_sort_that_cannot_be_honest_is_not_served(self, sort):
+        """
+        Refused rather than answered with something else.
+
+        "hot" and "rising" used to be recognised here and mapped onto the same
+        newest-first listing as everything else, so a channel writing one would
+        have got time order under a label promising a ranking and nothing would
+        have said so. "best" was refused. All three are refused now, which is
+        the only version of this where the helper's vocabulary and what it can
+        honestly produce are the same thing.
+        """
+        assert reddit._feed_params(f"http://www.reddit.com/r/videos/{sort}.json") is None
+
+    def test_the_channel_shows_nothing_rather_than_the_wrong_thing(self):
+        """
+        Which is the same path the retired sitewide domain feed takes: an empty
+        listing, not an error. A channel asking for a ranking it cannot have
+        gets an empty category, not a category of something else.
+        """
+        items = reddit.get_feed(
+            {"url": "http://www.reddit.com/r/videos/best.json"}
+        )
+        assert items.to_list() == []
+
+    def test_top_is_the_sort_that_is_served(self):
+        params = reddit._feed_params("http://www.reddit.com/r/videos/top.json")
+        assert params["after"] == reddit._top_window_date()
+
+    def test_the_two_served_sorts_are_all_a_channel_can_write(self):
+        """
+        Across every Reddit channel in the tree: New and Top, and nothing
+        naming a sort that cannot be produced. This is what keeps the refusals
+        above from being theoretical.
+        """
+        import pathlib
+
+        root = pathlib.Path(__file__).resolve().parent.parent / "chls"
+        listings = set()
+        for feedlist in root.glob("bfch_*"):
+            url_file = feedlist / "__init__.py"
+            if not url_file.is_file():
+                continue
+            for line in url_file.read_text().splitlines():
+                for sort in ("hot", "best", "rising"):
+                    if f"/{sort}.json" in line:
+                        listings.add((feedlist.name, sort))
+        assert listings == set()

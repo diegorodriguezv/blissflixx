@@ -16,16 +16,26 @@ import bfch_youtube
 class TestTheFeeds:
     def test_two_feeds_and_neither_of_them_a_rating(self):
         """
-        r/youtubevideos does not get upvoted. Measured back to 2024, every one
-        of a hundred posts scores 1, so every one is tied.
+        New and Top, the two sorts the archive can honestly be asked for.
 
-        A "Top Rated" feed here would rank a constant: the archive sorts by
-        time and the helper re-sorts by score, which is all ones, so the feed
-        would look like it worked and mean nothing. It is left out rather than
-        included as an approximation.
+        There is no Hot, Best or Rising here or in any other Reddit channel:
+        those are Reddit's own ranking functions and the archive computes
+        none of them, so a feed wearing those names would be time order under
+        a label promising a ranking. See lib.chanutils.reddit.
+
+        Top is kept even though it cannot mean much in this subreddit -- see
+        the test below -- because it is a real ranking of whatever scores are
+        there, and dropping it here while shipping it elsewhere would be a
+        statement about this channel that is not true of it.
         """
         titles = [feed["title"] for feed in bfch_youtube.feedlist()]
-        assert titles == ["Hot", "New"]
+        assert titles == ["New", "Top"]
+
+    def test_the_two_feeds_are_the_two_the_helper_serves(self):
+        from lib.chanutils import reddit
+
+        for feed in bfch_youtube.feedlist():
+            assert reddit._feed_params(feed["url"]) is not None
 
     def test_the_feeds_name_the_subreddit_they_are_asking_for(self):
         for feed in bfch_youtube.feedlist():
