@@ -82,6 +82,7 @@ class TestStandaloneImports:
             "bfch_techcrunch",
             "bfch_tmz",
             "bfch_twitch",
+            "bfch_youtube",
             "bfch_yts_torrents",
         ],
     )
