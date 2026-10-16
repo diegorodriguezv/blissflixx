@@ -312,6 +312,13 @@ exec /usr/bin/systemctl restart blissflixx.service
 _contents
     chmod 755 /usr/local/sbin/blissflixx-restart
 
+    # Removed, not left: an earlier attempt at the reboot and shutdown buttons
+    # went through sudo, with a grant and a script per action. Neither can work
+    # -- sudo cannot run from the service that would use them -- and both files
+    # are dead on disk afterwards. Nothing on a clean install creates them, so
+    # an install that leaves them behind has quietly diverged from one.
+    rm -f /usr/local/sbin/blissflixx-reboot /usr/local/sbin/blissflixx-halt
+
     # Who ran this, for the sudo grant below. Set at the top of this block.
     cat << _contents > /etc/sudoers.d/blissflixx
 # Written by configure.sh. The script takes no arguments, which is why the empty
