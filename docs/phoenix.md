@@ -184,22 +184,43 @@ showing 100, 89, 79, 69 rather than round numbers.
 
 There was a YouTube channel (`bfch_youtube`) built on Reddit's sitewide
 `/domain/youtube.com` listing: whatever anyone posted anywhere on Reddit that
-linked to YouTube. Retired rather than repaired.
+linked to YouTube. It was retired rather than repaired, and has since come back
+as something narrower.
 
-It went the way the other Reddit channels went, and for the same reason -- see
-"Reddit posts come from an archive, and the narrowed feeds are the weak part"
-above for how those work. But this one
-does not come back with the others, because what it listed is not a subreddit.
-It was everything across all of Reddit matching one domain, and the archive
-those channels now read can only search within a named subreddit. Substituting
-one would return a different thing that looked the same: posts from some
-subreddit about YouTube, not posts from everywhere about YouTube. A channel
-that is quietly wrong is worse than one that is absent, so it was removed
-instead.
+The sitewide listing is what could not be kept. The archive the Reddit channels
+now read searches within a named subreddit, and "anywhere on Reddit" is the one
+question it cannot be asked -- see "Reddit posts come from an archive, and the
+narrowed feeds are the weak part" above. Substituting a subreddit would return
+a different thing that looked the same: posts from some subreddit about YouTube,
+not posts from everywhere about YouTube.
 
-What is actually wanted is a way to play popular videos without going through
-Reddit at all, which is a different feature with a different set of sources to
-weigh:
+So the channel is now exactly that, and says so: /r/youtubevideos, two feeds,
+Hot and New. The second feed it used to have came from YouTube's Data API with a
+key written into the file, and is not coming back -- that key was a credential
+belonging to whoever published it, committed to a public repository. The posts
+carry their own titles, thumbnails and links, so nothing here needs it.
+
+Two things about the replacement worth knowing:
+
+- **There is no Top feed, because the subreddit does not upvote.** Measured back
+  to 2024, 98 of 100 posts score 1 and 2 score 0. A top feed would rank a
+  constant, which means the archive's time order with a re-sort on top that
+  changes nothing -- it would look like it worked and mean nothing. The
+  subreddit posts about 32 times a day, so Hot and New are both worth having.
+- **Three posts in a hundred link a channel rather than a video** ("we are
+  live", "new video out"), and those are dropped. yt-dlp answers a channel URL
+  by walking the channel's whole video list -- measured on the Pi, no output and
+  no exit after 100 seconds -- and the player reads yt-dlp in a loop with no
+  timeout, so such an item does not fail and does not start. It sits there, and
+  the only way out is pressing stop.
+
+Three posts in a hundred also link something that is not YouTube at all (a
+meme, a Twitch VOD, a Suno link). Those are left in. yt-dlp errors on them
+quickly and the error is shown, which is a different outcome from the hang
+above, and the Twitch one sometimes plays.
+
+What is still wanted is a way to play popular videos without going through Reddit
+at all, which is a different feature with a different set of sources to weigh:
 
 - YouTube's own feeds and search, through the bundled yt-dlp. The plumbing is
   already there, since every video play goes through it. The question is
