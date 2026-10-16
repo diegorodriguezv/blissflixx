@@ -274,18 +274,26 @@ _contents
     # reported by the install that wrote it rather than discovered later by
     # pressing the button.
     #
-    # Checked twice, and the second is the one that matters: through setsid, so
-    # the process has no session and polkit sees an inactive subject, which is
-    # what the BlissFlixx server is. Checking only from a terminal would prove
-    # the rule works for someone sitting at one, and say nothing about the case
-    # it exists for.
+    # With --process naming a process the account owns, because pkcheck with no
+    # subject at all does not say "not authorised" -- it says "Subject not
+    # specified" and exits 126, which is a question that was never asked. An
+    # earlier version of this check ran it that way and reported a warning on an
+    # install that worked, which is worse than no check: it teaches you to
+    # distrust the one thing that is telling you the truth.
+    #
+    # Checked twice. The second runs it under setsid, so the process has no
+    # session -- which is the BlissFlixx server, and the only case this rule
+    # exists for. polkit reports no error when a rule compiles but does not
+    # cover a sessionless subject, it just refuses, so without that second
+    # check the install would pass and the button would still fail.
     systemctl reload polkit
-    if ! sudo -u "$BF_USER" pkcheck --action-id org.freedesktop.login1.reboot > /dev/null 2>&1 ; then
+    BF_ACTION=org.freedesktop.login1.reboot
+    if ! sudo -u "$BF_USER" sh -c "pkcheck --action-id $BF_ACTION --process \$\$" > /dev/null 2>&1 ; then
         echo "  WARNING: the reboot rule is not taking effect for $BF_USER." 1>&2
         echo "  polkit's own log says why:" 1>&2
         journalctl -u polkit --since "1 min ago" --no-pager 2>/dev/null | \
             grep -i "99-blissflixx" | tail -2 | sed 's/^/    /' 1>&2
-    elif ! sudo -u "$BF_USER" setsid pkcheck --action-id org.freedesktop.login1.reboot > /dev/null 2>&1 ; then
+    elif ! sudo -u "$BF_USER" setsid sh -c "pkcheck --action-id $BF_ACTION --process \$\$" > /dev/null 2>&1 ; then
         echo "  WARNING: the rule works from a terminal but NOT for a process" 1>&2
         echo "  with no session, which is the BlissFlixx server, so the button" 1>&2
         echo "  will still fail. polkit reports no error for this; it just" 1>&2
