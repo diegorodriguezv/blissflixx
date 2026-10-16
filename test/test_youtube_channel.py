@@ -1,23 +1,16 @@
 """
 The YouTube channel.
 
-The channel is one subreddit's posts, and almost all of the logic is a filter:
-r/youtubevideos carries links to channels as well as to videos, and a channel
-link is not a thing this player can start. The rest is pinned here because the
-failure it prevents is invisible -- the item simply never plays.
+Almost nothing here is logic: the channel is a subreddit's posts, and what can
+be played out of those is decided in lib.chanutils.reddit, which every Reddit
+channel shares. What is worth pinning is that this channel is wired to the
+subreddit it says it is, and that it does not promise a ranking the subreddit
+cannot supply.
 """
 
 import pytest
 
 import bfch_youtube
-from lib.playitem import PlayItem, PlayItemList
-
-
-def _items(*urls):
-    listing = PlayItemList()
-    for url in urls:
-        listing.add(PlayItem("title", None, url))
-    return listing
 
 
 class TestTheFeeds:
@@ -26,9 +19,9 @@ class TestTheFeeds:
         r/youtubevideos does not get upvoted. Measured back to 2024, every one
         of a hundred posts scores 1, so every one is tied.
 
-        A "Top Rated" feed here would rank a constant: the archive sorts by time
-        and the helper re-sorts by score, which is all ones, so the feed would
-        look like it worked and mean nothing. It is left out rather than
+        A "Top Rated" feed here would rank a constant: the archive sorts by
+        time and the helper re-sorts by score, which is all ones, so the feed
+        would look like it worked and mean nothing. It is left out rather than
         included as an approximation.
         """
         titles = [feed["title"] for feed in bfch_youtube.feedlist()]
@@ -41,7 +34,9 @@ class TestTheFeeds:
     def test_the_urls_are_listings_the_reddit_helper_recognises(self):
         """
         A URL the helper cannot translate comes back as an empty list rather
-        than an error, which is a channel that is silently empty.
+        than an error, which is a channel that is silently empty -- and the
+        helper says so for the retired sitewide domain feed, which is the shape
+        this channel used to have.
         """
         from lib.chanutils import reddit
 
@@ -50,111 +45,67 @@ class TestTheFeeds:
             assert params is not None, feed["url"]
             assert params["subreddit"] == "youtubevideos"
 
-
-class TestOnlyVideos:
-    @pytest.mark.parametrize(
-        "url",
-        [
-            "https://youtu.be/nGiozUzOSAI",
-            "https://youtu.be/nGiozUzOSAI?is=Xd4Cn3-vbSw1fg6a",
-            "https://www.youtube.com/watch?v=EZhQDSpdbZo&si=oy7nYAyHjLzsJh5P",
-            "https://youtube.com/shorts/_22QFmnVZP0?feature=share",
-            "https://www.youtube.com/embed/xDA2IJLuS4M",
-            "https://youtube.com/playlist?list=PLcd7kGWsSpuBbCDaaTf5PYy31AbhxE2fy",
-            "https://m.youtube.com/watch?v=8cD1QWTYbvU",
-        ],
-    )
-    def test_a_link_to_a_video_is_kept(self, url):
-        kept = bfch_youtube._only_videos(_items(url))
-        assert [item.url for item in kept.to_list()] == [url]
-
-    @pytest.mark.parametrize(
-        "url",
-        [
-            "https://www.youtube.com/@AlteredPixelz",
-            "https://youtube.com/@AlteredPixelz?si=_H-We6MQOQBVfBc5",
-            "https://www.youtube.com/channel/UCabcdefghijklmnopqrstuv",
-            "https://www.youtube.com/c/SomeLegacyChannel",
-            "https://www.youtube.com/user/SomeOldUser",
-            "https://m.youtube.com/@AlteredPixelz",
-        ],
-    )
-    def test_a_link_to_a_channel_is_dropped(self, url):
+    def test_it_does_not_ask_for_a_sitewide_listing_anywhere(self):
         """
-        yt-dlp answers a channel URL by walking the channel's whole video list.
-        Measured on the Pi: no output and no exit after 100 seconds.
-
-        The player reads that output in a loop with no timeout, so an item like
-        this does not fail and does not start -- it sits there, and the only way
-        out is to press stop. Three posts in a hundred in this subreddit are
-        one of these, so it is the common case and not the exotic one.
+        The feed this channel was retired for. The archive cannot serve it, and
+        a channel carrying it would show an empty category rather than say why.
         """
-        kept = bfch_youtube._only_videos(_items(url))
-        assert kept.to_list() == []
+        from lib.chanutils import reddit
 
-    def test_the_dropped_rows_do_not_shift_the_others(self):
-        kept = bfch_youtube._only_videos(
-            _items(
-                "https://youtu.be/aaaaaaaaaaa",
-                "https://www.youtube.com/@AlteredPixelz",
-                "https://youtu.be/bbbbbbbbbbb",
-            )
-        )
-        assert [item.url for item in kept.to_list()] == [
-            "https://youtu.be/aaaaaaaaaaa",
-            "https://youtu.be/bbbbbbbbbbb",
-        ]
-
-    def test_a_missing_url_is_dropped_rather_than_crashing(self):
-        listing = PlayItemList()
-        listing.add(PlayItem("title", None, None))
-        assert bfch_youtube._only_videos(listing).to_list() == []
+        for feed in bfch_youtube.feedlist():
+            assert reddit._feed_params(feed["url"]) is not None
 
 
 class TestTheChannelAnswers:
-    def test_feed_runs_the_listing_through_the_filter(self):
-        called = {}
+    def test_feed_passes_the_listing_through_untouched(self):
+        """
+        No filter in the channel. One that filters here is one the next Reddit
+        channel does not have, and the items that need dropping are dropped in
+        the helper all of them already go through.
+        """
+        import inspect
+
+        source = inspect.getsource(bfch_youtube.feed)
+        assert "_only_videos" not in source
+        assert "_CHANNEL_URL" not in source
+
+        seen = {}
 
         def fake_get_feed(entry):
-            called["entry"] = entry
-            return _items(
-                "https://youtu.be/aaaaaaaaaaa", "https://www.youtube.com/@Someone"
-            )
+            seen["entry"] = entry
+            return "the listing, as returned"
 
+        original = bfch_youtube.get_feed
         bfch_youtube.get_feed = fake_get_feed
         try:
-            items = bfch_youtube.feed(1)
+            assert bfch_youtube.feed(0) == "the listing, as returned"
         finally:
-            del bfch_youtube.get_feed
+            bfch_youtube.get_feed = original
 
-        assert called["entry"]["title"] == "New"
-        assert [item.url for item in items.to_list()] == ["https://youtu.be/aaaaaaaaaaa"]
+        assert seen["entry"] is bfch_youtube.feedlist()[0]
 
-    def test_search_runs_the_listing_through_the_filter(self):
-        called = {}
+    def test_search_asks_the_archive_about_this_subreddit(self):
+        seen = {}
 
         def fake_search(subreddit, q):
-            called["subreddit"] = subreddit
-            called["q"] = q
-            return _items(
-                "https://youtu.be/aaaaaaaaaaa", "https://www.youtube.com/c/Someone"
-            )
+            seen.update(subreddit=subreddit, q=q)
+            return "the results"
 
+        original = bfch_youtube.reddit_search
         bfch_youtube.reddit_search = fake_search
         try:
-            items = bfch_youtube.search("kayak")
+            assert bfch_youtube.search("kayak") == "the results"
         finally:
-            del bfch_youtube.reddit_search
+            bfch_youtube.reddit_search = original
 
-        assert called == {"subreddit": "youtubevideos", "q": "kayak"}
-        assert [item.url for item in items.to_list()] == ["https://youtu.be/aaaaaaaaaaa"]
+        assert seen == {"subreddit": "youtubevideos", "q": "kayak"}
 
 
 class TestTheChannelDescribesItself:
     def test_it_says_where_the_posts_come_from(self):
         """
         The channel is not YouTube's own listings and should not imply it is.
-        Every other Reddit channel names its subreddit in the description.
+        Every Reddit channel names its subreddit in the description.
         """
         described = bfch_youtube.description()
         assert "/r/youtubevideos" in described
@@ -170,3 +121,21 @@ class TestTheChannelDescribesItself:
         from bfch_r_fullmoviesonyoutube import name as movies_name
 
         assert bfch_youtube.name() != movies_name()
+
+
+class TestWhatItDoesNotCarry:
+    def test_it_carries_no_api_key(self):
+        """
+        The channel this replaces asked YouTube's Data API with a key written
+        into the file -- a credential belonging to whoever published it,
+        committed to a public repository. Nothing here needs one.
+        """
+        import inspect
+
+        source = inspect.getsource(bfch_youtube)
+        assert "googleapis.com" not in source
+        assert "AIza" not in source
+
+    @pytest.mark.parametrize("name", ["_YT_API_KEY", "_SEARCH_URL", "_INFO_URL"])
+    def test_none_of_the_old_names_are_back(self, name):
+        assert not hasattr(bfch_youtube, name)

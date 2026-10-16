@@ -214,6 +214,13 @@ Two things about the replacement worth knowing:
   timeout, so such an item does not fail and does not start. It sits there, and
   the only way out is pressing stop.
 
+  The drop is in `lib.chanutils.reddit`, not in this channel. It was written in
+  the channel first, on the measurement that /r/youtubevideos carries these most
+  often, and that was the wrong place: /r/Shortfilms has them at about the same
+  rate, and a channel added tomorrow gets the filter by going through the same
+  `_extract()` every other Reddit channel goes through rather than by
+  remembering to copy it.
+
 Three posts in a hundred also link something that is not YouTube at all (a
 meme, a Twitch VOD, a Suno link). Those are left in. yt-dlp errors on them
 quickly and the error is shown, which is a different outcome from the hang

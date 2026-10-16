@@ -684,3 +684,102 @@ class TestABusyArchiveReachesTheInterfaceAsAMessage:
         assert (
             "except Exception" in source
         ), "a busy archive would take the whole cross-channel search with it"
+
+
+class TestALinkToAChannelIsNotAVideo:
+    """
+    Posts that link a YouTube channel rather than a video.
+
+    yt-dlp answers a channel URL by walking that channel's whole video list:
+    measured on the Pi, no output and no exit after 100 seconds. The player
+    reads yt-dlp in a loop with no timeout, so such an item does not fail and
+    does not start -- it sits there, and the only way out is pressing stop.
+
+    This lives here rather than in the one channel that showed it most often
+    because every Reddit channel goes through _extract(). A filter that lives in
+    a channel is a filter the next channel forgets.
+    """
+
+    @pytest.mark.parametrize(
+        "url",
+        [
+            "https://www.youtube.com/@AlteredPixelz",
+            "https://youtube.com/@AlteredPixelz?si=_H-We6MQOQBVfBc5",
+            "https://www.youtube.com/channel/UCabcdefghijklmnopqrstuv",
+            "https://www.youtube.com/c/SomeLegacyChannel",
+            "https://www.youtube.com/user/SomeOldUser",
+            "https://m.youtube.com/@AlteredPixelz",
+            "https://music.youtube.com/@SomeChannel",
+        ],
+    )
+    def test_a_channel_link_is_dropped(self, url):
+        items = reddit._extract(reddit._listing([_post("live now", 1, url)]), False)
+        assert items.to_list() == []
+
+    @pytest.mark.parametrize(
+        "url",
+        [
+            "https://youtu.be/nGiozUzOSAI",
+            "https://youtu.be/nGiozUzOSAI?is=Xd4Cn3-vbSw1fg6a",
+            "https://www.youtube.com/watch?v=EZhQDSpdbZo&si=oy7nYAyHjLzsJh5P",
+            "https://youtube.com/shorts/_22QFmnVZP0?feature=share",
+            "https://www.youtube.com/embed/xDA2IJLuS4M",
+            "https://youtube.com/playlist?list=PLcd7kGWsSpuBbCDaaTf5PYy31AbhxE2fy",
+            "https://m.youtube.com/watch?v=8cD1QWTYbvU",
+        ],
+    )
+    def test_a_video_link_is_kept_in_every_form_that_resolves(self, url):
+        items = reddit._extract(reddit._listing([_post("a video", 1, url)]), False)
+        assert [item.url for item in items.to_list()] == [url]
+
+    def test_a_handle_that_is_not_a_channel_is_not_mistaken_for_one(self):
+        """
+        The pattern matches the path after youtube.com/, so a video id beginning
+        with a letter and a dash cannot be read as a handle. A slash is what
+        separates the host from the handle, and a video link never has one there.
+        """
+        items = reddit._extract(
+            reddit._listing([_post("not a handle", 1, "https://www.youtube.com/watch?v=abc")]),
+            False,
+        )
+        assert len(items.to_list()) == 1
+
+    def test_the_dropped_rows_do_not_shift_the_others(self):
+        items = reddit._extract(
+            reddit._listing(
+                [
+                    _post("first", 1, "https://youtu.be/aaaaaaaaaaa"),
+                    _post("a channel", 1, "https://www.youtube.com/@AlteredPixelz"),
+                    _post("second", 1, "https://youtu.be/bbbbbbbbbbb"),
+                ]
+            ),
+            False,
+        )
+        assert [item.url for item in items.to_list()] == [
+            "https://youtu.be/aaaaaaaaaaa",
+            "https://youtu.be/bbbbbbbbbbb",
+        ]
+
+    def test_a_row_with_no_url_is_dropped_rather_than_becoming_an_item(self):
+        """
+        An item with no URL cannot be played, and this is the one place where
+        "cannot play" is decided. A decision that quietly passes through
+        something it cannot handle is the shape of the bug it prevents.
+        """
+        post = _post("no url", 1, "https://youtu.be/aaaaaaaaaaa")
+        post["url"] = ""
+        items = reddit._extract(reddit._listing([post]), False)
+        assert items.to_list() == []
+
+    def test_it_applies_to_every_channel_not_only_the_one_that_showed_it(self):
+        """
+        The point of putting it here. /r/Shortfilms carries these too, at about
+        the same rate as /r/youtubevideos, and a channel added tomorrow gets
+        this by going through the same three lines every other one does.
+        """
+        for sr in ("videos", "trailers", "Shortfilms", "Documentaries"):
+            items = reddit._extract(
+                reddit._listing([_post("live", 1, "https://www.youtube.com/@Someone")]),
+                False,
+            )
+            assert items.to_list() == [], sr

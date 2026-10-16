@@ -547,6 +547,31 @@ def _listing(posts):
     return {"data": {"children": [{"data": post} for post in posts]}}
 
 
+#: A link to a YouTube channel rather than to a video: youtube.com/@handle, and
+#: the older /channel/, /c/ and /user/ forms.
+#:
+#: Measured across seven subreddits: 1 post in 100 in /r/youtubevideos, where
+#: they are posted for a reason ("we are live", "new video out"), and 1 in 100
+#: in /r/Shortfilms. Rare enough to look like nothing, and not: yt-dlp answers a
+#: channel URL by walking that channel's entire video list, which is minutes of
+#: work it does not finish. Nothing here is waiting for it either -- ytdlproc's
+#: _ready() reads yt-dlp's output in a loop with no timeout -- so such an item
+#: does not fail and does not start. It sits there, and the only way out is
+#: pressing stop.
+#:
+#: Dropped here rather than in the channels, because every Reddit channel goes
+#: through _extract(), and a filter that lives in one channel is a filter the
+#: next channel forgets. A YouTube channel link is never a playable video, so
+#: there is nothing to lose by dropping it everywhere.
+#:
+#: A video link is fine in every form that resolves -- youtu.be, /watch?v=,
+#: /shorts/, /embed/, and a playlist, which resolves to its first entry because
+#: the player passes --no-playlist.
+_CHANNEL_URL = re.compile(
+    r"^https?://(?:[\w-]+\.)*youtube\.com/(?:@[\w.-]+|channel/|c/|user/)"
+)
+
+
 def _extract(data, moviesubs):
     results = PlayItemList()
     if "data" not in data or len(data["data"]["children"]) == 0:
@@ -571,6 +596,12 @@ def _extract(data, moviesubs):
         subtitle = subtitle + ", " + comments
         title = replace_entity(r["title"])
         url = replace_entity(r["url"])
+        # Dropped here, before the item is built, rather than by each channel
+        # that asks for a listing. An item that cannot play cannot be explained
+        # once it is on screen looking as playable as the rest, so it is never
+        # built. See _CHANNEL_URL for what happens to one that is left in.
+        if not url or _CHANNEL_URL.match(url):
+            continue
         subs = None
         if moviesubs:
             subs = movie_title_year(title)
