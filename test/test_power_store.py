@@ -61,6 +61,10 @@ def test_the_state_machine_holds():
         "treated as the button working",
         "error is shown, not swallowed",
         "only one timer running",
+        "the bar is up before the reply",
+        "the reply changes nothing",
+        "and is taken down again by the failure",
+        "settles on shut down",
     ],
 )
 def test_each_case_is_actually_checked(case):

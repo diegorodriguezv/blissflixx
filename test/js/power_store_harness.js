@@ -262,3 +262,64 @@ if (failures.length) {
   process.exit(1);
 }
 console.log('  all passed');
+// ---------------------------------------------------------------------------
+// The message is shown on the press, not on the reply.
+//
+// These came after two reports of "no message" from someone pressing the button
+// on a television and watching the machine reboot. Everything above passed
+// while it was happening, because every one of those sequences answers the rpc
+// immediately. The gap was the window between the press and the reply, which is
+// exactly the window a machine that is about to go down makes longer.
+// ---------------------------------------------------------------------------
+
+function makeDeferredWorld() {
+  const w = makeWorld();
+  let release = null;
+  w.held = null;
+  w.respond = (cb) => { w.held = cb; };   // the request is in flight
+  w.release = () => { const cb = w.held; w.held = null; cb(null, null); };
+  return w;
+}
+
+console.log('\n  the request has not come back yet');
+{
+  const w = makeDeferredWorld();
+  w.store.power('reboot');
+  check('the bar is up before the reply', w.store.getState(), 'Rebooting...');
+  check('and nothing has been asked to forget it', w.timerCount(), 0);
+  w.release();
+  check('the reply changes nothing', w.store.getState(), 'Rebooting...');
+  check('and only now starts the give-up clock', w.timerCount(), 1);
+}
+
+console.log('\n  the machine goes and comes back while the reply is still in flight');
+{
+  const w = makeDeferredWorld();
+  w.store.power('reboot');
+  w.poll('offline');
+  w.release();
+  w.poll(null);
+  check('a finished reboot clears it', w.store.getState(), null);
+}
+
+console.log('\n  the reply comes back saying no');
+{
+  const w = makeDeferredWorld();
+  w.store.power('reboot');
+  check('the bar went up on the press', w.store.getState(), 'Rebooting...');
+  w.held('/parsererror%3A%20500/Could not reboot: ...');
+  check('and is taken down again by the failure', w.store.getState(), null);
+  check('with the error shown', w.shown.length, 1);
+  check('and no timer left behind', w.timerCount(), 0);
+}
+
+console.log('\n  the reply never arrives because the machine went down');
+{
+  const w = makeDeferredWorld();
+  w.store.power('shutdown');
+  check('the bar went up on the press', w.store.getState(), 'Shutting down...');
+  w.held('/offline/offline');
+  w.poll('offline');
+  check('settles on shut down', w.store.getState(), 'Shut down.');
+  check('no error shown', w.shown, []);
+}

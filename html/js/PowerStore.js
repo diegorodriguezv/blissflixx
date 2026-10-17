@@ -49,19 +49,36 @@ function PowerStore(playerStore) {
   var GIVE_UP_AFTER = 30000
 
   self.power = function(action) {
+    // Shown on the press, not on the reply.
+    //
+    // It used to wait for the request to come back first, which made the one
+    // thing the bar exists for depend on a network round trip to a machine that
+    // is about to stop answering. The reply arrives, usually -- but the cases
+    // where it does not are precisely the cases this bar is for: the connection
+    // closing mid-response, the machine going down before the bytes are
+    // written, a browser answering differently from the one it was written
+    // against. Any of those and the bar stayed silent while the machine did
+    // exactly what it was told.
+    //
+    // Nothing is claimed by showing it early. A press that turns out to have
+    // failed puts the error up in place of the message, which is the honest
+    // sequence: something was asked for, and then either it happened or it did
+    // not.
+    if (giveUp) window.clearTimeout(giveUp)
+    pending = action
+    sawOffline = false
+    say(ASKING[action])
+
     Utils.rpc('server', action, null, function(err) {
-      // An offline error here is not the button failing. systemctl queues the
-      // job and returns; if the machine went down before the reply was written,
+      // An offline error is not the button failing: systemctl queues the job
+      // and returns, so if the machine went down before the reply was written
       // the reply never arrives, and that is the button working.
-      if (err && !Utils.isOffline(err)) return Utils.showError(err)
-      // Any timer from a previous press is cancelled rather than left running.
-      // Two presses leave two timers, the first one still armed, and when it
-      // fires it clears the message the second press just put up -- in the
-      // middle of the reboot, and for no reason anyone can see.
-      if (giveUp) window.clearTimeout(giveUp)
-      pending = action
-      sawOffline = false
-      say(ASKING[action])
+      if (err && !Utils.isOffline(err)) {
+        forget()
+        return Utils.showError(err)
+      }
+      // Nothing further to do on success. The bar is already up and stays up
+      // until the machine has gone and come back.
       giveUp = window.setTimeout(function() {
         // Asked for, and the machine never went. It is up and answering, so the
         // action did not take -- say so by saying nothing.
