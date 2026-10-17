@@ -16,7 +16,13 @@
       screen answers it in a second, and it keeps answering it for whoever
       finds the next thing that works on the Pi and not in the browser.
       -->
-      <p class="build-label">running build <span id="build">{ self.build }</span></p>
+      <!-- The bare name, not self.build. riot resolves an expression against
+           the tag, and "self" is a variable inside the tag's script rather
+           than a property on the tag, so nothing is found under that name and
+           it falls back far enough to render an element -- which is what put
+           "[object HTMLSpanElement]" on the television. Every other tag in this
+           interface refers to its own state the same way. -->
+      <p class="build-label">running build <span id="build">{ build }</span></p>
     </div>
   </div>
 

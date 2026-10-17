@@ -126,6 +126,24 @@ riot.tag = function (name, html, css, fn) {
  * expressions are, and which has no other braces in any of these tags -- is
  * checked for an opening brace that is never closed.
  */
+/*
+ * riot resolves an expression against the tag itself, so a tag refers to its
+ * own state by the bare name: { status.State }, { build }. Not { self.build }.
+ *
+ * "self" is a variable declared inside the tag's script, not a property on the
+ * tag, so nothing is found under that name and the expression ends up
+ * rendering whatever it falls back to -- which is how "running build
+ * [object HTMLSpanElement]" got onto the television.
+ *
+ * Checked because every other tag in this interface gets it right, so the one
+ * that did not stood out as a question of taste rather than a rule.
+ */
+function selfPrefixedExpression(src) {
+  const markup = src.replace(/<script>[\s\S]*?<\/script>/g, '');
+  const found = markup.match(/\{\s*self\./g);
+  return found ? found[0] : null;
+}
+
 function unclosedExpression(src) {
   const markup = src.replace(/<script>[\s\S]*?<\/script>/g, '');
   for (let i = 0; i < markup.length; i++) {
@@ -145,6 +163,14 @@ for (const tag of TAGS) {
   const src = fs.readFileSync(path.join(REPO, 'html', tag), 'utf8');
   const name = path.basename(tag, '.html');
   try {
+    const selfPrefixed = selfPrefixedExpression(src);
+    if (selfPrefixed) {
+      throw new Error(
+        'expression names "self", which is a variable inside a tag\'s script ' +
+        'and not a property on the tag, so riot finds nothing and renders ' +
+        'something else entirely: ' + selfPrefixed
+      );
+    }
     const unclosed = unclosedExpression(src);
     if (unclosed) {
       throw new Error(
