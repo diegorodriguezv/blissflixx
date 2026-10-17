@@ -34,6 +34,13 @@ def _read(path):
         return handle.read()
 
 
+def api_info(chid):
+    """What the server says about one channel."""
+    from lib.api import channels as api_channels
+
+    return api_channels.info(chid=chid)
+
+
 def _markup(name="itemlist.html"):
     """The tag with its comments out.
 
@@ -229,19 +236,42 @@ class TestTheSourceButton:
 
 
 class TestTheInterfaceUsesIt:
-    def test_the_row_anchors_use_the_link(self):
+    def test_the_row_anchors_name_the_channel_not_the_website(self):
         """
-        href="" is the bug. It resolves to the current document, so every
-        channel link was a link to "/" -- the page you were already on.
+        Clicking the icon or the title opens the channel, so that is what the
+        link has to say. It said the channel's website, which is the Source
+        button's job and is one button further along: a link naming somewhere
+        the click does not go is worse than no link at all.
 
-        The icon and the title, specifically: the action buttons take their
-        destination from the action rather than the row.
+        An href="" would have been no better. That resolves to the current
+        document, so every channel in the manager was a link to the page you
+        were already on.
         """
         markup = _markup()
         row = re.findall(r"<a [^>]*onclick=\{ parent\.openItem \}[^>]*>", markup)
         assert len(row) == 2, "expected the icon and the title: %s" % row
         for anchor in row:
-            assert "href={ link || '' }" in anchor, anchor
+            assert "href={ route || '' }" in anchor, anchor
+            assert "title={ route || title }" in anchor, anchor
+
+    def test_the_destination_comes_from_the_server(self):
+        """
+        The template does not work the route out for itself. It cannot: "route"
+        being absent is how it knows a row is not a channel, and guessing that
+        from the presence of a website would leave a channel without one
+        pointing nowhere at all.
+        """
+        for channel in InstalledChannels().getAll():
+            got = api_info(channel.getId())
+            assert got["route"] == "#channel/" + channel.getId(), channel.getId()
+
+    def test_it_is_spelled_the_way_the_channels_page_spells_it(self):
+        """
+        channels.html links a channel the same way. Two spellings of one route
+        would drift apart the first time somebody changed one of them, and the
+        only sign of it would be a link that goes somewhere nobody expected.
+        """
+        assert "#channel/{ id }" in _read(_page("channels.html"))
 
     def test_and_the_only_anchors_left_pointing_nowhere_are_the_buttons(self):
         """
@@ -305,7 +335,7 @@ class TestTheHoverText:
         anchors = re.findall(r"<a [^>]*onclick=\{ parent\.openItem \}[^>]*>", markup)
         assert len(anchors) == 2, "expected the icon and the title: %s" % anchors
         for anchor in anchors:
-            assert "title={ link || title }" in anchor, anchor
+            assert "title={ route || title }" in anchor, anchor
 
     def test_the_action_buttons_carry_it(self):
         markup = _markup()

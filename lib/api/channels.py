@@ -323,6 +323,14 @@ def info(chid=None):
     # where list_enabled() also reads from, so one call here gave every other
     # channel listing a Disable button and a settings block it never asked for.
     info = dict(installed.getChannel(chid).getInfo())
+    # Where the channel lives in this application. The icon and the title open
+    # it -- that is what clicking them does -- so that is what their links have
+    # to say, and the server is the one that knows this row is a channel and
+    # what it is called. The website is the Source button's job, a button along.
+    #
+    # Spelled the way channels.html already spells it, so the same destination
+    # is not written two different ways in two places.
+    info["route"] = "#channel/" + info["id"]
     if installed.isEnabled(chid):
         info["actions"] = [{"label": "Disable", "type": "disablechannel"}]
     else:

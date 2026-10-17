@@ -8,25 +8,32 @@
       <div class="item-row row">
          <div class="col-md-2 col-sm-3 col-xs-3">
           <!--
-          The href is the item's own "link" where it has one, which is how a
-          channel in the manager points at the site it reads from instead of at
-          "/". An href="" resolves to the current document, so every channel
-          link in the manager was a link to the page you were already on.
+          Where the icon and the title actually go: the channel, inside this
+          application. That is what clicking them does -- parent.openItem routes
+          to the channel -- so that is what the link has to say. It said the
+          channel's website instead, which is the Source button's job and is one
+          button further along: a link that named somewhere the click does not
+          go is worse than no link at all.
 
-          Nothing else carries a "link", so every media item, playlist entry and
-          search result here is unchanged; theirs falls back to the title as
-          hover text, which is at least true.
+          "route" comes from the server, which is the one that knows this row is
+          a channel and what it is called. Guessing it here from the presence of
+          a website would leave a channel without one with nowhere to point.
+
+          Only a channel has one. Every other row here -- a video, a playlist
+          entry, a search result -- is played rather than opened, so it has no
+          address to name: the href stays "", which resolves to the page you are
+          already on, and the hover text falls back to the title.
 
           The hover text names the same destination as the href. Firefox shows
           both, and on a television only one of them is ever seen -- so they say
           the same thing rather than one of them being a mystery.
           -->
-          <a href={ link || '' } title={ link || title } onfocus="this.blur()" onclick={ parent.openItem }>
+          <a href={ route || '' } title={ route || title } onfocus="this.blur()" onclick={ parent.openItem }>
             <img class={ item-icon: parent.isIcon(img), item-img: !parent.isIcon(img) } src={ img }>
           </a>
         </div>
          <div class="col-md-10 col-sm-9 col-xs-9 break-long-word">
-          <a href={ link || '' } title={ link || title } onfocus="this.blur()" onclick={ parent.openItem }><span class="item-title">{ title }</span></a>
+          <a href={ route || '' } title={ route || title } onfocus="this.blur()" onclick={ parent.openItem }><span class="item-title">{ title }</span></a>
           <div class="item-subtitle"><raw content={ subtitle } /></div>
           <div class="item-synopsis"><raw content={ synopsis } /></div>
           <span each={ actions }>
