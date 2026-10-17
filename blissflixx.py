@@ -2,6 +2,7 @@
 import argparse
 import json
 import os
+import re
 import shutil
 import signal
 import subprocess
@@ -332,8 +333,114 @@ class IgnoreStatusLogger(LogManager):
             return LogManager.access(self)
 
 
-class Html:
-    pass
+class HtmlDocument:
+    """
+    The interface, with the build stamped into the document that is served.
+
+    The whole of a bad afternoon: a browser kept a saved copy of index.html
+    because the meta tags make this a PWA, and a saved document loads the
+    JavaScript it was saved with. So the server could be three weeks ahead and
+    the browser would never show it, reloading included -- and the only
+    available answer to "I changed it and nothing happened" was to change it
+    again. Three rounds of that, answered wrongly three times.
+
+    Two things are done here that could not be done from the page:
+
+    - Every local script and stylesheet gets the build on its URL. A new build
+      means new URLs, so a stale copy in any cache is simply not asked for
+      again. There is no window where the document is current and the scripts
+      under it are not, which is the only state worth worrying about.
+
+    - The build is written into the document itself, so the number on the
+      screen comes from the server that served it rather than from JavaScript
+      that might be weeks old. A diagnostic that can be stale is not a
+      diagnostic.
+
+    Only local URLs are stamped. The three stylesheets and jQuery come from
+    CDNs, and appending a query to those would defeat the caching they are
+    there for while telling us nothing.
+    """
+
+    #: Same-origin URLs only: a relative path, or one rooted at "/". Anything
+    #: with a host of its own -- "//example.com/x" or "https://example.com/x" --
+    #: is somebody else's cache, and appending a query there would defeat the
+    #: caching it is there for while telling us nothing about this build.
+    _local_asset = re.compile(
+        r'(<(?:script|link)\b[^>]*?\s(?:src|href)=")(?!//|https?:)([^"?]+)(")'
+    )
+
+    @staticmethod
+    def _server_build():
+        """
+        What is checked out here, which is what is being served.
+
+        Says "unknown" rather than raising: a machine with no git checkout
+        still has an interface, and a version stamp is not worth a 500.
+        """
+        try:
+            sha = subprocess.run(
+                ["git", "rev-parse", "--short", "HEAD"],
+                cwd=locations.ROOT_PATH,
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            if sha.returncode == 0 and sha.stdout.strip():
+                return sha.stdout.strip()
+        except Exception:
+            pass
+        return "unknown"
+
+    def index(self, *args, **kwargs):
+        build = self._server_build()
+        path = os.path.join(locations.HTML_PATH, "index.html")
+        try:
+            with open(path, "r", encoding="utf-8") as handle:
+                page = handle.read()
+        except OSError:
+            raise cherrypy.HTTPError(500, "index.html could not be read")
+
+        def stamp(match):
+            url = match.group(2)
+            if url.startswith("?") or "v=" in url:
+                return match.group(0)
+            return match.group(1) + url + "?v=" + build + match.group(3)
+
+        page = self._local_asset.sub(stamp, page)
+        # Last, so nothing after it can be stamped, and so the number on the
+        # screen is the one this document was served with.
+        #
+        # The build is also handed to the page as a variable, because one set
+        # of files cannot be stamped from here: pages/*.html is fetched by riot
+        # at runtime, once per route, and has to be asked for by name later. The
+        # document is the only place that knows the build at load time, so it
+        # passes it on and app.html puts it on those requests too.
+        page = page.replace(
+            "</head>",
+            '<meta name="build" content="%s">\n'
+            "    <script>window.BF_BUILD = '%s';</script>\n"
+            "  </head>" % (build, build),
+            1,
+        )
+        cherrypy.response.headers["Content-Type"] = "text/html;charset=utf-8"
+        return page
+
+
+    @staticmethod
+    def _server_build():
+        try:
+            sha = subprocess.run(
+                ["git", "rev-parse", "--short", "HEAD"],
+                cwd=locations.ROOT_PATH,
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            if sha.returncode == 0 and sha.stdout.strip():
+                return sha.stdout.strip()
+        except Exception:
+            pass
+        return "unknown"
 
 
 def parse_args(argv=None):
@@ -345,14 +452,22 @@ def parse_args(argv=None):
 
 def mount_trees():
     cherrypy.tree.mount(Api(), "/api")
+    # "/index.html" is what a browser asks for when it has a saved copy of the
+    # document, and staticdir would serve that file raw. Both paths build the
+    # page the same way, so the way back in cannot skip the build stamping.
+    cherrypy.tree.graft(HtmlDocument(), "/index.html")
     cherrypy.tree.mount(
-        Html(),
+        HtmlDocument(),
         "/",
         config={
             "/": {
                 "tools.staticdir.on": True,
                 "tools.staticdir.dir": locations.HTML_PATH,
-                "tools.staticdir.index": "index.html",
+                # No index file here: the document is built by Html.index()
+                # below so the build can be stamped into it. staticdir's own
+                # index would serve the file off disk, unstamped, and "/" and
+                # "/index.html" would then be two different documents.
+                "tools.staticdir.index": "",
                 # The interface is served with no Cache-Control at all, which
                 # leaves the browser to guess: with a Last-Modified and nothing
                 # else, a cached copy is reused on a freshness lifetime derived

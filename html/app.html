@@ -23,7 +23,12 @@
         self.mountedTag.unmount()
       }
       if (!self.loadedTags[page]) {
-        riot.compile('pages/' + page + '.html', function() {
+        // With the build on the URL, for the same reason the scripts have it:
+        // a new build means a new URL, so a cached copy of a page is never
+        // asked for again. The document cannot stamp these -- they are fetched
+        // here, at runtime, once per route -- so it hands the build down and it
+        // is put on here.
+        riot.compile('pages/' + page + '.html?v=' + (window.BF_BUILD || ''), function() {
           self.loadedTags[page] = true
           self.mountPage(page)
         })
