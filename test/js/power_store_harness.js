@@ -224,6 +224,102 @@ console.log('\n  a second press while one is pending');
   check('and it clears on the way back', w.store.getMsg(), null);
 }
 
+// ---------------------------------------------------------------------------
+// UpdateCheck: the page noticing the server changed underneath it.
+//
+// Written because this went wrong for three rounds. The browser was weeks
+// behind, nothing in the page could tell, and the only available answer to
+// "I changed it and nothing happened" was to change it again.
+// ---------------------------------------------------------------------------
+
+console.log('\n\nUpdateCheck');
+
+function makeUpdateWorld() {
+  const w = makeWorld();
+  const UpdateCheck = new Function(
+    'Utils', 'window',
+    load('html/js/UpdateCheck.js') + '\n;return UpdateCheck;'
+  )(w.Utils, w.window);
+  w.check = new UpdateCheck(w.playerStore);
+  return w;
+}
+
+console.log('\n  the server has not changed');
+{
+  const w = makeUpdateWorld();
+  w.check.start();
+  check('the build it loaded with was recorded', w.check.loaded, null);
+}
+
+console.log('\n  the server is still the same build');
+{
+  const w = makeUpdateWorld();
+  let build = 'aaaaaaa';
+  w.respond = (cb) => cb(null, build);
+  w.check.start();
+  check('recorded', w.check.loaded, 'aaaaaaa');
+  build = 'aaaaaaa';
+  w.check.poll();
+  check('and no reload', w.check.reloading, false);
+}
+
+console.log('\n  the server has been updated underneath the page');
+{
+  const w = makeUpdateWorld();
+  let build = 'aaaaaaa';
+  let reloads = 0;
+  w.window.location = { reload: () => { reloads++; } };
+  w.respond = (cb) => cb(null, build);
+  w.check.start();
+  build = 'bbbbbbb';
+  w.check.poll();
+  check('the page reloads', reloads, 1);
+  check('and does not queue another behind it', w.check.reloading, true);
+  w.check.poll();
+  check('still only one', reloads, 1);
+}
+
+console.log('\n  the server changed but something is playing');
+{
+  const w = makeUpdateWorld();
+  let build = 'aaaaaaa';
+  let reloads = 0;
+  w.window.location = { reload: () => { reloads++; } };
+  w.respond = (cb) => cb(null, build);
+  w.check.start();
+  build = 'bbbbbbb';
+  w.playerStore.status = { State: 3 };
+  w.check.poll();
+  check('the page is left alone', reloads, 0);
+  w.playerStore.status = { State: 0 };
+  w.check.poll();
+  check('and picks it up once nothing is playing', reloads, 1);
+}
+
+console.log('\n  the server cannot be asked');
+{
+  const w = makeUpdateWorld();
+  w.respond = (cb) => cb('/offline/offline');
+  let reloads = 0;
+  w.window.location = { reload: () => { reloads++; } };
+  w.check.start();
+  w.check.poll();
+  check('nothing is reloaded and nothing is recorded', [w.check.loaded, reloads], [null, 0]);
+}
+
+console.log('\n  a tick that arrives before the build this page loaded is known');
+{
+  const w = makeUpdateWorld();
+  let reloads = 0;
+  w.window.location = { reload: () => { reloads++; } };
+  // start() never ran, so there is nothing to compare against, and the answer
+  // is a perfectly good build. Comparing "bbbbbbb" with null finds a change
+  // every time and reloads the page on its first tick, forever.
+  w.respond = (cb) => cb(null, 'bbbbbbb');
+  w.check.poll();
+  check('no reload when there is nothing to compare against', reloads, 0);
+}
+
 console.log('');
 if (failures.length) {
   console.log(`  ${failures.length} FAILED: ${failures.join(', ')}`);

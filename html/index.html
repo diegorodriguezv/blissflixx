@@ -68,6 +68,7 @@
     <script src="js/ChannelStore.js"></script>
     <script src="js/PlayerStore.js"></script>
     <script src="js/PowerStore.js"></script>
+    <script src="js/UpdateCheck.js"></script>
     <script src="js/PlaylistStore.js"></script>
     <script src="js/JQueryStore.js"></script>
     <script src="js/Popovers.js"></script>
@@ -95,6 +96,8 @@
       RiotControl.addStore(powerStore)
       RiotControl.addStore(playlistStore)
       RiotControl.addStore(jQueryStore)
+      // Reload the page when the server has been updated underneath it.
+      new UpdateCheck(playerStore).start()
       riot.compile(function() {
         riot.mount('app')
       })

@@ -63,6 +63,10 @@ def test_the_state_machine_holds():
         "and the error is shown",
         "nothing was left armed",
         "and it clears on the way back",
+        "the page reloads",
+        "the page is left alone",
+        "and picks it up once nothing is playing",
+        "no reload when there is nothing to compare against",
     ],
 )
 def test_each_case_is_actually_checked(case):
