@@ -86,3 +86,81 @@ def test_the_riot_tags_compile():
     """
     code, output = _run(TAGS)
     assert code == 0, output
+
+
+class TestARebootDoesNotBlameTheServer:
+    """
+    What the screen does while the machine is on its way down.
+
+    Something polls the server every second and something routes to the error
+    page when a poll fails, so a second after REBOOT is pressed the whole page
+    is replaced by "It looks like the server is not running. Please restart the
+    server and try again." -- on the screen of someone who just asked it to
+    reboot, over the top of the bar saying what is actually happening.
+
+    It is a page in the interface, so it is checked here alongside the rest.
+    """
+
+    def test_showError_stays_quiet_while_a_power_action_is_in_flight(self):
+        import pathlib
+        import subprocess
+
+        from lib import locations
+
+        source = (pathlib.Path(locations.HTML_PATH) / "js" / "Utils.js").read_text()
+        assert "powerStore.getMsg()" in source, (
+            "Utils.showError still hijacks the screen during a deliberate "
+            "reboot or shutdown"
+        )
+
+    def test_and_the_check_is_run_by_node_not_by_reading_it(self):
+        """
+        Grepping the source would pass on a line in a comment, which is how this
+        started. This runs the function.
+        """
+        import json
+        import os
+        import pathlib
+        import shutil
+        import subprocess
+        import tempfile
+
+        if shutil.which("node") is None:
+            pytest.skip("node is not installed here")
+
+        script = """
+        var shown = [];
+        function riot() {}
+        riot.route = function (p) { shown.push(p); };
+        var powerMsg = %s;
+        var powerStore = powerMsg ? { getMsg: function () { return powerMsg; } } : undefined;
+        %s
+        Utils.showError('/offline/offline');
+        console.log(JSON.stringify(shown));
+        """
+
+        from lib import locations
+
+        utils = (pathlib.Path(locations.HTML_PATH) / "js" / "Utils.js").read_text()
+
+        def run(power_msg):
+            with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False) as fh:
+                fh.write(script % (json.dumps(power_msg), utils))
+                path = fh.name
+            try:
+                proc = subprocess.run(
+                    ["node", path], capture_output=True, text=True, timeout=60
+                )
+                assert proc.returncode == 0, proc.stderr
+                return json.loads(proc.stdout.strip())
+            finally:
+                os.unlink(path)
+
+        # Nothing while a power action is in flight: the bar is saying what is
+        # happening and a page about a fault that does not exist is worse than
+        # nothing.
+        assert run("Rebooting...") == [], "showError still navigated during a reboot"
+        # And still everything when there is not, or real errors would be silent.
+        assert run(None) == ["error/offline/offline"], (
+            "showError stopped reporting faults that are real"
+        )

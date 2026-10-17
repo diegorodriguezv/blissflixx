@@ -379,6 +379,25 @@ def mount_trees():
                 "tools.response_headers.on": True,
                 "tools.response_headers.headers": [("Cache-Control", "no-cache")],
             },
+            # The document itself is never cached, not even revalidated.
+            #
+            # no-cache on everything else is enough as long as the browser asks.
+            # It does not always: this app is a PWA by virtue of its meta tags,
+            # so browsers install it and keep the document, and a kept document
+            # is one that loads the JavaScript it was saved with. A browser
+            # holding last week's index.html asks for last week's scripts and
+            # never sees anything new, however many times it is reloaded --
+            # which is what three rounds of "I changed it and nothing happened"
+            # turned out to be.
+            #
+            # Specific paths win over "/" in cherrypy's config, so this only
+            # applies to the document.
+            "/index.html": {
+                "tools.response_headers.on": True,
+                "tools.response_headers.headers": [
+                    ("Cache-Control", "no-store, must-revalidate")
+                ],
+            },
         },
     )
 

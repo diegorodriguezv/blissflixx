@@ -48,6 +48,25 @@ isOffline: function(err) {
     return '/' + encodeURIComponent(type) + '/' + encodeURIComponent(msg)
   },
   showError: function(err) {
+    // While the machine is rebooting or shutting down, the server being
+    // unreachable is the state that was asked for, not a fault in it.
+    //
+    // Something polls the server every second and something routes here when a
+    // poll fails, so the moment the machine goes down -- which for a reboot is
+    // a second after the button -- the whole page is replaced by:
+    //
+    //   It looks like the server is not running. Please restart the server
+    //   and try again.
+    //
+    // On the screen of someone who just asked it to reboot, telling them to
+    // restart the thing they are already restarting, and burying the bar that
+    // says what is actually happening underneath a page about a fault that
+    // does not exist.
+    //
+    // So this says nothing while a power action is in flight. The bar at the
+    // bottom already covers it, and the error is still there to come back to
+    // for any request that genuinely failed.
+    if (typeof powerStore !== 'undefined' && powerStore.getMsg()) return
     riot.route('error' + err)
   },
   decodeURI: function(val) {
