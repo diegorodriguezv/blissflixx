@@ -331,10 +331,27 @@ def info(chid=None):
     # Spelled the way channels.html already spells it, so the same destination
     # is not written two different ways in two places.
     info["route"] = "#channel/" + info["id"]
+    # A "hint" is what the button says when the pointer rests on it. The label
+    # is two words wide and names the button; the hint is a sentence and says
+    # what the button will do to the channels page, because "Disable" on its own
+    # does not say what is being disabled and there is nothing else on screen to
+    # say it.
+    #
+    # "hint" rather than "title", which reads as the HTML attribute of the same
+    # name but resolves inside itemlist's each={ actions } to the row's own
+    # title first -- so every Disable button would have said "EZTV".
     if installed.isEnabled(chid):
-        info["actions"] = [{"label": "Disable", "type": "disablechannel"}]
+        info["actions"] = [{
+            "label": "Disable",
+            "type": "disablechannel",
+            "hint": "Don't show in Channels",
+        }]
     else:
-        info["actions"] = [{"label": "Enable", "type": "enablechannel"}]
+        info["actions"] = [{
+            "label": "Enable",
+            "type": "enablechannel",
+            "hint": "Show in Channels",
+        }]
     # Where the posts come from, beside the button that turns it off rather
     # than in the description, which nothing renders. Added last so it sits
     # after Disable, and only when there is a link to go to.

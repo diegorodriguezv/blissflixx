@@ -54,13 +54,18 @@
              own -- which is every action but this one, and would have put a
              video's address on its Disable button.
 
-             Both fall back -- href to nothing, the hover text to the label --
-             because an action with no destination is most of them, and
-             title="undefined" on every Disable button would be worse than
-             nothing said.
+             The hover text is the destination, then the hint, then the label.
+             All three because all three are different questions: Source answers
+             "where does this go", Disable and Enable answer "what will this do
+             to my channels page", and the rest have nothing to say beyond their
+             own name.
+
+             Every one of them falls back, because an action with a hint is two
+             out of three here and an action with a destination is one, and
+             title="undefined" on every button would be worse than nothing said.
              -->
              <a href={ dest || '' }
-                title={ dest || label }
+                title={ dest || hint || label }
                 onclick={ parent.parent.doAction }
                 class="item-action">{ label }</a>
           </span>

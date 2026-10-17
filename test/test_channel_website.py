@@ -34,6 +34,17 @@ def _read(path):
         return handle.read()
 
 
+def _toggle_action(info):
+    """The Enable or Disable button, whichever this channel currently has."""
+    found = [
+        action
+        for action in info["actions"]
+        if action["type"] in ("enablechannel", "disablechannel")
+    ]
+    assert len(found) == 1, info["actions"]
+    return found[0]
+
+
 def api_info(chid):
     """What the server says about one channel."""
     from lib.api import channels as api_channels
@@ -219,6 +230,66 @@ class TestTheSourceButton:
         assert on[-1] == "Source" and on[0] == "Disable", on
         assert off[-1] == "Source" and off[0] == "Enable", off
 
+    def test_what_the_buttons_will_do_is_written_out(self):
+        """
+        "Disable" on its own does not say what is being disabled, and there is
+        nothing else on screen to say it: the row is the channel, and the
+        channels page is somewhere else entirely.
+
+        So the hover text is a sentence about the channels page, and it is the
+        server that writes it, next to the label it belongs to.
+
+        Both states, and both have to be asked for: every channel in a fresh
+        checkout is enabled, so a test that only looked at what is installed
+        would never see the Enable button at all.
+        """
+        from lib.api import channels as api_channels
+
+        chid = InstalledChannels().getAll()[0].getId()
+        try:
+            on = _toggle_action(self._info(chid))
+            api_channels.disable(chid=chid)
+            off = _toggle_action(self._info(chid))
+        finally:
+            api_channels.enable(chid=chid)
+        assert on["label"] == "Disable", on
+        assert on["hint"] == "Don't show in Channels", on
+        assert off["label"] == "Enable", off
+        assert off["hint"] == "Show in Channels", off
+
+    def test_the_hint_is_never_the_label(self):
+        """
+        A hint that repeated the button's own name would be a word wasted on the
+        one screen where there is room for a sentence.
+        """
+        for channel in InstalledChannels().getAll():
+            for action in self._info(channel.getId())["actions"]:
+                if "hint" in action:
+                    assert action["hint"] != action["label"], action
+
+    def test_source_has_no_hint(self):
+        """
+        It has a destination, which is the more useful thing to say, and it is
+        what the hover text says first. A hint here would only ever be shadowed.
+        """
+        for channel in InstalledChannels().getAll():
+            for action in self._info(channel.getId())["actions"]:
+                if action["type"] == "sourcechannel":
+                    assert "hint" not in action, action
+
+    def test_the_hint_is_under_a_name_nothing_else_uses(self):
+        """
+        Inside each={ actions } an expression takes the action's own properties
+        first and the row's after. Every row here has a title, so a "title" key
+        would be found on the row for every action without one of its own --
+        which is every action but this one -- and each Disable button would have
+        said the channel's name.
+        """
+        row_keys = set()
+        for channel in InstalledChannels().getAll():
+            row_keys.update(channel.getInfo().keys())
+        assert "hint" not in row_keys, "the row already carries hint"
+
     def test_the_channel_is_not_written_to_by_asking_for_it(self):
         """
         info() adds actions and settings to what it returns. Without a copy
@@ -364,14 +435,14 @@ class TestTheHoverText:
         markup = _markup()
         action = re.search(r"<a [^>]*class=\"item-action\"[^>]*>", markup)
         assert action is not None, "no action button anchor"
-        assert "title={ dest || label }" in action.group(0), action.group(0)
+        assert "title={ dest || hint || label }" in action.group(0), action.group(0)
 
     def test_the_action_buttons_carry_it(self):
         markup = _markup()
         action = re.search(r"<a [^>]*class=\"item-action\"[^>]*>", markup)
         assert action is not None, "no action button anchor"
         anchor = action.group(0)
-        assert "title={ dest || label }" in anchor, anchor
+        assert "title={ dest || hint || label }" in anchor, anchor
         assert "href={ dest || '' }" in anchor, anchor
 
     def test_no_hover_text_can_render_the_word_undefined(self):
@@ -383,8 +454,9 @@ class TestTheHoverText:
         - the row's own title, which is the text on screen and so cannot be
           missing. The icon carries no text of its own, which is the reason the
           hover text is there;
-        - a fallback, for anything optional. Most actions have no destination at
-          all, so theirs falls back to the label.
+        - a chain of fallbacks for the buttons, because both of the things they
+          can say are optional: a destination (one action has one), a hint (two
+          do), and the label (all of them).
 
         Anything else is a variable's name, in a tooltip, where a person cannot
         tell it from a real word.
