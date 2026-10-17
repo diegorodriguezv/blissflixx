@@ -340,8 +340,14 @@ def mount_trees():
                 # it has to be revalidated before it is used, and Last-Modified
                 # is enough to get a 304 for the unchanged files. A fresh page
                 # is a few small requests.
-                "tools.response.headers.on": True,
-                "tools.response.headers.headers": [("Cache-Control", "no-cache")],
+                # The namespace is tools.response_headers, not
+                # tools.response.headers: the toolbox registers it under the
+                # attribute name it was given, and cherrypy's own name for it is
+                # a single identifier. Configured as "response.headers" the
+                # tool is simply never found and nothing is sent, which looks
+                # exactly like the header not working.
+                "tools.response_headers.on": True,
+                "tools.response_headers.headers": [("Cache-Control", "no-cache")],
             },
         },
     )
