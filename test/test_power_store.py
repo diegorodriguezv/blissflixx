@@ -20,16 +20,18 @@ from pathlib import Path
 
 import pytest
 
-HARNESS = Path(__file__).resolve().parent / "js" / "power_store_harness.js"
+JS = Path(__file__).resolve().parent / "js"
+HARNESS = JS / "power_store_harness.js"
+TAGS = JS / "riot_tags_check.js"
 
 pytestmark = pytest.mark.skipif(
     shutil.which("node") is None, reason="node is not installed here"
 )
 
 
-def _run():
+def _run(script=HARNESS):
     proc = subprocess.run(
-        ["node", str(HARNESS)], capture_output=True, text=True, timeout=120
+        ["node", str(script)], capture_output=True, text=True, timeout=120
     )
     return proc.returncode, proc.stdout + proc.stderr
 
@@ -69,3 +71,16 @@ def test_each_case_is_actually_checked(case):
     """
     _, output = _run()
     assert case in output, output
+
+def test_the_riot_tags_compile():
+    """
+    The bar is a riot tag, and a riot tag that will not work fails silently --
+    the element simply does not appear, which on a television looks exactly
+    like a Pi that never rebooted.
+
+    Also checks for an unclosed expression, which is the failure riot does not
+    catch: it renders the text "{ opts.message" instead of the value, and still
+    compiles and still registers.
+    """
+    code, output = _run(TAGS)
+    assert code == 0, output
