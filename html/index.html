@@ -85,9 +85,12 @@
     <script>
       var channelStore = new ChannelStore()
       var playerStore = new PlayerStore()
-      var powerStore = new PowerStore()
       var playlistStore = new PlaylistStore()
       var jQueryStore = new JQueryStore()
+      // powerStore is handed playerStore rather than finding it through
+      // RiotControl, because RiotControl.on only reaches the stores it already
+      // holds and every store here is built before the first addStore.
+      var powerStore = new PowerStore(playerStore)
       RiotControl.addStore(channelStore)
       RiotControl.addStore(playerStore)
       RiotControl.addStore(powerStore)

@@ -34,13 +34,33 @@ function makeWorld() {
     calls: [],
   };
 
+  // Modelled the way the real RiotControl behaves, which is the point of this
+  // rewrite. The real one walks the stores it already holds:
+  //
+  //     RiotControl.on = function () {
+  //       this._stores.forEach(el => el.on(...args))
+  //     }
+  //
+  // The first version of this harness recorded every listener unconditionally
+  // and so passed a store whose RiotControl.on ran inside its constructor --
+  // which in index.html is before the first addStore, so the real one had
+  // attached it to nothing. The stub hid the exact bug it was written to catch,
+  // and every sequence below still passed with the listener never delivered.
+  world.stores = [];
   world.RiotControl = {
     on(event, fn) {
-      (listeners[event] = listeners[event] || []).push(fn);
+      // Attached to nothing if there are no stores yet. That is the whole
+      // behaviour, and it is silent in the real code too.
+      world.stores.forEach((s) => s.on(event, fn));
     },
-    off() {},
+    off(event, fn) {
+      world.stores.forEach((s) => s.off(event, fn));
+    },
     trigger(event, arg) {
-      (listeners[event] || []).forEach((fn) => fn(arg));
+      world.stores.forEach((s) => s.trigger(event, arg));
+    },
+    addStore(store) {
+      world.stores.push(store);
     },
     listeners,
   };
@@ -75,6 +95,13 @@ function makeWorld() {
     clearTimeout(id) {
       world.timers.delete(id);
     },
+    // PlayerStore starts a one-second poll. Never fires it -- the sequences
+    // drive the transition explicitly, through world.poll -- but the call has
+    // to exist or constructing it throws.
+    setInterval() {
+      return 0;
+    },
+    clearInterval() {},
   };
 
   world.runTimers = () => {
@@ -90,7 +117,34 @@ function makeWorld() {
     'riot', 'RiotControl', 'Utils', 'window',
     src + '\n;return PowerStore;'
   )(world.riot, world.RiotControl, world.Utils, world.window);
-  world.store = new PowerStore();
+  world.PowerStore = PowerStore;
+
+  // index.html's order, deliberately: every store is constructed before the
+  // first addStore.
+  const PlayerStore = new Function(
+    'riot', 'RiotControl', 'Utils', 'window',
+    load('html/js/PlayerStore.js') + '\n;return PlayerStore;'
+  )(world.riot, world.RiotControl, world.Utils, world.window);
+  world.playerStore = new PlayerStore();
+  world.store = new PowerStore(world.playerStore);
+  world.RiotControl.addStore(world.playerStore);
+  world.RiotControl.addStore(world.store);
+
+  // Drive the real publisher rather than a bare function, so "does anyone
+  // hear this" is the thing under test.
+  world.poll = (err) => {
+    if (err) {
+      if (world.playerStore.online) {
+        world.playerStore.online = false;
+        world.playerStore.trigger('se_online_changed', false);
+      }
+      return;
+    }
+    if (!world.playerStore.online) {
+      world.playerStore.online = true;
+      world.playerStore.trigger('se_online_changed', true);
+    }
+  };
 
   return world;
 }
@@ -117,7 +171,7 @@ console.log('\n  the server comes straight back without ever going away');
   w.store.power('reboot');
   // The very first poll after systemctl returns still succeeds, because the
   // machine is up for another second or two. This must not clear the bar.
-  w.RiotControl.trigger('se_online_changed', true);
+  w.poll(null);
   check('message stays up', w.store.getState(), 'Rebooting...');
 }
 
@@ -126,10 +180,10 @@ console.log('\n  the machine goes down and comes back: a finished reboot');
   const w = makeWorld();
   w.respond = (cb) => cb(null, null);
   w.store.power('reboot');
-  w.RiotControl.trigger('se_online_changed', false);
+  w.poll('offline');
   check('still says rebooting while it is down', w.store.getState(), 'Rebooting...');
   check('give-up timer cancelled, it has gone', w.timerCount(), 0);
-  w.RiotControl.trigger('se_online_changed', true);
+  w.poll(null);
   check('message clears when it is back', w.store.getState(), null);
   check('no error shown', w.shown, []);
 }
@@ -139,11 +193,11 @@ console.log('\n  a reboot that takes longer than the give-up timer');
   const w = makeWorld();
   w.respond = (cb) => cb(null, null);
   w.store.power('reboot');
-  w.RiotControl.trigger('se_online_changed', false);
+  w.poll('offline');
   // Ten minutes later, still down.
   w.now += 600000;
   check('still saying rebooting', w.store.getState(), 'Rebooting...');
-  w.RiotControl.trigger('se_online_changed', true);
+  w.poll(null);
   check('and it clears on return, whenever that is', w.store.getState(), null);
 }
 
@@ -163,12 +217,12 @@ console.log('\n  shutdown: the machine does not come back');
   w.respond = (cb) => cb(null, null);
   w.store.power('shutdown');
   check('message appears', w.store.getState(), 'Shutting down...');
-  w.RiotControl.trigger('se_online_changed', false);
+  w.poll('offline');
   check('settles on shut down', w.store.getState(), 'Shut down.');
   // If the machine is somehow up again it did not shut down, so the message
   // that says it did has to go -- which is also what was asked for: the bar
   // clears when the system is back online.
-  w.RiotControl.trigger('se_online_changed', true);
+  w.poll(null);
   check('and clears if it turns out to be back', w.store.getState(), null);
 }
 
@@ -197,7 +251,7 @@ console.log('\n  a second press while one is pending');
   w.respond = (cb) => cb(null, null);
   w.store.power('reboot');
   w.store.power('shutdown');
-  w.RiotControl.trigger('se_online_changed', false);
+  w.poll('offline');
   check('the later press is the one that counts', w.store.getState(), 'Shut down.');
   check('only one timer running', w.timerCount(), 0);
 }

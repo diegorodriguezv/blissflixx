@@ -6,8 +6,16 @@
  * every second, and the difference between that succeeding and failing is the
  * only thing on the page that knows whether the Pi is up. So this listens for
  * that transition rather than starting a timer of its own to guess.
+ *
+ * It subscribes to the player store directly, and is handed it, rather than
+ * going through RiotControl. It went through RiotControl first and that was
+ * wrong in a way nothing noticed: RiotControl.on registers the listener on the
+ * stores it already holds, and every store in index.html is constructed before
+ * the first addStore, so the listener was attached to nothing at all. The bar
+ * appeared, and then cleared on the give-up timer thirty seconds later because
+ * nothing had ever told it the machine was back.
  */
-function PowerStore() {
+function PowerStore(playerStore) {
   riot.observable(this)
   var self = this
 
@@ -55,8 +63,8 @@ function PowerStore() {
       sawOffline = false
       say(ASKING[action])
       giveUp = window.setTimeout(function() {
-        // Asked for, and the machine never went. It is up and answering, so
-        // the action did not take -- say so by saying nothing.
+        // Asked for, and the machine never went. It is up and answering, so the
+        // action did not take -- say so by saying nothing.
         forget()
       }, GIVE_UP_AFTER)
     })
@@ -66,7 +74,7 @@ function PowerStore() {
     return self.state
   }
 
-  RiotControl.on('se_online_changed', function(online) {
+  playerStore.on('se_online_changed', function(online) {
     if (!pending) return
     if (!online) {
       sawOffline = true
