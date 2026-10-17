@@ -66,7 +66,20 @@ isOffline: function(err) {
     // So this says nothing while a power action is in flight. The bar at the
     // bottom already covers it, and the error is still there to come back to
     // for any request that genuinely failed.
+    //
+    // Either way of knowing that, because this tab may not be the one that
+    // pressed the button. The machine is announced in every status poll, so a
+    // tab that only watched is told as well -- and without that half, a click
+    // here during a reboot asked for in the tab beside it replaced the page
+    // with "please restart the server" while the server was rebooting because
+    // somebody had asked it to.
+    //
+    // Read from the server's own answer, because the server is the only thing
+    // that knows about a press made anywhere but this tab, and because it is
+    // also what knows the difference between a message that is a fault and one
+    // that is the machine leaving.
     if (typeof powerStore !== 'undefined' && powerStore.getMsg()) return
+    if (typeof playerStore !== 'undefined' && playerStore.getStatus().Restart) return
     riot.route('error' + err)
   },
   decodeURI: function(val) {

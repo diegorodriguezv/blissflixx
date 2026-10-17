@@ -7,6 +7,7 @@ import shutil
 import signal
 import subprocess
 import sys
+import time
 import traceback
 
 import cherrypy
@@ -34,6 +35,42 @@ api_modules = {
 }
 
 RESTARTING = False
+
+#: What the machine is doing to itself, or None when it is doing nothing.
+#:
+#: This is a global rather than anything a browser holds, because it has to reach
+#: every open tab and not only the one whose button was pressed. The way it does
+#: is the way the restart notice already does it: every tab asks the server for
+#: player status once a second, and the answer carries the text. See the status
+#: hook in Api.default, and RESTARTING above, which is the same idea for the
+#: restart button and has worked there all along.
+#:
+#: It cannot be told to the browser by the button, because the button has no way
+#: to speak to another tab, and it cannot wait for the machine to come back and
+#: say it then, because a shutdown never does. Sent once, before the machine
+#: stops answering, is the only moment there is.
+#:
+#: In this process and nowhere else, which is what makes it need no tidying up:
+#: a reboot ends by killing the process that holds it, so the text cannot outlive
+#: the thing it describes. Every tab then clears it by itself -- after a reboot
+#: the fresh status has no text in it, and after a shutdown the poll stops
+#: answering and the last status the tab had is the one it keeps.
+POWER_MESSAGE = None
+
+#: How long the machine is left alone before it is actually asked to go, in
+#: seconds.
+#:
+#: Long enough for a tab to be told. Tabs poll once a second, so a tab that is
+#: polling gets two or three chances to pick the message up before the machine
+#: stops answering and there is nothing left to ask. Long enough, and no longer:
+#: the point of pressing the button is that the machine goes, and a shutdown
+#: never comes back to be waited for.
+#:
+#: Only the request that was answered with the button waits, in one of CherryPy's
+#: ten worker threads. The tab that pressed it is not waiting for that reply --
+#: its own message went up when the button was pressed, not when the reply came
+#: -- so nothing on screen is late by this.
+POWER_GRACE_SECONDS = 3
 
 #: Reboot and halt go to systemd directly, and polkit decides whether this
 #: process may ask.
@@ -75,6 +112,17 @@ RESTARTING = False
 #: and the reason the verbs are now checked against systemctl's own list rather
 #: than written down and believed.
 POWER_ACTIONS = {"reboot": "reboot", "shutdown": "poweroff"}
+
+#: What the machine is called while it is doing it. Sent in every status poll
+#: while the action is in flight, which is how it reaches tabs other than the one
+#: whose button was pressed.
+#:
+#: These are the same words PowerStore.js puts on screen in the tab that did the
+#: pressing, and they have to be: that tab reads them from its own click and
+#: every other tab reads them from here, so if the two ever disagreed one tab
+#: would say "Rebooting..." while the one beside it said nothing. A test reads
+#: both files and compares them.
+POWER_MESSAGES = {"reboot": "Rebooting...", "shutdown": "Shutting down..."}
 
 #: The command that installs them, quoted in full wherever the button is
 #: reported as not working.
@@ -158,9 +206,9 @@ class Api:
             gitutils.pull_subdirs(locations.PLUGIN_PATH)
             os.kill(os.getpid(), signal.SIGUSR2)
         elif fn == "shutdown":
-            return self._power("shut down", POWER_ACTIONS["shutdown"])
+            return self._power(fn, "shut down", POWER_ACTIONS["shutdown"])
         elif fn == "reboot":
-            return self._power("reboot", POWER_ACTIONS["reboot"])
+            return self._power(fn, "reboot", POWER_ACTIONS["reboot"])
         elif fn == "version":
             return self._version()
         else:
@@ -194,7 +242,7 @@ class Api:
             pass
         return "unknown"
 
-    def _power(self, verb, action):
+    def _power(self, fn, verb, action):
         """
         Reboot or halt, by asking systemd and letting polkit decide.
 
@@ -213,15 +261,60 @@ class Api:
         The failure is still reported. os.system's status being discarded is what
         made the original invisible: a machine where this is not permitted looks
         exactly like a button nobody pressed.
+
+        And then it waits, which is the other half of telling anyone. The text
+        above goes out in the status poll, and the poll is what every tab does
+        once a second -- so the machine is asked to go only after a poll has had
+        time to carry the news. Asking it straight away made the notice a race
+        that the machine usually won.
+
+        Nothing on screen is late by the wait. The tab that pressed the button
+        says so from the press itself, before this function is called, and waits
+        for this reply only to hear that it was refused.
         """
+        global POWER_MESSAGE
+
+        # A second press, while the first is still counting down.
+        #
+        # Refused, and the notice left alone. systemd would answer this one with
+        # something about already rebooting, and treating that as the refusal it
+        # resembles would take the notice away from every tab a second before the
+        # machine does what the first press asked. The first press is not a
+        # failure and must not be reported as one.
+        #
+        # It describes what the machine is doing, not what this button was
+        # pressed. Pressing reboot while a shutdown is already under way says
+        # the machine is on its way to shutting down, because that is the truth;
+        # saying "already trying to reboot" there would name the wrong one of
+        # the two and send whoever reads it looking for a reboot that is not
+        # coming.
+        if POWER_MESSAGE is not None:
+            return self._error(
+                409,
+                "The machine is already on its way: %s This press did nothing."
+                % POWER_MESSAGE,
+            )
+
+        POWER_MESSAGE = POWER_MESSAGES[fn]
+        cherrypy.log("power: %s, in %s seconds" % (POWER_MESSAGE, POWER_GRACE_SECONDS))
+        time.sleep(POWER_GRACE_SECONDS)
+
         try:
             result = subprocess.run(
                 ["systemctl", action], capture_output=True, text=True, timeout=30
             )
         except Exception as exc:
+            # Refused, so there is nothing to announce: the machine is staying
+            # up and every tab is told so by the next poll, which finds the text
+            # gone.
+            POWER_MESSAGE = None
             return self._error(500, "Could not %s: %s" % (verb, exc))
         if result.returncode == 0:
+            # Left set on purpose. The machine is on its way down, and the
+            # process that holds this is going with it, so there is nothing to
+            # clear it and nothing to clear it for.
             return None
+        POWER_MESSAGE = None
         said = (result.stderr or result.stdout or "").strip().splitlines()
         return self._error(
             500,
@@ -272,10 +365,26 @@ class Api:
         try:
             ret = call(**datadict)
             if ret is not None:
-                if RESTARTING and modname == "playr" and fn == "status":
-                    ret["Error"] = True
-                    ret["Msg"] = "Server Restarting & Updating..."
-                    ret["Restart"] = True
+                if modname == "playr" and fn == "status":
+                    # Where a machine that is going away says so. Two ways to be
+                    # on the way out and one way to be told: the restart notice
+                    # was here first and has been working, and a reboot or a
+                    # shutdown now says the same thing by the same road.
+                    #
+                    # Every tab asks for this once a second and renders Msg in
+                    # the bar it already uses for errors, so this is the whole of
+                    # how a notice reaches tabs other than the one that pressed
+                    # the button. Restart is what keeps their close button hidden:
+                    # the text is not the reader's to dismiss, it is the machine
+                    # saying what it is about to do.
+                    if RESTARTING:
+                        ret["Error"] = True
+                        ret["Msg"] = "Server Restarting & Updating..."
+                        ret["Restart"] = True
+                    elif POWER_MESSAGE is not None:
+                        ret["Error"] = True
+                        ret["Msg"] = POWER_MESSAGE
+                        ret["Restart"] = True
                 return ret
         except ApiError as exc:
             # A message written for the person using the interface, and the

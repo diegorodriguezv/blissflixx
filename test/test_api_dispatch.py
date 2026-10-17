@@ -405,6 +405,28 @@ class TestThePowerButtons:
     def _ok(returncode=0, stderr=""):
         return m.Mock(returncode=returncode, stdout="", stderr=stderr)
 
+    @pytest.fixture(autouse=True)
+    def _no_waiting_and_nothing_left_over(self, monkeypatch):
+        """
+        The wait before the machine is asked to go is stubbed out, and the notice
+        is put back afterwards.
+
+        Stubbed because six tests in here press the button and the real thing is
+        three seconds each, which is a fifth of a minute of a test suite standing
+        still to prove something that is not what these tests are about. What
+        the wait is *for* is pinned in test_power_notice.py, which watches the
+        order of events instead of the clock.
+
+        Put back because the notice is a module global that a successful press
+        deliberately leaves set -- the machine is on its way down and the process
+        holding it is going with it. One test's reboot leaving "Rebooting..." in
+        the next test's status is exactly the kind of thing that makes a suite
+        agree with itself while being wrong.
+        """
+        monkeypatch.setattr(blissflixx.time, "sleep", lambda seconds: None)
+        yield
+        blissflixx.POWER_MESSAGE = None
+
     def test_reboot_asks_systemd_to_reboot(self, api, monkeypatch):
         ran = {}
 
