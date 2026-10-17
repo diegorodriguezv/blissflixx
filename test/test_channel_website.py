@@ -21,6 +21,29 @@ def _describe(text):
     return channel._website(text)
 
 
+def _tag(name):
+    return locations.HTML_PATH + "/tags/" + name
+
+
+def _page(name):
+    return locations.HTML_PATH + "/pages/" + name
+
+
+def _read(path):
+    with open(path) as handle:
+        return handle.read()
+
+
+def _markup(name="itemlist.html"):
+    """The tag with its comments out.
+
+    Comments first: this file explains the bugs, and the explanations quote
+    them, so grepping the source finds the description of a fault where the
+    fault used to be.
+    """
+    return re.sub(r"<!--.*?-->", "", _read(_tag(name)), flags=re.S)
+
+
 class TestTheWebsiteIsReadOutOfTheDescription:
     def test_it_takes_the_one_link_that_is_there(self):
         assert (
@@ -148,7 +171,25 @@ class TestTheSourceButton:
         for channel in InstalledChannels().getAll():
             info = self._info(channel.getId())
             source = [a for a in info["actions"] if a["type"] == "sourcechannel"][0]
-            assert source["url"] == info["link"], channel.getId()
+            assert source["dest"] == info["link"], channel.getId()
+
+    def test_the_destination_is_under_a_name_nothing_else_uses(self):
+        """
+        Inside itemlist's each={ actions } an expression takes the action's own
+        properties first and the row's after, so a bare "url" finds the row's
+        url for any action without one of its own -- which is every action but
+        this one, and would have put a video's address on its Disable button.
+
+        So the name has to be one that collides with neither a row nor another
+        action, and "dest" is.
+        """
+        row_keys = set()
+        for channel in InstalledChannels().getAll():
+            row_keys.update(channel.getInfo().keys())
+        for channel in InstalledChannels().getAll():
+            for action in self._info(channel.getId())["actions"]:
+                if action["type"] == "sourcechannel":
+                    assert "dest" not in row_keys, "the row already carries dest"
 
     def test_an_enabled_and_a_disabled_channel_both_get_one(self):
         """
@@ -188,26 +229,19 @@ class TestTheSourceButton:
 
 
 class TestTheInterfaceUsesIt:
-    def _tag(self, name):
-        return (locations.HTML_PATH + "/tags/" + name)
-
-    def _page(self, name):
-        return (locations.HTML_PATH + "/pages/" + name)
-
-    def _read(self, path):
-        with open(path) as handle:
-            return handle.read()
-
-    def test_the_row_anchor_uses_the_link(self):
+    def test_the_row_anchors_use_the_link(self):
         """
         href="" is the bug. It resolves to the current document, so every
         channel link was a link to "/" -- the page you were already on.
+
+        The icon and the title, specifically: the action buttons take their
+        destination from the action rather than the row.
         """
-        source = self._read(self._tag("itemlist.html"))
-        anchors = re.findall(r"<a href=\{[^}]*\}", source)
-        assert anchors, "no anchor takes its href from an expression"
-        for anchor in anchors:
-            assert "link" in anchor, anchor
+        markup = _markup()
+        row = re.findall(r"<a [^>]*onclick=\{ parent\.openItem \}[^>]*>", markup)
+        assert len(row) == 2, "expected the icon and the title: %s" % row
+        for anchor in row:
+            assert "href={ link || '' }" in anchor, anchor
 
     def test_and_the_only_anchors_left_pointing_nowhere_are_the_buttons(self):
         """
@@ -215,7 +249,7 @@ class TestTheInterfaceUsesIt:
         and stay href="" on purpose: they run a function, and riot prevents the
         navigation. It is the anchors that open something that must name it.
         """
-        source = self._read(self._tag("itemlist.html"))
+        source = _read(_tag("itemlist.html"))
         # Comments out first: this file explains the bug, and the explanation
         # quotes it.
         markup = re.sub(r"<!--.*?-->", "", source, flags=re.S)
@@ -232,23 +266,70 @@ class TestTheInterfaceUsesIt:
         click in the manager used to throw a TypeError and do nothing visible;
         the manager now says what it means, which is open the channel.
         """
-        source = self._read(self._page("chanman.html"))
+        source = _read(_page("chanman.html"))
         assert "openItem" in source, "the manager does not override openItem"
         assert "goRoute('channel'" in source, "it does not go to the channel"
 
     def test_the_source_button_is_handled(self):
         """
-        An action the interface does not know is a click that does nothing. This
-        one navigates to the channel's website, in place rather than in a new
-        tab: this is a television, where a background tab is a tab nobody finds,
-        and the back button is the way back.
+        An action the interface does not know is a click that does nothing.
         """
-        source = self._read(self._tag("itemlist.html"))
+        source = _read(_tag("itemlist.html"))
         assert "case 'sourcechannel':" in source
-        assert "action.url" in source, "the source action does not use its URL"
+        assert "action.dest" in source, "the source action does not use its URL"
+
+    def test_it_opens_in_a_new_tab(self):
+        """
+        So the manager is still there afterwards. The href carries the same
+        address, so middle-click and right-click already did this without the
+        function at all.
+        """
+        source = _read(_tag("itemlist.html"))
+        assert "window.open(action.dest, '_blank'" in source, (
+            "the source button navigates in place rather than opening a tab"
+        )
+
+
+class TestTheHoverText:
+    """
+    What the browser shows when the pointer is over something.
+
+    Firefox shows a status-bar line with the href; other browsers, and any
+    television, show the title attribute and little else. Both are set to the
+    same thing so there is never a moment where the two disagree and only one of
+    them is on screen.
+    """
+
+    def test_the_icon_and_the_title_carry_it(self):
+        markup = _markup()
+        anchors = re.findall(r"<a [^>]*onclick=\{ parent\.openItem \}[^>]*>", markup)
+        assert len(anchors) == 2, "expected the icon and the title: %s" % anchors
+        for anchor in anchors:
+            assert "title={ link || title }" in anchor, anchor
+
+    def test_the_action_buttons_carry_it(self):
+        markup = _markup()
+        action = re.search(r"<a [^>]*class=\"item-action\"[^>]*>", markup)
+        assert action is not None, "no action button anchor"
+        anchor = action.group(0)
+        assert "title={ dest || label }" in anchor, anchor
+        assert "href={ dest || '' }" in anchor, anchor
+
+    def test_nothing_can_render_the_word_undefined(self):
+        """
+        Every one of them falls back -- href to nothing, hover text to the label
+        or the title -- precisely so that an action without a destination, which
+        is most of them, cannot end up advertising a variable named undefined.
+        """
+        markup = _markup()
+        for anchor in re.findall(r"<a [^>]*>", markup):
+            if "title={" in anchor:
+                assert "||" in anchor, (
+                    "a title with no fallback: %s" % anchor
+                )
 
     def test_and_itemlist_survives_a_row_that_is_not_playable(self):
-        source = self._read(self._tag("itemlist.html"))
+        source = _read(_tag("itemlist.html"))
         assert "!item || !item.url" in source, (
             "openItem still reaches into item.url without checking, which "
             "throws on any row that is not a media item"

@@ -331,8 +331,13 @@ def info(chid=None):
     # than in the description, which nothing renders. Added last so it sits
     # after Disable, and only when there is a link to go to.
     if info["link"]:
+        # "dest", not "url": inside itemlist's each={ actions } an expression
+        # resolves the action's own properties first and the row's after, so a
+        # bare "url" finds the row's url for any action that has none of its own
+        # -- which is every action except this one. "dest" collides with
+        # nothing a row or another action carries.
         info["actions"].append(
-            {"label": "Source", "type": "sourcechannel", "url": info["link"]}
+            {"label": "Source", "type": "sourcechannel", "dest": info["link"]}
         )
     info["settings"] = installed.getChannelSettings(chid)
     return info

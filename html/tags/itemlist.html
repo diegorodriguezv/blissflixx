@@ -14,18 +14,44 @@
           link in the manager was a link to the page you were already on.
 
           Nothing else carries a "link", so every media item, playlist entry and
-          search result here is unchanged.
+          search result here is unchanged; theirs falls back to the title as
+          hover text, which is at least true.
+
+          The hover text names the same destination as the href. Firefox shows
+          both, and on a television only one of them is ever seen -- so they say
+          the same thing rather than one of them being a mystery.
           -->
-          <a href={ link || '' } onfocus="this.blur()" onclick={ parent.openItem }>
+          <a href={ link || '' } title={ link || title } onfocus="this.blur()" onclick={ parent.openItem }>
             <img class={ item-icon: parent.isIcon(img), item-img: !parent.isIcon(img) } src={ img }>
           </a>
         </div>
          <div class="col-md-10 col-sm-9 col-xs-9 break-long-word">
-          <a href={ link || '' } onfocus="this.blur()" onclick={ parent.openItem }><span class="item-title">{ title }</span></a>
+          <a href={ link || '' } title={ link || title } onfocus="this.blur()" onclick={ parent.openItem }><span class="item-title">{ title }</span></a>
           <div class="item-subtitle"><raw content={ subtitle } /></div>
           <div class="item-synopsis"><raw content={ synopsis } /></div>
           <span each={ actions }>
-             <a href="" onclick={ parent.parent.doAction } class="item-action">{ label }</a>
+             <!--
+             The href and the hover text, where the action has a real
+             destination. Source is one link with a function attached to it, so
+             it should look like one: the browser's own hover line names where
+             it goes, and middle-click opens it without going through the
+             function at all.
+
+             "dest" rather than "url": inside each={ actions } an expression
+             takes the action's own properties first and the row's after, so a
+             bare "url" finds the row's url for any action that has no url of its
+             own -- which is every action but this one, and would have put a
+             video's address on its Disable button.
+
+             Both fall back -- href to nothing, the hover text to the label --
+             because an action with no destination is most of them, and
+             title="undefined" on every Disable button would be worse than
+             nothing said.
+             -->
+             <a href={ dest || '' }
+                title={ dest || label }
+                onclick={ parent.parent.doAction }
+                class="item-action">{ label }</a>
           </span>
         </div>
       </div>
@@ -175,10 +201,10 @@
         })
         break
       case 'sourcechannel':
-        // Where the channel's posts come from. Left in place rather than opened
-        // in a new tab: this is a television, where a background tab is a tab
-        // nobody finds, and the back button is the way back.
-        window.location.href = action.url
+        // Where the channel's posts come from, in a new tab so the manager is
+        // still there afterwards. The href carries the same address, so
+        // middle-click and right-click already do this without the function.
+        window.open(action.dest, '_blank', 'noopener')
         break
       }
     }
