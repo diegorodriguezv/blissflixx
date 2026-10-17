@@ -5,9 +5,16 @@ function PlayerStore() {
 
   // Whether the last poll reached the server. The poll has always thrown its
   // failures away on the grounds that the server is probably not running, and
-  // that is still true and still thrown away. But down-to-up is the only thing
-  // on the page that knows a reboot has finished, so the transition is published
-  // rather than the failure that used to be the only sign of it.
+  // that is still true and still thrown away.
+  //
+  // The transition is published because it is real state worth having -- but it
+  // used to have a second reason, which has gone: down-to-up was the only thing
+  // on the page that knew a reboot had finished, and the reboot bar hung off it.
+  // It does not now. During a real reboot the network drops while there are
+  // requests in flight, and a connection to a machine that has stopped
+  // answering hangs rather than being refused, so this transition often simply
+  // never happens -- see PowerStore, which takes the bar down from the server's
+  // own answer instead.
   self.online = true
 
   window.setInterval(function(){

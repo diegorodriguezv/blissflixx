@@ -103,7 +103,7 @@ function makeWorld() {
   world.RiotControl.addStore(world.store);
 
   // One second of the page's status poll.
-  world.poll = (err) => {
+  world.poll = (err, status) => {
     if (err) {
       if (world.playerStore.online) {
         world.playerStore.online = false;
@@ -115,9 +115,17 @@ function makeWorld() {
       world.playerStore.online = true;
       world.playerStore.trigger('se_online_changed', true);
     }
-    world.playerStore.status = { State: 0, Msg: '', Title: '', Paused: false, Error: false };
+    world.playerStore.status = status ||
+      { State: 0, Msg: '', Title: '', Paused: false, Error: false };
     world.playerStore.trigger('se_status_changed');
   };
+
+  // What the server sends while the machine is on its way down: the same bar an
+  // error uses, and Restart so the close button stays out of the way. This is
+  // the whole of how a tab that only watched finds out.
+  world.announced = (msg) => ({
+    State: 0, Msg: msg, Title: '', Paused: false, Error: true, Restart: true,
+  });
 
   world.respond = (cb) => cb(null, null);
   return world;
@@ -143,11 +151,26 @@ console.log('\n  shutdown says something different');
 
 console.log('\n  the page is still answering, so nothing has happened yet');
 {
+  // While the server says the machine is going down, this stays up however many
+  // times the page is asked. It used to be checked the other way round -- with a
+  // status that said nothing about rebooting, expecting the text to stay -- which
+  // is the rule this replaced: a status that does not mention a reboot is the
+  // server saying it is not rebooting, and the server is what decides.
   const w = makeWorld();
   w.store.power('reboot');
-  w.poll(null);          // a normal successful status poll, machine still up
-  w.poll(null);
+  w.poll(null, w.announced('Rebooting...'));
+  w.poll(null, w.announced('Rebooting...'));
+  w.poll(null, w.announced('Rebooting...'));
   check('the message stays', w.store.getMsg(), 'Rebooting...');
+}
+
+console.log('\n  and the server saying no takes it down, tab pressed or not');
+{
+  const w = makeWorld();
+  w.store.power('reboot');
+  w.poll(null, w.announced('Rebooting...'));
+  w.poll(null);   // a refusal: the flag is taken away again
+  check('gone, because the machine is here and is not rebooting', w.store.getMsg(), null);
 }
 
 console.log('\n  the machine goes down and comes back');
@@ -180,6 +203,35 @@ console.log('\n  shutdown: the machine does not come back');
   w.poll('offline');
   w.poll('offline');
   check('and stays, because nothing came back', w.store.getMsg(), 'Shutting down...');
+}
+
+console.log('\n  a real reboot, where this tab is never told the machine went away');
+{
+  // The sequences above all say the tab was told, with w.poll('offline'). On a
+  // real reboot it usually is not: the machine's network goes down while there
+  // are requests in flight, and a connection to a machine that has stopped
+  // answering hangs rather than being refused. Nothing comes back with an
+  // error, so nothing comes back at all until the machine is up again.
+  //
+  // Which left the tab that pressed the button saying "Rebooting..." for ever
+  // after the machine was back -- while the tab beside it, which had only ever
+  // had the server's answer, was already showing nothing.
+  const w = makeWorld();
+  w.store.power('reboot');
+  w.poll(null, w.announced('Rebooting...'));   // the server says so
+  for (let i = 0; i < 40; i++) { /* the machine is down and says nothing */ }
+  w.poll(null);                                // and it is back
+  check('gone, because the server now says it is not rebooting', w.store.getMsg(), null);
+}
+
+console.log('\n  and it still stays up while nothing can be heard either way');
+{
+  const w = makeWorld();
+  w.store.power('shutdown');
+  w.poll(null, w.announced('Shutting down...'));
+  w.poll('offline');
+  w.poll('offline');
+  check('a shutdown still stays, because nothing came back', w.store.getMsg(), 'Shutting down...');
 }
 
 console.log('\n  the reply never arrives, because the machine went down first');
