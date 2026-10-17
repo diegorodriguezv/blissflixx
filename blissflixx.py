@@ -323,6 +323,25 @@ def mount_trees():
                 "tools.staticdir.on": True,
                 "tools.staticdir.dir": locations.HTML_PATH,
                 "tools.staticdir.index": "index.html",
+                # The interface is served with no Cache-Control at all, which
+                # leaves the browser to guess: with a Last-Modified and nothing
+                # else, a cached copy is reused on a freshness lifetime derived
+                # from how old the file is. So after an update the page can keep
+                # running the old code, with the server serving the new code to
+                # anyone who asks.
+                #
+                # It is invisible when it happens. The reboot button kept
+                # calling Utils.rpc directly off a cached settings.html, so it
+                # rebooted the machine and said nothing -- which is exactly
+                # what the new bottom bar exists to prevent, defeated by the
+                # browser rather than by the code.
+                #
+                # "no-cache" rather than "no-store": the copy may be kept, but
+                # it has to be revalidated before it is used, and Last-Modified
+                # is enough to get a 304 for the unchanged files. A fresh page
+                # is a few small requests.
+                "tools.response.headers.on": True,
+                "tools.response.headers.headers": [("Cache-Control", "no-cache")],
             },
         },
     )
