@@ -252,7 +252,6 @@ class TestTheInterfaceUsesIt:
         assert len(row) == 2, "expected the icon and the title: %s" % row
         for anchor in row:
             assert "href={ route || '' }" in anchor, anchor
-            assert "title={ route || title }" in anchor, anchor
 
     def test_the_destination_comes_from_the_server(self):
         """
@@ -330,12 +329,42 @@ class TestTheHoverText:
     them is on screen.
     """
 
-    def test_the_icon_and_the_title_carry_it(self):
+    def test_the_icon_and_the_title_are_named_after_the_channel(self):
+        """
+        The name, not the address.
+
+        On a television the browser's own line is never seen and the tooltip is
+        all a person gets to read. "#channel/bfch_r_documentaries" tells them
+        nothing they did not already know from the row they are pointing at;
+        "Documentaries" tells them what is about to open. The address is still
+        in the href, for the browser's line and for middle-click.
+
+        The icon carries no text of its own, so this is the only label it has --
+        which is the reason it is here rather than left to the browser's default,
+        which would be the whole href again.
+        """
         markup = _markup()
         anchors = re.findall(r"<a [^>]*onclick=\{ parent\.openItem \}[^>]*>", markup)
         assert len(anchors) == 2, "expected the icon and the title: %s" % anchors
         for anchor in anchors:
-            assert "title={ route || title }" in anchor, anchor
+            assert "title={ title }" in anchor, anchor
+            # The href is allowed to quote one -- it is the address. The hover
+            # text is the only thing that must not.
+            assert "title={ route" not in anchor, (
+                "the hover text quotes an address: %s" % anchor
+            )
+
+    def test_the_source_button_still_names_where_it_goes(self):
+        """
+        The other half of the same rule, and the reason the two differ. Source
+        goes somewhere else entirely -- off this machine, to a site that may not
+        have a name worth reading -- so there the address is the useful thing to
+        say, and the name would say nothing at all.
+        """
+        markup = _markup()
+        action = re.search(r"<a [^>]*class=\"item-action\"[^>]*>", markup)
+        assert action is not None, "no action button anchor"
+        assert "title={ dest || label }" in action.group(0), action.group(0)
 
     def test_the_action_buttons_carry_it(self):
         markup = _markup()
@@ -345,18 +374,32 @@ class TestTheHoverText:
         assert "title={ dest || label }" in anchor, anchor
         assert "href={ dest || '' }" in anchor, anchor
 
-    def test_nothing_can_render_the_word_undefined(self):
+    def test_no_hover_text_can_render_the_word_undefined(self):
         """
-        Every one of them falls back -- href to nothing, hover text to the label
-        or the title -- precisely so that an action without a destination, which
-        is most of them, cannot end up advertising a variable named undefined.
+        A title attribute whose expression resolves to nothing is how a person
+        ends up being shown the word "undefined". Exactly two shapes are safe,
+        and both have to be one of these:
+
+        - the row's own title, which is the text on screen and so cannot be
+          missing. The icon carries no text of its own, which is the reason the
+          hover text is there;
+        - a fallback, for anything optional. Most actions have no destination at
+          all, so theirs falls back to the label.
+
+        Anything else is a variable's name, in a tooltip, where a person cannot
+        tell it from a real word.
+
+        Looked at expression by expression rather than anchor by anchor: an
+        anchor carries a fallback in its href often enough to satisfy a looser
+        check that never once looked at the hover text.
         """
         markup = _markup()
-        for anchor in re.findall(r"<a [^>]*>", markup):
-            if "title={" in anchor:
-                assert "||" in anchor, (
-                    "a title with no fallback: %s" % anchor
-                )
+        expressions = re.findall(r"title=\{([^}]*)\}", markup)
+        assert expressions, "no hover text found to check"
+        for expression in expressions:
+            assert expression.strip() == "title" or "||" in expression, (
+                "hover text with nothing to fall back on: %s" % expression
+            )
 
     def test_and_itemlist_survives_a_row_that_is_not_playable(self):
         source = _read(_tag("itemlist.html"))
