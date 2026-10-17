@@ -5,11 +5,29 @@
       <a href="" onclick={ restart } type="button" class="btn btn-primary btn-block btn-lg"><span class="glyphicon glyphicon-retweet"></span> UPDATE</a>
       <a href="" onclick={ shutdown } type="button" class="btn btn-primary btn-block btn-lg"><span class="glyphicon glyphicon-off"></span> SHUTDOWN</a>
       <a href="" onclick={ reboot } type="button" class="btn btn-primary btn-block btn-lg"><span class="glyphicon glyphicon-repeat"></span> REBOOT</a>
+
+      <!--
+      The build this page is talking to, read from the server rather than
+      written into the page.
+
+      It is here because "the reboot bar does not appear" and "this browser has
+      been running a build from three days ago" are indistinguishable from the
+      outside, and guessing between them cost an afternoon. A number on the
+      screen answers it in a second, and it keeps answering it for whoever
+      finds the next thing that works on the Pi and not in the browser.
+      -->
+      <p class="build-label">running build <span id="build">{ self.build }</span></p>
     </div>
   </div>
 
   <script>
     var self = this
+
+    Utils.rpc('server', 'version', null, function(err, data) {
+      if (err) return
+      self.build = data
+      self.update()
+    })
 
     restart() {
       Utils.rpc('server', 'restart', null, function(err) {
@@ -18,8 +36,8 @@
     }
 
     // Through powerStore rather than rpc, because the answer is not the end of
-    // it: the machine is about to stop answering, and something in the bottom
-    // bar has to say so until it starts again.
+    // it: the machine is about to stop answering, and the bar at the bottom of
+    // the page has to say so until it starts again.
     shutdown() {
       powerStore.power('shutdown')
     }

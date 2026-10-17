@@ -163,6 +163,34 @@ class Api:
         else:
             return self._error(404, "API Function '" + str(fn) + "' is not defined")
 
+    def version(self):
+        """
+        The build this server is running, as a short commit hash.
+
+        Put on the settings page so a browser serving old files can be caught
+        rather than argued with. "The reboot bar does not appear" and "the
+        browser is running three builds ago" look identical from the outside,
+        and the first one costs an afternoon of fixing code that was never
+        being run. Reading the answer off the screen settles it in a second.
+
+        From git, because that is what is deployed, and the checkout is what
+        the server serves its interface from. Says so plainly rather than
+        showing nothing when git is not there.
+        """
+        try:
+            sha = subprocess.run(
+                ["git", "rev-parse", "--short", "HEAD"],
+                cwd=locations.ROOT_PATH,
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            if sha.returncode == 0 and sha.stdout.strip():
+                return sha.stdout.strip()
+        except Exception:
+            pass
+        return "unknown"
+
     def _power(self, verb, action):
         """
         Reboot or halt, by asking systemd and letting polkit decide.

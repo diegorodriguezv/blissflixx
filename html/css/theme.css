@@ -21,6 +21,20 @@ hr {
   color: #A94442;
 }
 
+/*
+ * The build this page is talking to.
+ *
+ * Dimmed and out of the way on purpose: it is a diagnostic, not a feature, and
+ * the only time anyone wants to read it is when something is not working. It
+ * still has to be legible from a sofa, which is why it is 18px rather than the
+ * 12px a diagnostic usually gets.
+ */
+.build-label {
+  margin-top: 18px;
+  font-size: 18px;
+  color: #6d90b0;
+}
+
 a.underline {
   text-decoration: underline;
 }
