@@ -9,6 +9,7 @@ instead of the intended 404. These tests pin the resolution rules.
 Importing blissflixx is safe because startup moved under a __main__ guard.
 """
 
+import re
 import unittest.mock as m
 
 import pytest
@@ -315,6 +316,62 @@ class TestServerSpecialCase:
     def test_server_missing_function_is_404(self, api):
         result = api.default("server", fn=None)
         assert "not defined" in result["error"]
+
+
+class TestTheVersionEndpoint:
+    """
+    The build the settings page shows.
+
+    It exists so that "the reboot bar does not appear" and "this browser is
+    running a build from three days ago" can be told apart from the screen
+    rather than by changing code and asking whether it worked.
+    """
+
+    def test_it_answers_with_a_short_hash(self, api):
+        assert re.fullmatch(r"[0-9a-f]{7,}|unknown", api.default("server", fn="version"))
+
+    def test_it_is_the_hash_that_is_checked_out(self, api):
+        """
+        The one that matters. A server reporting a hash is no use if it is not
+        the hash of the code it is serving.
+        """
+        import subprocess
+
+        from lib import locations
+
+        sha = subprocess.run(
+            ["git", "rev-parse", "--short", "HEAD"],
+            cwd=locations.ROOT_PATH,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        if sha.returncode != 0:
+            pytest.skip("no git checkout here")
+        assert api.default("server", fn="version") == sha.stdout.strip()
+
+    def test_it_answers_even_without_git(self, api, monkeypatch):
+        """
+        Says so rather than raising. The page is a diagnostic, not a dependency,
+        and a machine with no checkout still has a settings page.
+        """
+        def boom(*a, **kw):
+            raise OSError("no git here")
+
+        monkeypatch.setattr(blissflixx.subprocess, "run", boom)
+        assert api.default("server", fn="version") == "unknown"
+
+    def test_the_settings_page_reads_it(self):
+        """
+        A version nobody looks at is no use, and the page is compiled at
+        runtime rather than shipped, so the check is that the call is in it.
+        """
+        import pathlib
+
+        from lib import locations
+
+        source = (pathlib.Path(locations.HTML_PATH) / "pages" / "settings.html").read_text()
+        assert "'version'" in source, "the settings page never asks what build this is"
 
 
 class TestThePowerButtons:
