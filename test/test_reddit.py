@@ -58,11 +58,16 @@ class TestRedditFeedParams:
         running. A fixed date in a window described as "a year" stops being a
         year on the day it is written.
         """
-        from datetime import date, timedelta
+        from datetime import datetime, timedelta, timezone
 
+        # Compared in UTC because that is what _top_window_date() uses.
+        # date.today() is local, and this was written with date.today(), so it
+        # passed until the clock crossed UTC midnight and local and UTC dates
+        # disagreed -- a test that fails once a day for a reason that has
+        # nothing to do with what it is testing.
         assert reddit._top_window_date() == (
-            date.today() - timedelta(days=365)
-        ).isoformat()
+            datetime.now(timezone.utc) - timedelta(days=365)
+        ).date().isoformat()
 
     def test_sitewide_domain_feeds_are_not_served(self):
         assert (
