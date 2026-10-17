@@ -10,23 +10,22 @@
 
   <script>
     var self = this
- 
+
     restart() {
       Utils.rpc('server', 'restart', null, function(err) {
         if (err) return Utils.showError(err)
       })
     }
 
+    // Through powerStore rather than rpc, because the answer is not the end of
+    // it: the machine is about to stop answering, and something in the bottom
+    // bar has to say so until it starts again.
     shutdown() {
-      Utils.rpc('server', 'shutdown', null, function(err) {
-        if (err) return Utils.showError(err)
-      })
+      powerStore.power('shutdown')
     }
 
     reboot() {
-      Utils.rpc('server', 'reboot', null, function(err) {
-        if (err) return Utils.showError(err)
-      })
+      powerStore.power('reboot')
     }
   </script>
 </settings>

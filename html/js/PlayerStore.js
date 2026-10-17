@@ -3,11 +3,28 @@ function PlayerStore() {
   var self = this
   self.status = {}
 
+  // Whether the last poll reached the server. The poll has always thrown its
+  // failures away on the grounds that the server is probably not running, and
+  // that is still true and still thrown away. But down-to-up is the only thing
+  // on the page that knows a reboot has finished, so the transition is published
+  // rather than the failure that used to be the only sign of it.
+  self.online = true
+
   window.setInterval(function(){
     Utils.rpc('playr', 'status', null, function(err, data) {
-      if (err) return /* Ignore errors - probably server not running */
+      if (err) {
+        if (self.online) {
+          self.online = false
+          self.trigger('se_online_changed', false)
+        }
+        return /* Ignore errors - probably server not running */
+      }
+      if (!self.online) {
+        self.online = true
+        self.trigger('se_online_changed', true)
+      }
       self.status = data
-      self.trigger('se_status_changed') 
+      self.trigger('se_status_changed')
     })
   }, 1000);
 

@@ -67,6 +67,7 @@
     <script src="js/Utils.js"></script>
     <script src="js/ChannelStore.js"></script>
     <script src="js/PlayerStore.js"></script>
+    <script src="js/PowerStore.js"></script>
     <script src="js/PlaylistStore.js"></script>
     <script src="js/JQueryStore.js"></script>
     <script src="js/Popovers.js"></script>
@@ -76,6 +77,7 @@
     <script src="tags/itemlist.html" type="riot/tag"></script>
     <script src="tags/playbar.html" type="riot/tag"></script>
     <script src="tags/playerr.html" type="riot/tag"></script>
+    <script src="tags/powernote.html" type="riot/tag"></script>
     <script src="tags/raw.html" type="riot/tag"></script>
     <script src="tags/backbtn.html" type="riot/tag"></script>
     <script src="tags/feedlist.html" type="riot/tag"></script>
@@ -83,10 +85,12 @@
     <script>
       var channelStore = new ChannelStore()
       var playerStore = new PlayerStore()
+      var powerStore = new PowerStore()
       var playlistStore = new PlaylistStore()
       var jQueryStore = new JQueryStore()
       RiotControl.addStore(channelStore)
       RiotControl.addStore(playerStore)
+      RiotControl.addStore(powerStore)
       RiotControl.addStore(playlistStore)
       RiotControl.addStore(jQueryStore)
       riot.compile(function() {
