@@ -391,6 +391,7 @@ class HtmlDocument:
             pass
         return "unknown"
 
+    @cherrypy.expose
     def index(self, *args, **kwargs):
         build = self._server_build()
         path = os.path.join(locations.HTML_PATH, "index.html")
@@ -423,7 +424,30 @@ class HtmlDocument:
             1,
         )
         cherrypy.response.headers["Content-Type"] = "text/html;charset=utf-8"
+        # Set here rather than left to the "/": this is the way in, and the way
+        # in is what gets kept. Everything else under "/" -- the scripts, the
+        # stylesheets -- is no-cache, which is enough once the document that
+        # names them is never stored. The build on their URLs covers the rest.
+        cherrypy.response.headers["Cache-Control"] = "no-store, must-revalidate"
         return page
+
+    @cherrypy.expose
+    def default(self, *vpath, **kwargs):
+        """
+        "/index.html", which is what a browser asks for when it has a saved copy
+        of the document.
+
+        Served here rather than by staticdir, so that the way back in cannot
+        skip the build stamping and hand back a document that names scripts from
+        whenever it was saved. A browser holding a week-old copy of this exact
+        path is the case this whole change exists for.
+
+        staticdir has already had its turn with everything else by the time
+        this is reached, so what arrives here is a path with no file behind it.
+        """
+        if vpath == ("index.html",):
+            return self.index()
+        raise cherrypy.HTTPError(404)
 
 
     @staticmethod
@@ -452,10 +476,6 @@ def parse_args(argv=None):
 
 def mount_trees():
     cherrypy.tree.mount(Api(), "/api")
-    # "/index.html" is what a browser asks for when it has a saved copy of the
-    # document, and staticdir would serve that file raw. Both paths build the
-    # page the same way, so the way back in cannot skip the build stamping.
-    cherrypy.tree.graft(HtmlDocument(), "/index.html")
     cherrypy.tree.mount(
         HtmlDocument(),
         "/",
@@ -508,6 +528,12 @@ def mount_trees():
             # Specific paths win over "/" in cherrypy's config, so this only
             # applies to the document.
             "/index.html": {
+                # Static turned off for this one path, so it falls through to
+                # HtmlDocument.default() below and is built like "/" is. With
+                # staticdir handling it, the browser gets the file off disk and
+                # none of the stamping -- which is precisely the request a
+                # browser holding a saved copy makes.
+                "tools.staticdir.on": False,
                 "tools.response_headers.on": True,
                 "tools.response_headers.headers": [
                     ("Cache-Control", "no-store, must-revalidate")
