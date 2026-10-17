@@ -318,11 +318,22 @@ def info(chid=None):
     if chid is None:
         raise ApiError("Channel ID is missing")
     installed = get_installed()
-    info = installed.getChannel(chid).getInfo()
+    # A copy. This function adds actions and settings to what it returns, and
+    # without a copy those end up written into the channel's own stored info --
+    # where list_enabled() also reads from, so one call here gave every other
+    # channel listing a Disable button and a settings block it never asked for.
+    info = dict(installed.getChannel(chid).getInfo())
     if installed.isEnabled(chid):
         info["actions"] = [{"label": "Disable", "type": "disablechannel"}]
     else:
         info["actions"] = [{"label": "Enable", "type": "enablechannel"}]
+    # Where the posts come from, beside the button that turns it off rather
+    # than in the description, which nothing renders. Added last so it sits
+    # after Disable, and only when there is a link to go to.
+    if info["link"]:
+        info["actions"].append(
+            {"label": "Source", "type": "sourcechannel", "url": info["link"]}
+        )
     info["settings"] = installed.getChannelSettings(chid)
     return info
 

@@ -44,7 +44,10 @@
     openItem(e) {
       /* Parent can override default openItem */
       if (self.parent.openItem) {
-        self.parent.openItem(e)
+        // Returned, not just called: riot only leaves an anchor's own behaviour
+        // alone when the handler returns true, so an override that wants the
+        // browser to follow the href has to be able to say so.
+        return self.parent.openItem(e)
       } else {
         var item = e.item
         // Not every row here is something to play. A channel in the manager has
@@ -170,6 +173,12 @@
         channelStore.toggleChannel(item.id, false, function(err) {
 	  if (err) return Utils.showError(err)
         })
+        break
+      case 'sourcechannel':
+        // Where the channel's posts come from. Left in place rather than opened
+        // in a new tab: this is a television, where a background tab is a tab
+        // nobody finds, and the back button is the way back.
+        window.location.href = action.url
         break
       }
     }

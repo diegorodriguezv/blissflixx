@@ -116,6 +116,77 @@ class TestEveryChannelHasOne:
             assert "url" not in channel.getInfo(), channel.getId()
 
 
+class TestTheSourceButton:
+    """
+    Where the button itself comes from.
+
+    Offered by the server rather than built by the manager, so the label, the
+    order and the URL are decided in one place next to the link they use, and so
+    a channel manager rendering anything else gets the same set.
+    """
+
+    def _info(self, chid):
+        from lib.api import channels as api_channels
+
+        return api_channels.info(chid=chid)
+
+    def test_every_channel_offers_one(self):
+        without = [
+            c.getId()
+            for c in InstalledChannels().getAll()
+            if not any(a["type"] == "sourcechannel" for a in self._info(c.getId())["actions"])
+        ]
+        assert without == [], "channels with no Source button: %s" % without
+
+    def test_it_is_afthe_disable_button(self):
+        for channel in InstalledChannels().getAll():
+            labels = [a["label"] for a in self._info(channel.getId())["actions"]]
+            assert labels[-1] == "Source", (channel.getId(), labels)
+            assert "Disable" in labels or "Enable" in labels, labels
+
+    def test_it_carries_the_channels_website(self):
+        for channel in InstalledChannels().getAll():
+            info = self._info(channel.getId())
+            source = [a for a in info["actions"] if a["type"] == "sourcechannel"][0]
+            assert source["url"] == info["link"], channel.getId()
+
+    def test_an_enabled_and_a_disabled_channel_both_get_one(self):
+        """
+        It sits beside whichever button is there, so it cannot end up only on
+        the channels that are on -- which is the shape that matters, because a
+        disabled channel is the one a person is in here to look at.
+
+        Turned off and on again within the test, which writes to the temporary
+        settings the whole suite is redirected to.
+        """
+        from lib.api import channels as api_channels
+
+        chid = InstalledChannels().getAll()[0].getId()
+        try:
+            on = [a["label"] for a in self._info(chid)["actions"]]
+            api_channels.disable(chid=chid)
+            off = [a["label"] for a in self._info(chid)["actions"]]
+        finally:
+            api_channels.enable(chid=chid)
+        assert on[-1] == "Source" and on[0] == "Disable", on
+        assert off[-1] == "Source" and off[0] == "Enable", off
+
+    def test_the_channel_is_not_written_to_by_asking_for_it(self):
+        """
+        info() adds actions and settings to what it returns. Without a copy
+        those land in the channel's own stored info, which list_enabled() also
+        reads -- so asking for one channel's details gave every other listing a
+        Disable button and a settings block nobody asked for.
+        """
+        from lib.api import channels as api_channels
+
+        chid = InstalledChannels().getAll()[0].getId()
+        api_channels.info(chid=chid)
+        stored = api_channels.get_installed().getChannel(chid).getInfo()
+        assert "actions" not in stored, "info() wrote actions into the channel"
+        assert "settings" not in stored, "info() wrote settings into the channel"
+
+
 class TestTheInterfaceUsesIt:
     def _tag(self, name):
         return (locations.HTML_PATH + "/tags/" + name)
@@ -164,6 +235,17 @@ class TestTheInterfaceUsesIt:
         source = self._read(self._page("chanman.html"))
         assert "openItem" in source, "the manager does not override openItem"
         assert "goRoute('channel'" in source, "it does not go to the channel"
+
+    def test_the_source_button_is_handled(self):
+        """
+        An action the interface does not know is a click that does nothing. This
+        one navigates to the channel's website, in place rather than in a new
+        tab: this is a television, where a background tab is a tab nobody finds,
+        and the back button is the way back.
+        """
+        source = self._read(self._tag("itemlist.html"))
+        assert "case 'sourcechannel':" in source
+        assert "action.url" in source, "the source action does not use its URL"
 
     def test_and_itemlist_survives_a_row_that_is_not_playable(self):
         source = self._read(self._tag("itemlist.html"))
