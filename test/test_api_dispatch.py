@@ -372,7 +372,44 @@ class TestThePowerButtons:
 
         api.default("server", fn="shutdown")
 
-        assert ran["cmd"] == ["systemctl", "power-off"], ran
+        assert ran["cmd"] == ["systemctl", "poweroff"], ran
+
+    @pytest.mark.parametrize("action", sorted(blissflixx.POWER_ACTIONS.values()))
+    def test_every_verb_is_a_verb_systemctl_has(self, action):
+        """
+        Checked against systemctl rather than written down.
+
+        The shutdown verb was "power-off" -- the polkit action id, which is a
+        different naming scheme that agrees in one case out of two -- and the
+        button answered:
+
+            Unknown command verb 'power-off', did you mean 'poweroff'?
+
+        Reboot was unaffected, because "reboot" is both, so the one button that
+        had never been pressed end to end was the broken one. This test reads
+        the verbs out of systemctl's own help text, so the next verb that is
+        wrong fails here rather than on a television.
+        """
+        import shutil
+        import subprocess
+
+        systemctl = shutil.which("systemctl")
+        if not systemctl:
+            pytest.skip("systemctl is not installed here")
+
+        help_text = subprocess.run(
+            [systemctl, "--help"], capture_output=True, text=True, timeout=30
+        ).stdout
+
+        verbs = {
+            line.split()[0]
+            for line in help_text.splitlines()
+            if line.startswith("  ") and line.strip() and " " in line.strip()
+        }
+        assert action in verbs, (
+            "%r is not a systemctl verb. systemctl's own list says: %s"
+            % (action, sorted(v for v in verbs if v[0] == action[0]))
+        )
 
     def test_no_sudo_anywhere_in_the_power_path(self, api, monkeypatch):
         """

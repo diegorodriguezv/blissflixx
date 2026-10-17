@@ -57,7 +57,23 @@ RESTARTING = False
 #: polkit is the mechanism for this: it authorises a named action for a subject,
 #: and "inactive" is its word for a process with no session -- which is what a
 #: service is. configure.sh installs the rule.
-POWER_ACTIONS = {"reboot": "reboot", "shutdown": "power-off"}
+#:
+#: These are systemctl's verbs. They are not the polkit action ids, which is a
+#: separate naming scheme that happens to agree in exactly one of the two cases:
+#:
+#:     systemctl poweroff                    the verb
+#:     org.freedesktop.login1.power-off      the polkit action
+#:
+#: Both were written as one string and "power-off" was used for both, so the
+#: shutdown button ran a verb that does not exist:
+#:
+#:     Unknown command verb 'power-off', did you mean 'poweroff'?
+#:
+#: Reboot was never affected, because "reboot" is both. Only the button nobody
+#: had tested end to end was broken, which is the worst way for this to happen
+#: and the reason the verbs are now checked against systemctl's own list rather
+#: than written down and believed.
+POWER_ACTIONS = {"reboot": "reboot", "shutdown": "poweroff"}
 
 #: The command that installs them, quoted in full wherever the button is
 #: reported as not working.
