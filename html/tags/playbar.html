@@ -1,8 +1,7 @@
 <playbar>
-  <playerr show={ status.Error && !errorClosed } status={ status } ></playerr>
-  <powernote show={ powerState } message={ powerState }></powernote>
+  <playerr show={ powerMsg || (status.Error && !errorClosed) } status={ status } msg={ powerMsg } ></playerr>
 
-  <div show={ status.State && !powerState } class="navibar playnav">
+  <div show={ status.State } class="navibar playnav">
     <div class="container">
       <ul class="navitems navitems-left">
         <li>
@@ -84,7 +83,7 @@
 
     this.on('mount', function() {
       self.status = playerStore.getStatus()
-      self.powerState = powerStore.getState()
+      self.powerMsg = powerStore.getMsg()
       RiotControl.on('se_status_changed', self.updateStatus)
       RiotControl.on('se_power_changed', self.updatePower)
     })
@@ -102,7 +101,7 @@
     }
 
     updatePower() {
-      self.powerState = powerStore.getState()
+      self.powerMsg = powerStore.getMsg()
       self.update()
     }
 

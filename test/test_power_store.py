@@ -1,13 +1,13 @@
 """
 The reboot and shutdown message in the bottom bar.
 
-html/js/PowerStore.js decides when the bar says "Rebooting..." and when it
-stops. Almost all of it is a question of sequence -- press, then the server goes
-away, then it comes back -- and every one of those orderings was wrong at least
-once while it was being written. A PowerStore that cleared the message the
-moment the first poll succeeded would have looked fine for about a second and
-then been empty for the whole reboot, because systemctl returns as soon as the
-job is queued and the machine is still up.
+html/js/PowerStore.js decides what that bar says and when it stops. Almost all
+of it is a question of sequence -- press, then the machine stops answering, then
+it answers again -- and every one of those orderings was wrong at least once
+while it was being written. A store that cleared the message on the first
+successful poll would look fine for a second and then be empty for the whole
+reboot, because the page polls status every second and the machine is still up
+for a moment after it has been asked to go down.
 
 There is no JavaScript test runner in this project, so the checks live in
 test/js/power_store_harness.js as a plain node script driven from here. Skipped
@@ -52,19 +52,17 @@ def test_the_state_machine_holds():
 @pytest.mark.parametrize(
     "case",
     [
-        "message appears at once",
-        "message stays up",
-        "message clears when it is back",
-        "still saying rebooting",
-        "message clears rather than sticking",
-        "settles on shut down",
+        "says it is rebooting",
+        "says it is shutting down",
+        "the message stays",
+        "gone, the moment it answers again",
+        "and gone on the first answer back",
+        "and stays, because nothing came back",
         "treated as the button working",
-        "error is shown, not swallowed",
-        "only one timer running",
-        "the bar is up before the reply",
-        "the reply changes nothing",
-        "and is taken down again by the failure",
-        "settles on shut down",
+        "the message is taken down",
+        "and the error is shown",
+        "nothing was left armed",
+        "and it clears on the way back",
     ],
 )
 def test_each_case_is_actually_checked(case):

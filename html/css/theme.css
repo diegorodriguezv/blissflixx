@@ -21,29 +21,6 @@ hr {
   color: #A94442;
 }
 
-/*
- * Reboot and shutdown, said in the bottom bar.
- *
- * Not the error colour: nothing has gone wrong, the opposite is happening, and
- * a message in the colour reserved for failures would be saying the wrong
- * thing about the one moment the bar exists for.
- */
-.power-msg {
-  color: #8AB4D8;
-  font-size: 18px;
-  line-height: 30px;
-  padding-top: 10px;
-  padding-bottom: 10px;
-}
-
-/* The spinner is an inline element inside a truncated span, so it needs to sit
-   on the text baseline rather than drag the line box taller than the bar. */
-.power-spin {
-  vertical-align: middle;
-  margin-right: 6px;
-  font-size: 22px;
-}
-
 a.underline {
   text-decoration: underline;
 }

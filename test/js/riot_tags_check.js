@@ -96,10 +96,11 @@ if (!riot || typeof riot.compile !== 'function') {
   process.exit(1);
 }
 
+// No powernote: the reboot and shutdown message goes in playerr, the bar the
+// player already uses for errors, which is what makes it work at all.
 const TAGS = [
   'app.html',
   'tags/playbar.html',
-  'tags/powernote.html',
   'tags/playerr.html',
   'pages/settings.html',
 ];
