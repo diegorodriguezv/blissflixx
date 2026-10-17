@@ -1,3 +1,4 @@
+import re
 import glob
 import os
 import shutil
@@ -24,6 +25,26 @@ CHANID_GLOB = "bfch_*"
 # have to be importable.
 sys.path.append(CHAN_PATH)
 sys.path.append(PLUGIN_PATH)
+
+
+#: A channel's own website, taken out of its description.
+#:
+#: Every channel puts exactly one link there -- the subreddit, the site it
+#: scrapes -- and nothing ever read it. The description is not rendered anywhere
+#: in the interface, so a channel's address was written once and then ignored.
+#:
+#: Read out of the description rather than asked for separately, because it is
+#: already there and there are seventeen channels. A second declaration would
+#: be seventeen chances to write one and forget the other.
+#:
+#: Only the first, because that is the convention: every description carries
+#: one link, and a second would be a claim about somewhere else rather than the
+#: channel itself.
+_LINK_IN_DESC = re.compile(r"""href=['"]([^'"]+)['"]""")
+
+#: What one of those looks like, so a channel description cannot quietly become
+#: an anchor to somewhere unexpected.
+_EXTERNAL_LINK = re.compile(r"^https?://\S+$")
 
 
 class Channel:
@@ -59,10 +80,31 @@ class Channel:
             # channel and a list of its items.
             "desc": desc,
             "feeds": feeds,
+            # The channel's website. Carried as "link" and not as "url": a media
+            # item's "url" is the thing to play, and the interface plays what it
+            # finds there. A channel is not playable and putting its website in
+            # that key would mean a click on a channel in the manager asking
+            # yt-dlp to play bbc.co.uk.
+            "link": self._website(desc),
         }
         self.chid = chid
         self.module = module
         self.cpath = cpath
+
+    @staticmethod
+    def _website(desc):
+        """
+        The address out of the description, or None if there is not one.
+
+        Returns None rather than guessing: a channel with no link shows no link
+        and keeps its title as the only thing to click, which is better than a
+        link to somewhere the description did not mean.
+        """
+        found = _LINK_IN_DESC.search(desc or "")
+        if found is None:
+            return None
+        link = found.group(1).strip()
+        return link if _EXTERNAL_LINK.match(link) else None
 
     def getId(self):
         return self.chid

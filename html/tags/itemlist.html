@@ -7,12 +7,21 @@
     <div each={ opts.items }>
       <div class="item-row row">
          <div class="col-md-2 col-sm-3 col-xs-3">
-          <a href="" onfocus="this.blur()" onclick={ parent.openItem }>
+          <!--
+          The href is the item's own "link" where it has one, which is how a
+          channel in the manager points at the site it reads from instead of at
+          "/". An href="" resolves to the current document, so every channel
+          link in the manager was a link to the page you were already on.
+
+          Nothing else carries a "link", so every media item, playlist entry and
+          search result here is unchanged.
+          -->
+          <a href={ link || '' } onfocus="this.blur()" onclick={ parent.openItem }>
             <img class={ item-icon: parent.isIcon(img), item-img: !parent.isIcon(img) } src={ img }>
           </a>
         </div>
          <div class="col-md-10 col-sm-9 col-xs-9 break-long-word">
-          <a href="" onfocus="this.blur()" onclick={ parent.openItem }><span class="item-title">{ title }</span></a>
+          <a href={ link || '' } onfocus="this.blur()" onclick={ parent.openItem }><span class="item-title">{ title }</span></a>
           <div class="item-subtitle"><raw content={ subtitle } /></div>
           <div class="item-synopsis"><raw content={ synopsis } /></div>
           <span each={ actions }>
@@ -38,6 +47,10 @@
         self.parent.openItem(e)
       } else {
         var item = e.item
+        // Not every row here is something to play. A channel in the manager has
+        // no url at all, and reaching into one used to throw a TypeError on the
+        // click rather than doing nothing.
+        if (!item || !item.url) return
         if (item.url.indexOf('search://') === 0) {
           Utils.goRoute('search', item.url.substring(9))
         } else if (item.url.indexOf('showmore://') === 0) {

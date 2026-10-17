@@ -21,5 +21,20 @@
         self.update()
       })
     }
+
+    /*
+     * Clicking a channel opens the channel.
+     *
+     * itemlist's own openItem plays whatever url it is given, which is right for
+     * a video and meaningless for a channel: a channel carries no url at all, so
+     * this used to throw a TypeError and do nothing visible.
+     *
+     * The anchor's href is the channel's website, which is what the browser
+     * shows on hover and what middle-click and right-click open in a new tab.
+     * A left click is this, because that is what the manager is for.
+     */
+    openItem(e) {
+      Utils.goRoute('channel', e.item.id)
+    }
   </script>
 </chanman>
