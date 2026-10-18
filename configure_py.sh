@@ -54,7 +54,11 @@ python -m yt_dlp --version
 # channel is not a reason to leave the machine half installed with nothing
 # saying which half.
 if [ -f plugins.txt ]; then
-  while read -r name url; do
+  # "|| [ -n \"$name\" ]" is not noise. read exits non-zero on a final line with
+  # no newline after it, and without the second test that line is dropped
+  # silently -- which is how this installed nothing at all the first time, on a
+  # manifest whose last entry happened to be the only one with a plugin in it.
+  while read -r name url || [ -n "$name" ]; do
     case "$name" in
       ""|\#*) continue ;;
     esac
