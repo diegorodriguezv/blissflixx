@@ -1,10 +1,30 @@
 # Runtime dependencies for BlissFlixx.
 #
-# Deliberately minimal. peerflix and the yt-dlp checkout are not python
-# packages: peerflix is installed by configure.sh and yt-dlp is cloned on
-# first run.
+# Pinned exactly, and deliberately so. A fresh install that resolves "whatever
+# is newest today" is not a fresh install, it is an experiment: cherrypy, lxml
+# and requests all move, and the version that works on one machine is not
+# guaranteed to be the version that arrives on the next one.
+#
+# Bumped on purpose, by editing the line, never by re-running an update. The
+# update button does not touch this file, and says so when a pulled commit
+# changed it.
+#
+# The versions here are the ones this was tested against.
+cherrypy==18.10.0
+cssselect==1.6.0
+lxml==6.1.3
+requests==2.34.2
 
-cherrypy
-cssselect
-lxml
-requests
+# yt-dlp, which is the opposite and is not pinned.
+#
+# It is not a BlissFlixx dependency in the sense the four above are. It follows
+# the sites it extracts from, which change underneath it weekly, so a pinned
+# yt-dlp is a yt-dlp that no longer works for some of them. It is declared here
+# so there is one place Python packages come from, and left unpinned so that
+# installing, or running ./configure_py.sh again, moves it.
+#
+# "default" is its own set of optional dependencies -- brotli, pycryptodomex,
+# websockets, mutagen and friends -- which are what let extractors handle
+# compressed responses, signatures, live streams and metadata. Without them
+# yt-dlp does not fail; it quietly does less, which is worse.
+yt-dlp[default]

@@ -6,6 +6,10 @@ Two failures found by deploying to a real Raspberry Pi.
    the first settings write raised FileNotFoundError. Installing by copying the
    tree, rather than letting it clone yt-dlp, produces exactly that state.
 
+   That early return is gone with the clone: yt-dlp is a package in the
+   virtualenv now, installed by configure_py.sh. Startup creates directories and
+   installs nothing, which is the shape these tests now hold it to.
+
 2. A stage's output was drained to /dev/null. When a player could not start, the
    reason it printed was thrown away and the pipe never reported anything, so the
    UI sat on "LOADING STREAM" indefinitely. Diagnosing that needed the process's
@@ -74,7 +78,8 @@ class TestFirstTimeInstallCreatesDirsEvenWhenYtDlpIsPresent:
     The regression itself: yt-dlp present must not skip directory creation.
     """
 
-    def test_dirs_are_created_when_ytdlp_already_exists(self, tmp_path, monkeypatch):
+    def _redirect(self, tmp_path, monkeypatch):
+        """Point the data directories at a scratch tree."""
         import lib.locations as locations
 
         data = tmp_path / "data"
@@ -82,33 +87,44 @@ class TestFirstTimeInstallCreatesDirsEvenWhenYtDlpIsPresent:
         monkeypatch.setattr(locations, "PLUGIN_PATH", str(tmp_path / "plugins"))
         monkeypatch.setattr(locations, "SETTINGS_PATH", str(data / "settings"))
         monkeypatch.setattr(locations, "PLIST_PATH", str(data / "playlists"))
-        # yt-dlp is already there, which used to cause an early return.
-        monkeypatch.setattr(locations, "YTUBE_PATH", str(tmp_path / "yt-dlp"))
-        (tmp_path / "yt-dlp").mkdir()
-        cloned = []
-        monkeypatch.setattr("blissflixx.gitutils.clone", lambda *a: cloned.append(a))
+        return data
 
-        blissflixx.first_time_install()
+    def test_startup_creates_the_data_directories(self, tmp_path, monkeypatch):
+        data = self._redirect(tmp_path, monkeypatch)
+
+        blissflixx.prepare_directories()
 
         assert (data / "settings").is_dir()
-        assert cloned == [], "yt-dlp was present, so nothing should be cloned"
 
-    def test_ytdlp_is_cloned_when_missing(self, tmp_path, monkeypatch):
+    def test_and_nothing_is_cloned_at_startup_anymore(self, tmp_path, monkeypatch):
+        """
+        yt-dlp is a package in the virtualenv, installed by configure_py.sh, so
+        there is nothing here to clone and nothing to check whether it is
+        present. The early return that hid the data directories behind that check
+        cannot come back with the check gone.
+
+        Held as "this module cannot clone anything" rather than as a spy on a
+        call that is no longer made: the point is that the capability is absent,
+        not that one particular use of it is unused.
+        """
+        data = self._redirect(tmp_path, monkeypatch)
+
+        blissflixx.prepare_directories()
+
+        assert not hasattr(blissflixx, "gitutils"), (
+            "the server imports git again, so it can clone again; yt-dlp comes "
+            "from pip and plugins are installed by configure_py.sh"
+        )
+        assert (data / "settings").is_dir()
+
+    def test_and_there_is_no_yt_dlp_path_to_reach_for(self):
+        """
+        Nothing in the project has a path to a yt-dlp checkout, so nothing can
+        quietly go back to running one from there.
+        """
         import lib.locations as locations
 
-        data = tmp_path / "data"
-        monkeypatch.setattr(locations, "DATA_PATH", str(data))
-        monkeypatch.setattr(locations, "PLUGIN_PATH", str(tmp_path / "plugins"))
-        monkeypatch.setattr(locations, "SETTINGS_PATH", str(data / "settings"))
-        monkeypatch.setattr(locations, "PLIST_PATH", str(data / "playlists"))
-        monkeypatch.setattr(locations, "YTUBE_PATH", str(tmp_path / "absent-yt-dlp"))
-        cloned = []
-        monkeypatch.setattr("blissflixx.gitutils.clone", lambda *a: cloned.append(a))
-
-        blissflixx.first_time_install()
-
-        assert len(cloned) == 1
-        assert (data / "settings").is_dir()
+        assert not hasattr(locations, "YTUBE_PATH")
 
     def test_settings_save_then_works(self, tmp_path, monkeypatch):
         """
@@ -123,14 +139,11 @@ class TestFirstTimeInstallCreatesDirsEvenWhenYtDlpIsPresent:
         monkeypatch.setattr(locations, "PLUGIN_PATH", str(tmp_path / "plugins"))
         monkeypatch.setattr(locations, "SETTINGS_PATH", str(data / "settings"))
         monkeypatch.setattr(locations, "PLIST_PATH", str(data / "playlists"))
-        monkeypatch.setattr(locations, "YTUBE_PATH", str(tmp_path / "yt-dlp"))
-        (tmp_path / "yt-dlp").mkdir()
-        monkeypatch.setattr("blissflixx.gitutils.clone", lambda *a: None)
         monkeypatch.setattr(settings_module, "SETTINGS_PATH", str(data / "settings"))
         settings_module._cache.clear()
 
         assert not (data / "settings").exists()
-        blissflixx.first_time_install()
+        blissflixx.prepare_directories()
         settings_module.save("player", {"backend": "mpv"})
 
         assert (data / "settings" / "player").exists()

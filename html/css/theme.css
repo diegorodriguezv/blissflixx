@@ -35,6 +35,38 @@ hr {
   color: #6d90b0;
 }
 
+/*
+ * What the last UPDATE did, under the build number.
+ *
+ * Smaller than the build label and left-aligned to nothing, because it is
+ * detail rather than headline: one line per thing that moved, in a fixed-width
+ * face so a version number or a git message is readable rather than decorative.
+ * The indent on a note is the tell that it belongs to the line above it -- a
+ * note is always the consequence of the line it follows, and the two are
+ * related the way "requirements.txt changed" is related to "blissflixx: moved".
+ */
+.update-report {
+  margin-top: 14px;
+  font-size: 15px;
+  color: #6d90b0;
+}
+
+.update-report-when {
+  margin-bottom: 4px;
+}
+
+.update-report-line {
+  font-family: monospace;
+  white-space: pre-wrap;
+  word-break: break-word;
+  margin: 0;
+  padding-left: 14px;
+}
+
+.update-report-line:first-of-type {
+  padding-left: 0;
+}
+
 a.underline {
   text-decoration: underline;
 }

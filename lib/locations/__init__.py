@@ -21,7 +21,6 @@ _ROOT = Path(__file__).absolute().parents[2]
 ROOT_PATH = str(_ROOT)
 LIB_PATH = str(_ROOT / "lib")
 HTML_PATH = str(_ROOT / "html")
-YTUBE_PATH = str(_ROOT / "lib" / "yt-dlp")
 DATA_PATH = str(_ROOT / "data")
 BIN_PATH = str(_ROOT / "bin")
 PLIST_PATH = str(_ROOT / "data" / "playlists")

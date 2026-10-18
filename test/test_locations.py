@@ -41,7 +41,6 @@ class TestValuesMatchOriginalExpressions:
             "ROOT_PATH": root,
             "LIB_PATH": lib,
             "HTML_PATH": osp.join(root, "html"),
-            "YTUBE_PATH": osp.join(lib, "yt-dlp"),
             "DATA_PATH": data,
             "BIN_PATH": osp.join(root, "bin"),
             "PLIST_PATH": osp.join(data, "playlists"),
@@ -56,7 +55,6 @@ class TestValuesMatchOriginalExpressions:
             "ROOT_PATH",
             "LIB_PATH",
             "HTML_PATH",
-            "YTUBE_PATH",
             "DATA_PATH",
             "BIN_PATH",
             "PLIST_PATH",
@@ -103,7 +101,9 @@ class TestRelationships:
             assert osp.dirname(getattr(locations, name)) == locations.DATA_PATH, name
 
     def test_yt_dlp_lives_under_lib(self):
-        assert osp.dirname(locations.YTUBE_PATH) == locations.LIB_PATH
+        # There is no yt-dlp checkout any more: it is a package in the
+        # virtualenv, so there is no path to it and nothing should invent one.
+        assert not hasattr(locations, "YTUBE_PATH")
 
     def test_expected_directories_exist_in_a_checkout(self):
         for name in ("ROOT_PATH", "LIB_PATH", "CHAN_PATH", "HTML_PATH", "BIN_PATH"):

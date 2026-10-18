@@ -144,8 +144,14 @@ Once the configuration script is complete you can start the server by running:
 
     ./start.sh
 
-Note that the first time you start the server it will first take a few moments
-to complete the installation, cloning yt-dlp into `lib/`.
+The server must be run with the virtualenv in this checkout. `run.sh` does that
+and is what the systemd unit starts; starting it any other way is refused with a
+message saying so, rather than failing later on whichever module happens to be
+missing from the system Python.
+
+Nothing is downloaded on first run any more. `configure_py.sh` installs
+everything Python needs -- including yt-dlp -- and clones the plugins listed in
+`plugins.txt`, so the first start is a start rather than an install.
 
 Once you see the message "ENGINE Bus STARTED" the server will be up and running.
 Now open up a browser on your phone, tablet or PC and point it at:
@@ -402,6 +408,18 @@ More information can be found at the [wiki](https://github.com/blissland/blissfl
 
 BlissFlixx relies on yt-dlp for extracting media so a list of supported sites can be found on it's project site: https://github.com/yt-dlp/yt-dlp/blob/master/supportedsites.md
 
+yt-dlp is the one dependency that is not pinned, because it follows the sites it
+extracts from rather than this project: a pinned yt-dlp is a yt-dlp that has
+stopped handling some of them. The UPDATE button therefore moves it, and then
+asks it to resolve something before believing it -- if the new version cannot,
+it is put straight back and the page says which version is installed. The number
+`configure_py.sh` prints at the end of an install is the same one.
+
+Everything else *is* pinned, in `requirements.txt`. The UPDATE button does not
+install it; if a pull brings a changed `requirements.txt`, the page says so and
+leaves it to you, because a pinned dependency is only pinned if nothing quietly
+moves it.
+
 That list is what yt-dlp supports, not what it can reach. A site that now
 sits behind a bot check will refuse a Raspberry Pi even when the extractor for
 it is listed. Vimeo is the case that matters: vimeo.com answers a Pi with a
@@ -410,6 +428,33 @@ login, so the Vimeo channel was removed rather than left listing videos that
 all fail. A channel is only worth having if its items play.
 
 # Plugins
+
+Channels that are separate projects live in `plugins/`, which is not part of this
+repository -- they have their own histories and their own authors. `plugins.txt`
+lists them, `configure_py.sh` clones whatever from that list is missing, and the
+channel manager lists whatever it finds in `plugins/`. A fresh checkout is
+therefore the same installation as an established one.
+
+# Updating
+
+The UPDATE button on the settings page moves three things and reports each one
+separately:
+
+  * the plugins, which are fast-forwarded to the newest commit on the branch each
+    one is on;
+  * yt-dlp, which is moved to the newest release and then checked;
+  * BlissFlixx itself, fast-forwarded to the newest commit on the branch this
+    checkout is on -- read from git rather than written down, so it cannot ask
+    for a branch this project does not use.
+
+Pulls are `--ff-only`: a checkout that has diverged fails with git's own reason
+rather than being merged in silence. If nothing moved, nothing restarts and the
+page says what was already current. If something did move, the server restarts
+and every open tab says so while it does.
+
+To go back, reinstall the version it names: `./configure_py.sh`, or
+
+    ./virtualenv/bin/pip install yt-dlp==<the version you want>
 
 For information about what extra plugins are available please check the [Plugin Development](https://github.com/blissland/blissflixx/wiki/Plugin-Development) section of the wiki.
 

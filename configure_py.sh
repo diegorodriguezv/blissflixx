@@ -31,6 +31,43 @@ echo "Installing runtime dependencies..."
 pip3 install --upgrade pip
 pip3 install -r requirements.txt
 
+# What yt-dlp arrived as, said plainly.
+#
+# It is the one package here that is deliberately not pinned, because it
+# follows the sites it extracts from rather than this project. A number is
+# printed because "did the install work" and "which version is it now" are
+# different questions, and only one of them is answered by the absence of an
+# error.
+echo ""
+echo "yt-dlp version installed:"
+python -m yt_dlp --version
+
+# Channels that are separate projects.
+#
+# plugins/ is not in this repository, so a fresh checkout has none of them, and
+# the channel manager only lists what it finds. plugins.txt is the list, and
+# this is the step that makes a fresh install the same install as an
+# established one. Anything already there is left alone: it may have been
+# changed, and an update pulls those rather than reinstalling them.
+#
+# A clone that fails is reported and does not stop the script. One missing
+# channel is not a reason to leave the machine half installed with nothing
+# saying which half.
+if [ -f plugins.txt ]; then
+  while read -r name url; do
+    case "$name" in
+      ""|\#*) continue ;;
+    esac
+    if [ -d "plugins/$name" ]; then
+      echo "  plugins/$name is already there"
+    elif git clone "$url" "plugins/$name"; then
+      echo "  installed plugins/$name"
+    else
+      echo "  WARNING: plugins/$name did not clone. That channel will be missing." 1>&2
+    fi
+  done < plugins.txt
+fi
+
 # Development dependencies (formatters, test runner). Not needed to run the
 # server. Pass --dev to include them, e.g.
 #   ./configure_py.sh --dev

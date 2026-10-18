@@ -1,12 +1,8 @@
 import json
-import os
+import sys
 
-from ..locations import YTUBE_PATH
 from . import ythelper
 from .processpipe import OUT_FILE, ExternalProcess, ProcessException
-
-YTDL_PATH = os.path.join(YTUBE_PATH, "yt_dlp")
-YTDL_PATH = os.path.join(YTDL_PATH, "__main__.py")
 
 #: How many lines to look through for the is_live answer. It is printed right
 #: after the URL, so this only has to cover the player's own warnings landing
@@ -35,8 +31,34 @@ class YoutubeDlProcess(ExternalProcess):
         # ythelper.resolve().
         url = ythelper.resolve(self.url)
         cmd = [
-            "python",
-            YTDL_PATH,
+            # The interpreter running this, not "python" from PATH.
+            #
+            # Those are not always the same one, and they were not: this stage
+            # ran under whatever "python" happened to be first on PATH, so a
+            # server started by hand used the system python's packages while a
+            # server started by run.sh used the virtualenv's. yt-dlp's own code
+            # came from the checkout either way -- its __main__ puts itself on
+            # sys.path -- but everything it imports came from whichever
+            # interpreter won, so the two machines had different dependencies
+            # and neither had all of them.
+            #
+            # sys.executable cannot drift: blissflixx.py refuses to run outside
+            # this checkout's virtualenv, so by the time this is reached there
+            # is exactly one interpreter it could mean.
+            sys.executable,
+            "-m",
+            "yt_dlp",
+            # Which JavaScript runtime to use, if any. yt-dlp stopped assuming
+            # one: with no --js-runtimes it looks for deno alone, and on a
+            # machine without it, YouTube extraction is deprecated and returns
+            # nothing at all. Node is what configure.sh already installs, by way
+            # of npm, for peerflix.
+            #
+            # Safe to name a runtime that is not there: yt-dlp says
+            # "Ignoring unsupported JavaScript runtime(s)" and carries on, so
+            # this cannot turn a working machine into a broken one.
+            "--js-runtimes",
+            "node",
             "--no-part",
             "--no-continue",
             "--no-playlist",

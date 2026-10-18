@@ -23,6 +23,21 @@
            "[object HTMLSpanElement]" on the television. Every other tag in this
            interface refers to its own state the same way. -->
       <p class="build-label">running build <span id="build">{ build }</span></p>
+
+      <!--
+      What the last UPDATE did, one line per thing it moved.
+
+      It is here because the alternative is a button whose entire effect is
+      invisible: an update that changed nothing and an update that changed
+      everything both used to be a bar that appeared and went away again, and
+      from the outside they were the same event. It also survives the restart,
+      because the server writes it down first -- a reply that arrives with the
+      process being killed is a reply that does not arrive.
+      -->
+      <div class="update-report" show={ lastUpdate }>
+        <p class="update-report-when">last update { lastUpdate.when }</p>
+        <p each={ lastUpdate.lines } class="update-report-line">{ . }</p>
+      </div>
     </div>
   </div>
 
@@ -34,11 +49,58 @@
       self.build = data
       self.update()
     })
+    self.readLastUpdate()
 
     restart() {
-      Utils.rpc('server', 'restart', null, function(err) {
-        if (err) return Utils.showError(err)
+      self.busy = true
+      self.report = null
+      self.update()
+      Utils.rpc('server', 'restart', null, function(err, answer) {
+        self.busy = false
+        if (err) {
+          // A real refusal: nothing moved, and the reason came back with it.
+          self.report = { when: '', lines: [Utils.decodeURI(err).replace(/%3A/g, ':')] }
+          return self.update()
+        }
+        if (answer && answer.updated === false) {
+          // Nothing changed, so the server did not restart and this reply is
+          // the whole of the news.
+          self.report = { when: 'just now', lines: answer.message.split('\n') }
+          return self.update()
+        }
+        // Something moved: the server is on its way down and this reply may
+        // never arrive. The bar says so, and the report comes back with the
+        // page when it reloads.
       })
+    }
+
+    readLastUpdate() {
+      Utils.rpc('server', 'last_update', null, function(err, answer) {
+        if (err || !answer || !answer.parts || !answer.parts.length) return
+        self.lastUpdate = self.describe(answer)
+      })
+    }
+
+    describe(answer) {
+      var lines = []
+      var parts = answer.parts || []
+      for (var i = 0; i < parts.length; i++) {
+        var part = parts[i]
+        if (!part.ok) {
+          lines.push(part.name + ': not updated -- ' + part.detail)
+        } else if (part.changed) {
+          lines.push(part.name + ': ' + part.detail)
+        } else {
+          lines.push(part.name + ': already current')
+        }
+        if (part.note) lines.push('  ' + part.note)
+      }
+      var when = ''
+      if (answer.at) {
+        var then = new Date(answer.at * 1000)
+        when = then.toISOString().slice(0, 16).replace('T', ' ') + ' UTC'
+      }
+      return { when: when, lines: lines }
     }
 
     // Through powerStore rather than rpc, because the answer is not the end of

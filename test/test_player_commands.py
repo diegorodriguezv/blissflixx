@@ -14,6 +14,7 @@ being installed.
 """
 
 import os
+import sys
 import unittest.mock as m
 
 import pytest
@@ -73,10 +74,37 @@ class TestYoutubeDl:
         ):
             assert flag in cmd, flag
 
-    def test_invoked_through_python(self):
+    def test_invoked_by_the_interpreter_that_is_running_us(self):
+        """
+        sys.executable, and not "python" from PATH.
+
+        Those were not always the same interpreter. This stage used whichever
+        "python" came first on PATH, so a server started by hand resolved
+        yt-dlp's imports from the system python while a server started through
+        run.sh used the virtualenv's -- which is why the two machines had
+        different dependencies available and neither had all of them.
+
+        sys.executable cannot drift, because blissflixx.py refuses to start
+        outside this checkout's virtualenv, so there is only one interpreter it
+        could mean by the time this runs.
+        """
         cmd = YoutubeDlProcess(SHORT_URL)._get_cmd({})
-        assert cmd[0] == "python"
-        assert cmd[1].endswith(os.path.join("yt_dlp", "__main__.py"))
+        assert cmd[0] == sys.executable, cmd[:3]
+        assert cmd[1:3] == ["-m", "yt_dlp"], cmd[:4]
+
+    def test_and_it_is_told_which_javascript_runtime_to_use(self):
+        """
+        yt-dlp stopped assuming one. With no --js-runtimes it looks for deno
+        alone, and on a machine without it YouTube extraction is deprecated and
+        returns nothing at all. Node is what configure.sh already installs, by
+        way of npm, for peerflix.
+
+        Naming a runtime that is not there is safe: yt-dlp says "Ignoring
+        unsupported JavaScript runtime(s)" and carries on.
+        """
+        cmd = YoutubeDlProcess(SHORT_URL)._get_cmd({})
+        assert "--js-runtimes" in cmd, cmd
+        assert cmd[cmd.index("--js-runtimes") + 1] == "node", cmd
 
     def test_url_is_last(self):
         url = SHORT_URL

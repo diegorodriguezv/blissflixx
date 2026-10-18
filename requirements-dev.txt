@@ -1,8 +1,17 @@
 # Development and test dependencies.
-# Install on top of requirements.txt.
-
+# Install on top of requirements.txt:  ./configure_py.sh --dev
+#
+# Pinned for the same reason the runtime ones are, and for a sharper one. A new
+# black or isort does not break playback -- it breaks the test suite, or makes
+# it demand reformatting the whole repository for a change nobody made, which is
+# how a checkout ends up with a diff in it and then refuses to pull.
+#
+# These are the versions the suite was last run against. A formatter that moves
+# is not a small change: black has changed its output more than once, so taking
+# a new one is a deliberate act with a whole-repository diff attached, not a
+# side effect of installing a development dependency.
 -r requirements.txt
 
-black
-isort
-pytest
+black==24.8.0
+isort==5.13.2
+pytest==9.1.1

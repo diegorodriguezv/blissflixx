@@ -10,13 +10,54 @@ import sys
 import time
 import traceback
 
+#: The virtualenv this checkout keeps its dependencies in, which configure_py.sh
+#: creates and which this program refuses to run without.
+VENV_NAME = "virtualenv"
+
+
+def require_virtualenv():
+    """
+    Stop with an explanation if this is not running in our own virtualenv.
+
+    Before this, running outside it failed wherever it happened to hit a module
+    the system python did not have -- cherrypy on one machine, lxml on the next,
+    whichever was installed second. That is not a signal, it is a coincidence:
+    a machine with cherrypy installed system-wide would sail past it and fail
+    later on something that matters less, having told you nothing on the way.
+
+    Checked against the path rather than against "is a venv active", because a
+    stray venv would satisfy the second and not give this checkout the
+    dependencies configure_py.sh put in the first.
+
+    Here rather than as a check further in, so the message can be a sentence
+    instead of an ImportError. It costs nothing that matters: this function
+    needs only the standard library.
+    """
+    expected = os.path.join(os.path.dirname(os.path.abspath(__file__)), VENV_NAME)
+    if os.path.realpath(sys.prefix) == os.path.realpath(expected):
+        return
+
+    sys.stderr.write(
+        "BlissFlixx runs in the virtualenv in this checkout, and this is not "
+        "it.\n\n"
+        "  running:  %s\n"
+        "  expected: %s\n\n"
+        "Start it with ./run.sh, which uses the right one.\n"
+        "If there is no virtualenv here yet, run ./configure_py.sh first -- it "
+        "is the script that makes one.\n" % (sys.prefix, expected)
+    )
+    sys.exit(1)
+
+
+require_virtualenv()
+
 import cherrypy
 from cherrypy._cplogging import LogManager
 from cherrypy.lib import static
 from cherrypy.process.plugins import Daemonizer
 
-import lib.gitutils as gitutils
 import lib.locations as locations
+import lib.updater as updater
 
 # lib.api is a plain namespace, so its submodules are imported explicitly here
 # rather than eagerly from lib/api/__init__.py. Importing them also attaches
@@ -182,14 +223,18 @@ def ensure_data_dirs():
     os.makedirs(processpipe.TMP_DIR, exist_ok=True)
 
 
-def first_time_install():
-    # The data directories are needed regardless of whether yt-dlp is present.
-    ensure_data_dirs()
+def prepare_directories():
+    """
+    Make the directories the server writes to, and nothing else.
 
-    if os.path.exists(locations.YTUBE_PATH):
-        return
-    cherrypy.log("Downloading yt-dlp. Please wait...")
-    gitutils.clone(locations.LIB_PATH, "https://github.com/yt-dlp/yt-dlp.git")
+    This used to also clone yt-dlp, and the clone is gone: yt-dlp is a package in
+    the virtualenv now, installed by configure_py.sh alongside everything else,
+    and kept current by the update button with everything else. It was cloned
+    here because nothing else installed it, and a machine had to start once
+    before it had a yt-dlp at all -- and then keep it forever, because a tree
+    that merely existed was never repaired.
+    """
+    ensure_data_dirs()
 
 
 class Api:
@@ -199,20 +244,64 @@ class Api:
 
     def _server(self, fn=None, data=None):
         if fn == "restart":
-            global RESTARTING
-            RESTARTING = True
-            gitutils.pull(locations.YTUBE_PATH)
-            gitutils.pull(locations.ROOT_PATH)
-            gitutils.pull_subdirs(locations.PLUGIN_PATH)
-            os.kill(os.getpid(), signal.SIGUSR2)
+            return self._update()
         elif fn == "shutdown":
             return self._power(fn, "shut down", POWER_ACTIONS["shutdown"])
         elif fn == "reboot":
             return self._power(fn, "reboot", POWER_ACTIONS["reboot"])
         elif fn == "version":
             return self._version()
+        elif fn == "last_update":
+            return updater.last_update() or {"parts": [], "changed": False}
         else:
             return self._error(404, "API Function '" + str(fn) + "' is not defined")
+
+    def _update(self):
+        """
+        The UPDATE button: move what moves, say what happened, restart if
+        anything did.
+
+        RESTARTING is set here, after the work, and not before it. It used to be
+        set first, which meant the bar said "Server Restarting & Updating..." from
+        the moment the button was pressed whether or not anything was updated --
+        and if a pull then failed, nothing ever took it down again. Every tab
+        on the machine was told, for as long as it stayed open, that an update
+        was in progress that had not happened and never would.
+
+        And when nothing moved, nothing restarts. An update that changed no
+        commits should not take the server down in order to report that it did
+        not need to.
+        """
+        global RESTARTING
+        parts, changed = updater.run()
+
+        if not changed:
+            return {
+                "updated": False,
+                "parts": [p.as_dict() for p in parts],
+                "message": self._update_message(parts),
+            }
+
+        RESTARTING = True
+        os.kill(os.getpid(), signal.SIGUSR2)
+        return {"updated": True, "parts": [p.as_dict() for p in parts]}
+
+    @staticmethod
+    def _update_message(parts):
+        """What to show when there was nothing to do. A line per part, because
+        "already up to date" about three different things is only useful if it
+        says which three."""
+        broken = [p for p in parts if not p.ok]
+        lines = [p.one_line() for p in parts]
+        if broken:
+            lines.append("")
+            lines.append(
+                "Nothing has been restarted. To see what went wrong, or to fix "
+                "it by hand, this is what to run on this machine:"
+            )
+            lines.append("")
+            lines.append("    cd %s && ./configure_py.sh" % locations.ROOT_PATH)
+        return "\n".join(lines)
 
     def _version(self):
         """
@@ -655,7 +744,7 @@ def mount_trees():
 def main(argv=None):
     check_not_root()
     args = parse_args(argv)
-    first_time_install()
+    prepare_directories()
 
     cherrypy.log = IgnoreStatusLogger()
     cherrypy.log("BLISSFLIXX Starting...")
