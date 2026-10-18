@@ -3,7 +3,18 @@
     <div class="container">
       <ul class="navitems navitems-left">
         <li>
-          <span><i class="fa fa-film"></i><span class="hidden-xs hidden-sm"> BLISSFLIXX</span></span>
+          <!--
+          The way home, which is the channels: the main page and the channel
+          list are the same page, and there is no Channels page to go to.
+
+          href="#" and not href="": an empty href resolves to the current
+          document and clicking it does nothing at all, which is the bug the
+          channel rows in the manager had. "#" clears the fragment instead, the
+          router hears the change and shows the main page. It is not a
+          reload -- a full reload would drop whatever is playing, which is why
+          UpdateCheck goes to such lengths over a build change.
+          -->
+          <a href="#"><i class="fa fa-film"></i><span class="hidden-xs hidden-sm"> BLISSFLIXX</span></a>
         </li>
       </ul>
       <ul class="navitems navitems-right">
@@ -28,7 +39,8 @@
       {link:"#search", icon:"fa-search", title:"Search"},
       {link:"#play", icon:"fa-play", title:"Play URL"},
       {link:"#playlists", icon:"fa-th-list", title:"Playlists"},
-      {link:"#channels", icon:"fa-th", title:"Channels"},
+      // No Channels entry, because there is no Channels page. The channels are
+      // the main page -- which is what the name on the left is a link to.
     ]
   </script>
 </topnav>

@@ -331,11 +331,14 @@ def info(chid=None):
     # Spelled the way channels.html already spells it, so the same destination
     # is not written two different ways in two places.
     info["route"] = "#channel/" + info["id"]
-    # A "hint" is what the button says when the pointer rests on it. The label
-    # is two words wide and names the button; the hint is a sentence and says
-    # what the button will do to the channels page, because "Disable" on its own
-    # does not say what is being disabled and there is nothing else on screen to
-    # say it.
+    # A "hint" is what the button says when the pointer rests on it: one word,
+    # the other half of what the button does.
+    #
+    # It used to be a sentence -- "Don't show in Channels" -- on the reasoning
+    # that "Disable" alone does not say what is being disabled. It does, here:
+    # the row is the channel, the button is on that channel, and the list this
+    # manager edits is the one that shows. So the sentence was saying the
+    # obvious at length, and the words are now the ones somebody would use.
     #
     # "hint" rather than "title", which reads as the HTML attribute of the same
     # name but resolves inside itemlist's each={ actions } to the row's own
@@ -344,13 +347,13 @@ def info(chid=None):
         info["actions"] = [{
             "label": "Disable",
             "type": "disablechannel",
-            "hint": "Don't show in Channels",
+            "hint": "hide",
         }]
     else:
         info["actions"] = [{
             "label": "Enable",
             "type": "enablechannel",
-            "hint": "Show in Channels",
+            "hint": "show",
         }]
     # Where the posts come from, beside the button that turns it off rather
     # than in the description, which nothing renders. Added last so it sits

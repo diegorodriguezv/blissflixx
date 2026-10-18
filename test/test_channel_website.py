@@ -230,14 +230,19 @@ class TestTheSourceButton:
         assert on[-1] == "Source" and on[0] == "Disable", on
         assert off[-1] == "Source" and off[0] == "Enable", off
 
-    def test_what_the_buttons_will_do_is_written_out(self):
+    def test_what_the_buttons_say_on_hover(self):
         """
-        "Disable" on its own does not say what is being disabled, and there is
-        nothing else on screen to say it: the row is the channel, and the
-        channels page is somewhere else entirely.
+        One word: "hide" on the button that hides the channel, "show" on the one
+        that shows it.
 
-        So the hover text is a sentence about the channels page, and it is the
-        server that writes it, next to the label it belongs to.
+        It used to be a whole sentence -- "Don't show in Channels" -- on the
+        reasoning that "Disable" on its own does not say what is being
+        disabled. It does, in the channel manager: the row is the channel, the
+        button is on that channel, and the list being edited is the one that
+        shows. So the sentence was saying the obvious at length.
+
+        The server writes it, next to the label it belongs to, so the two cannot
+        drift apart.
 
         Both states, and both have to be asked for: every channel in a fresh
         checkout is enabled, so a test that only looked at what is installed
@@ -253,14 +258,14 @@ class TestTheSourceButton:
         finally:
             api_channels.enable(chid=chid)
         assert on["label"] == "Disable", on
-        assert on["hint"] == "Don't show in Channels", on
+        assert on["hint"] == "hide", on
         assert off["label"] == "Enable", off
-        assert off["hint"] == "Show in Channels", off
+        assert off["hint"] == "show", off
 
     def test_the_hint_is_never_the_label(self):
         """
-        A hint that repeated the button's own name would be a word wasted on the
-        one screen where there is room for a sentence.
+        A hint that repeated the button's own name would be the tooltip
+        explaining the button.
         """
         for channel in InstalledChannels().getAll():
             for action in self._info(channel.getId())["actions"]:
