@@ -36,7 +36,7 @@
       -->
       <div class="update-report" show={ lastUpdate }>
         <p class="update-report-when">last update { lastUpdate.when }</p>
-        <p each={ lastUpdate.lines } class="update-report-line">{ . }</p>
+        <p each={ line in lastUpdate.lines } class="update-report-line">{ line }</p>
       </div>
     </div>
   </div>
@@ -49,23 +49,27 @@
       self.build = data
       self.update()
     })
-    self.readLastUpdate()
 
     restart() {
-      self.busy = true
-      self.report = null
+      // Said before the call, because the call is slow.
+      //
+      // Fourteen seconds on a Raspberry Pi: three git operations and a pip
+      // against PyPI, none of which is quick and all of which have to finish
+      // before there is anything to report. With nothing on screen for those
+      // fourteen seconds the block does not change and the button looks broken,
+      // which is the same complaint as not having a block at all.
+      self.lastUpdate = { when: 'just now', lines: ['checking...'] }
       self.update()
       Utils.rpc('server', 'restart', null, function(err, answer) {
-        self.busy = false
         if (err) {
           // A real refusal: nothing moved, and the reason came back with it.
-          self.report = { when: '', lines: [Utils.decodeURI(err).replace(/%3A/g, ':')] }
+          self.lastUpdate = { when: 'just now', lines: [Utils.decodeURI(err)] }
           return self.update()
         }
         if (answer && answer.updated === false) {
           // Nothing changed, so the server did not restart and this reply is
           // the whole of the news.
-          self.report = { when: 'just now', lines: answer.message.split('\n') }
+          self.lastUpdate = { when: 'just now', lines: answer.message.split('\n') }
           return self.update()
         }
         // Something moved: the server is on its way down and this reply may
@@ -78,6 +82,11 @@
       Utils.rpc('server', 'last_update', null, function(err, answer) {
         if (err || !answer || !answer.parts || !answer.parts.length) return
         self.lastUpdate = self.describe(answer)
+        // Riot does not re-render because a property changed. Every other
+        // callback in this file says self.update() for that reason, and this
+        // one did not: the answer arrived, the property was set, and the block
+        // stayed hidden because nothing asked for the page to be drawn again.
+        self.update()
       })
     }
 
@@ -113,5 +122,17 @@
     reboot() {
       powerStore.power('reboot')
     }
+
+    // Here, at the bottom, and not at the top with the rest of the start-up.
+    //
+    // riot turns the shorthand methods in this script into assignments on the
+    // tag, in source order, so a call placed above them finds nothing defined
+    // yet: readLastUpdate is not a function, the exception aborts the rest of
+    // this script, and the buttons below -- restart, shutdown, reboot -- are
+    // never defined either. The settings page then renders and does nothing at
+    // all, which is exactly what it looked like.
+    this.on('mount', function() {
+      self.readLastUpdate()
+    })
   </script>
 </settings>
