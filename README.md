@@ -456,6 +456,21 @@ To go back, reinstall the version it names: `./configure_py.sh`, or
 
     ./virtualenv/bin/pip install yt-dlp==<the version you want>
 
+## Moving an existing install onto this
+
+Nothing above changes anything by itself. An install made before yt-dlp became a
+package needs one step, because until it runs the virtualenv has no yt-dlp in it
+and nothing can resolve a video:
+
+    ./configure_py.sh
+
+That installs yt-dlp, and leaves the old `lib/yt-dlp` checkout alone -- which is
+deliberate, since deleting it is not something to do on somebody's machine
+without asking. It is harmless: nothing reads it, `.gitignore` still ignores it,
+and it can go whenever:
+
+    rm -rf lib/yt-dlp
+
 For information about what extra plugins are available please check the [Plugin Development](https://github.com/blissland/blissflixx/wiki/Plugin-Development) section of the wiki.
 
 # Credits
