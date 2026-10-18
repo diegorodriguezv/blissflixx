@@ -89,7 +89,19 @@ a.underline {
   font-weight: bold;
 }
 
-.topnav .navitems>li>a:hover {
+/*
+ * Hovering a link in the bar puts a white block behind it.
+ *
+ * Not behind the name on the left. That one is a link too -- the site mark
+ * goes home, which is a convention and not a novelty -- but it is thirty pixels
+ * of word, and a white block that size reads as something broken rather than
+ * as an affordance. It is left in the colour it already has, and the cursor
+ * changing under the pointer is what says it can be clicked.
+ *
+ * Scoped to the right-hand list rather than given a rule of its own, because
+ * the left-hand list holds nothing else.
+ */
+.topnav .navitems-right>li>a:hover {
   color: #2A435A;
   background-color: #FFFFFF;
 }

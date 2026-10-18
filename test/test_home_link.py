@@ -32,8 +32,13 @@ def code(name):
     explaining why the second one is there, and a grep that does not strip
     comments finds the explanation instead of the anchor. Which is how this file
     managed to fail its own test.
+
+    The stylesheet has the same problem in its own syntax, so it gets its own
+    comment syntax stripped.
     """
-    return re.sub(r"<!--.*?-->", "", markup(name), flags=re.S)
+    source = markup(name)
+    pattern = r"/\*.*?\*/" if name.endswith(".css") else r"<!--.*?-->"
+    return re.sub(pattern, "", source, flags=re.S)
 
 
 class TestTheNameGoesHome:
@@ -63,6 +68,64 @@ class TestTheNameGoesHome:
         """
         app = code("app.html")
         assert "page = page || 'channels'" in app, app
+
+
+class TestTheNameDoesNotInvertOnHover:
+    """
+    It is a link, and it looks like one that is not being hovered.
+
+    Every anchor on this interface is white at rest and stays white -- theme.css
+    says so once for all of them -- so the only thing hovering a link in the top
+    bar changes is that one rule putting a white block behind it. Behind a
+    thirty-pixel word that reads as something broken rather than as an
+    affordance, so the rule is scoped to the links on the right.
+
+    Scoped rather than given a rule of its own, because the left-hand list holds
+    nothing else.
+    """
+
+    def _hover_rule(self):
+        css = code("css/theme.css")
+        found = re.search(r"^(\.topnav [^{]*:hover)\s*\{([^}]*)\}", css, re.M)
+        assert found is not None, "the top bar has no hover rule for its links"
+        return found.group(1), found.group(2)
+
+    def test_the_hover_block_is_not_behind_the_name(self):
+        selector, _ = self._hover_rule()
+        # A :hover selector only ever matches while the pointer is on the
+        # element, so this asks the question the stylesheet can answer: which
+        # elements can the rule reach at all?
+        without_hover = selector.replace(":hover", "")
+        assert "navitems-left" not in without_hover, (
+            "the hover block is still behind the name: %s" % selector
+        )
+
+    def test_and_the_links_on_the_right_still_get_it(self):
+        """
+        Otherwise the icons lose the one thing that marks them as clickable,
+        which is the reason the rule is there.
+        """
+        selector, _ = self._hover_rule()
+        assert "navitems-right" in selector, selector
+
+    def test_and_it_is_still_a_white_block_on_a_dark_colour(self):
+        _, body = self._hover_rule()
+        assert "background-color: #FFFFFF" in body, body
+        assert "color: #2A435A" in body, body
+
+    def test_and_the_left_list_holds_nothing_else(self):
+        """
+        The scoping is only safe while that is true, which is the sort of thing
+        that stops being true quietly.
+        """
+        source = code(TOPNAV)
+        left = re.search(r'<ul class="navitems navitems-left">(.*?)</ul>', source, re.S)
+        assert left is not None, "no left-hand list in the top bar"
+        anchors = re.findall(r"<a\b", left.group(1))
+        assert len(anchors) == 1, (
+            "the left-hand list holds %d links and only the name is meant to be "
+            "exempt from the hover block" % len(anchors)
+        )
 
 
 class TestThereIsNoChannelsPage:
