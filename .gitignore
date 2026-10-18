@@ -12,3 +12,9 @@ youtube-dl/
 virtualenv/
 oldplugins/
 .vscode/
+
+# A yt-dlp checkout under lib/, from before yt-dlp became a package in the
+# virtualenv. Nothing reads it any more, but a machine that has not deleted it
+# yet would otherwise see several hundred untracked files, and a dirty checkout
+# is a checkout that cannot pull.
+yt-dlp/
