@@ -128,6 +128,43 @@ class TestTheNameDoesNotInvertOnHover:
         )
 
 
+class TestTheNameIsAlwaysThere:
+    """
+    The name is the name at every width.
+
+    It used to carry Bootstrap's hidden-xs and hidden-sm, so below 992px of
+    viewport the word went away and only the film icon was left. That is what a
+    narrow window, a phone, or a browser zoomed past 125% all looked like, and
+    it read as the site mark having gone missing rather than as a layout --
+    there is nothing on screen saying the name is there on a wider screen.
+
+    The size is deliberately untouched. The fix is to stop hiding a thing, not
+    to shrink it until it fits; a roomier bar was never the problem.
+    """
+
+    def _brand(self):
+        source = code(TOPNAV)
+        found = re.search(r"<li>\s*<a [^>]*>(.*?)</a>\s*</li>", source, re.S)
+        assert found is not None, "the top-left is not a link"
+        return found.group(1)
+
+    @pytest.mark.parametrize(
+        "cls", ["hidden-xs", "hidden-sm", "hidden-md", "hidden-lg"]
+    )
+    def test_the_name_is_not_hidden_at_any_width(self, cls):
+        brand = self._brand()
+        assert cls not in brand, brand
+
+    def test_and_it_is_the_same_word_at_the_same_size(self):
+        """
+        No font-size of its own, so it keeps the 30px every anchor in the bar
+        gets from layout.css. A rule here would be a second place to change it.
+        """
+        brand = self._brand()
+        assert "BLISSFLIXX" in brand, brand
+        assert "font-size" not in brand, brand
+
+
 class TestThereIsNoChannelsPage:
     def test_the_top_bar_does_not_advertise_one(self):
         source = code(TOPNAV)
