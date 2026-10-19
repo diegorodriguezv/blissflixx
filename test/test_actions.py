@@ -68,17 +68,21 @@ class TestControlSurfaceMatches:
     def test_playbar_exists(self):
         assert PLAYBAR.is_file(), PLAYBAR
 
-    def test_the_only_ui_actions_vlc_drops_are_the_ones_it_cannot_do(self):
+    def test_every_ui_action_reaches_a_backend(self):
         """
-        The playbar carries subtitle-delay buttons, because some backends can
-        do that and the panel is one page for all of them. VLC's cli has no verb
-        for it, so it does not advertise the capability and those two buttons do
-        nothing here.
+        Every action the playbar can send has a branch in control(), so nothing
+        is offered that the backend silently drops.
 
-        Named rather than asserted empty, so a button that stops working for any
-        other reason fails instead of passing.
+        The subtitle-delay buttons were the long-standing exception: VLC's cli
+        has no verb for the delay, so the backend did not advertise the
+        capability and those two went nowhere. They are reached now, because the
+        delay is moved by simulating VLC's own hotkey.
+
+        Written as an explicit set when the buttons did nothing, so that one
+        stopping for any other reason failed rather than passing. It came out
+        empty, and this is what keeps it that way.
         """
-        assert ui_actions() - SERVER_ACTIONS == {"subplus", "subminus"}
+        assert ui_actions() - SERVER_ACTIONS == set()
 
     def test_every_server_action_is_reachable(self):
         """
@@ -88,7 +92,12 @@ class TestControlSurfaceMatches:
         assert SERVER_ACTIONS - ui_actions() == set()
 
     def test_the_set_is_the_expected_size(self):
-        assert len(SERVER_ACTIONS) == 15, sorted(SERVER_ACTIONS)
+        """
+        A floor as much as a count: an action that loses its branch in control()
+        without losing its button is what this catches. Two more than the
+        fifteen it was, because the subtitle-delay pair is reached now.
+        """
+        assert len(SERVER_ACTIONS) == 17, sorted(SERVER_ACTIONS)
 
     def test_the_remote_panel_is_where_they_live(self):
         """
@@ -108,9 +117,10 @@ class TestBackendCapabilityReporting:
 
     def test_the_key_backend_declares_every_capability_it_can(self):
         """
-        Every capability except subtitle delay, which VLC's cli interface has
-        no verb for -- so it does not advertise it, and the buttons are hidden
-        rather than shown and ineffective.
+        Every capability, now including subtitle delay: VLC's cli has no verb
+        for it, but it has a "key" command that simulates a hotkey press, and
+        the subtitle-delay hotkey moves the variable VLC renders with. See
+        VlcProcess._shift_subtitle_delay.
 
         Stated as the set it is rather than as everything, so a capability
         quietly dropped for a good reason has to be named here rather than
@@ -119,7 +129,7 @@ class TestBackendCapabilityReporting:
         from lib.player.backend import ALL_CAPABILITIES
 
         missing = {c for c in ALL_CAPABILITIES if not VlcProcess().supports(c)}
-        assert missing == {"subtitle_delay"}, missing
+        assert missing == set(), missing
 
     def test_ui_has_more_actions_than_there_are_capabilities(self):
         """

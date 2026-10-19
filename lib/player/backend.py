@@ -45,10 +45,11 @@ CAP_AUDIO_TRACK = "audio_track"
 #: drift apart. Distinct from CAP_SUBTITLES, which is about which track is
 #: showing at all.
 #:
-#: mpv does this over IPC. VLC's
-#: cli interface has no verb for it -- the whole command table, read from the
-#: source, has no sub-delay and no marq -- so VLC does not declare this even
-#: though its desktop GUI has a control for it.
+#: mpv does this over IPC. VLC's cli interface has no verb for it -- the whole
+#: command table has no sub-delay -- but it has a "key" command that simulates
+#: a hotkey press, and the subtitle-delay hotkey moves exactly the variable VLC
+#: renders with. So this is declared for both, arrived at differently; see
+#: VlcProcess._shift_subtitle_delay.
 CAP_SUBTITLE_DELAY = "subtitle_delay"
 
 ALL_CAPABILITIES = frozenset(

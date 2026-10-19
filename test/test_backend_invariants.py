@@ -373,6 +373,7 @@ class TestReadmeMatchesTheCode:
             "sub_margin",
             "volume_step",
             "volume_max",
+            "subtitle_delay_step",
         },
     }
 

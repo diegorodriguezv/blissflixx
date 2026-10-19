@@ -38,6 +38,7 @@ from .backend import (
     CAP_PAUSE,
     CAP_SEEK,
     CAP_STOP,
+    CAP_SUBTITLE_DELAY,
     CAP_SUBTITLES,
     CAP_VOLUME,
     PlayerBackend,
@@ -338,6 +339,29 @@ def _volume_units(percent):
 #: The same ceiling in VLC's units, for the volume_max setting. 120% is 307.
 _VOLUME_MAX = _volume_units(_VOLUME_MAX_PERCENT)
 
+#: How far VLC moves its subtitle delay per hotkey press. Not a choice: it is
+#: what the hotkey does, there is no finer control, and no way to ask for an
+#: amount directly -- so a step that is not a multiple of this is rounded to
+#: whole presses and the overlay reports the rounded figure. Measured on the Pi:
+#: fifteen presses put the delay at 0.75s and eight of the other way took 0.50s
+#: back down, which is 50ms each, and negative values are allowed.
+_SUBDELAY_QUANTUM = 0.05
+
+
+def _subtitle_delay_presses(step):
+    """
+    How many hotkey presses one press of the button is worth.
+
+    Rounded rather than truncated, and never zero: a step smaller than VLC's own
+    50ms still has to move something rather than silently doing nothing, which
+    would be the button-that-does-nothing this whole mechanism exists to avoid.
+    """
+    try:
+        presses = int(round(float(step) / _SUBDELAY_QUANTUM))
+    except (TypeError, ValueError):
+        return 1
+    return max(1, presses)
+
 
 def _track_label(name, chosen, language=None):
     """
@@ -430,7 +454,7 @@ class VlcProcess(PlayerBackend):
             CAP_SEEK,
             CAP_VOLUME,
             CAP_SUBTITLES,
-            CAP_AUDIO_TRACK,
+            CAP_SUBTITLE_DELAY,
         }
     )
 
@@ -552,6 +576,16 @@ class VlcProcess(PlayerBackend):
         # read as no change at all.
         "volume_step": 10,
         "volume_max": _VOLUME_MAX,
+        # How far one press of the subtitle-delay buttons moves the timing.
+        # Quarter of a second, the same as mpv's, because the buttons are the
+        # same buttons.
+        #
+        # VLC's own granularity is 50ms and there is no finer control, so a
+        # step is rounded to whole presses and the overlay reports what was
+        # actually sent. This being a setting rather than a constant is what
+        # makes the finer grid reachable: quarter-second steps cannot land on a
+        # film that is out by 0.4s, but a 0.05 step can.
+        "subtitle_delay_step": 0.25,
     }
 
     def __init__(self, config=None):
@@ -576,6 +610,13 @@ class VlcProcess(PlayerBackend):
         # on it has to reach back to this to say "[off] Track 1" rather than
         # "[off] subtitle". See _showing_track_name.
         self._track_showing = {}
+        # The subtitle delay in force, in seconds. VLC's cli cannot read its own
+        # back -- the delay is an input variable and the command table has no
+        # verb for it -- so this is what was sent, accumulated. The presses are
+        # the only thing that moves it and the offset lives on the input, so a
+        # seek and a track change leave the two agreeing; a new film gets a new
+        # input and a new player, and both start at zero.
+        self._subtitle_delay = 0.0
         # Whether the player has answered the listing for this verb at all. A
         # film with no tracks answers with an empty listing, so "answered, and
         # there was nothing there" has to be told from "never asked" -- only the
@@ -927,6 +968,35 @@ class VlcProcess(PlayerBackend):
             except (OSError, ValueError):
                 return None
             return self._collect_reply()
+
+    def _send_commands(self, commands):
+        """
+        Write several commands at once and collect one reply.
+
+        Only for commands that answer nothing, which is the burst of hotkey
+        presses and nothing else. Each command costs _REPLY_SETTLE to collect on
+        its own -- three tenths of a second for one that says nothing -- so five
+        of them one after another would hold the request thread for a second and
+        a half, and a subtitle-delay button that took that long would read as
+        broken. Written together, the burst costs the same one settle.
+
+        Holding the lock across the whole write is what keeps another thread's
+        command from landing in the middle of it. The interface reads whole
+        lines, and a burst of unpaced lines is applied in full: twenty of them
+        moved the delay by exactly a second, measured.
+        """
+        with self._command_lock:
+            proc = getattr(self, "proc", None)
+            if proc is None or proc.poll() is not None:
+                return False
+            payload = "".join(command + "\n" for command in commands)
+            try:
+                proc.stdin.write(payload.encode("utf-8"))
+                proc.stdin.flush()
+            except (OSError, ValueError):
+                return False
+            self._collect_reply()
+            return True
 
     def _collect_reply(self, settle=_REPLY_SETTLE):
         """
@@ -1298,6 +1368,11 @@ class VlcProcess(PlayerBackend):
         elif action == "prev_audio":
             self._step_track("atrack", -1)
             self._show_overlay(self._audio_label(), hold=_CONFIRM_HOLD)
+        elif action in ("subplus", "subminus"):
+            self._show_overlay(
+                self._subtitle_delay_label(1 if action == "subplus" else -1),
+                hold=_CONFIRM_HOLD,
+            )
 
     def _show_overlay(self, text, hold=None):
         """
@@ -1356,6 +1431,54 @@ class VlcProcess(PlayerBackend):
                 "audio", _TRACK_DISABLED, self._showing_track_name("atrack")
             )
         return _track_label("audio", chosen, self._track_language("atrack"))
+
+    def _subtitle_delay_label(self, direction):
+        """
+        What the overlay says after a subtitle-delay press.
+
+        Says nothing about timing when there is no subtitle on screen to have
+        any. The delay belongs to the selected track rather than to the film:
+        measured on the Pi, four presses with the track switched off left VLC's
+        delay at zero. Moving it there would be a change nobody could see and
+        that the overlay would have claimed, so the press is declined and the
+        reason given instead.
+
+        The word for a film with no subtitle tracks at all is the same one the
+        subtitle buttons use -- it is the same fact about the film.
+        """
+        chosen = self._track_choice.get("strack")
+        if self._no_tracks("strack"):
+            return "no subtitles"
+        if chosen is None or chosen < 0:
+            return "Subtitles are off"
+        delay = self._shift_subtitle_delay(direction)
+        if not delay:
+            return "Subtitles in sync"
+        return "Subtitles %+.2fs" % delay
+
+    def _shift_subtitle_delay(self, direction):
+        """
+        Move the subtitle timing a step and report where it landed.
+
+        VLC's cli has no verb for this -- the command table has no sub-delay --
+        so it is done the way the desktop control does it, by simulating the
+        hotkey. "key" is not in the printed help either, but it is in the lua,
+        and a hotkey press is a hotkey press: each one moves the delay VLC
+        actually renders subtitles with by exactly 50ms, negative values are
+        allowed, and the offset survives a seek and a track change. It is that
+        variable and not a copy of it -- read back over VLC's http interface,
+        six presses showed 0.30s and it was still 0.30s after a seek, and after
+        hiding and showing the subtitles.
+
+        Returns the delay in force now, in seconds. The step is rounded to whole
+        presses, so this is not always the number the setting names.
+        """
+        presses = _subtitle_delay_presses(self.opt("subtitle_delay_step"))
+        hotkey = "key key-subdelay-" + ("up" if direction > 0 else "down")
+        self._send_commands([hotkey] * presses)
+        moved = presses * _SUBDELAY_QUANTUM
+        self._subtitle_delay = round(self._subtitle_delay + direction * moved, 3)
+        return self._subtitle_delay
 
     def _expire_overlay(self, text, hold):
         """

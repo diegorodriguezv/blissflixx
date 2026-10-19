@@ -997,27 +997,28 @@ class TestVlcControl:
         """
         assert VlcProcess().stdin_pipe is True
 
-    def test_vlc_declares_everything_except_subtitle_delay(self):
+    def test_vlc_declares_every_capability(self):
         """
         Pinned as an explicit set rather than a length, so gaining or losing a
         capability has to be a deliberate edit here.
 
-        VLC is exactly one behind mpv. The gap is
-        subtitle delay: this VLC's cli interface has no verb for it. The whole
-        command table, read from the source, has no sub-delay and no marq --
-        only the desktop GUI has a control, and there is no GUI on a headless
-        box. Declared honestly so the UI can hide the buttons rather than
-        offering ones that do nothing.
+        VLC used to be exactly one behind mpv: subtitle delay, because this
+        VLC's cli interface has no verb for it. It has none for the delay, still
+        -- but it does have a "key" command that simulates a hotkey press, and
+        the subtitle-delay hotkey moves the very variable VLC renders with, so
+        the capability is real and is declared. See
+        VlcProcess._shift_subtitle_delay for what was measured.
+
+        The two backends agreeing is the point of the test: the UI carries one
+        set of controls, so a capability either of them lacks has to be a
+        deliberate statement rather than a silent difference.
         """
-        from lib.player.backend import ALL_CAPABILITIES, CAP_SUBTITLE_DELAY
+        from lib.player.backend import ALL_CAPABILITIES
         from lib.player.mpvproc import MpvProcess
 
         missing = ALL_CAPABILITIES - VlcProcess().capabilities
-        assert missing == {CAP_SUBTITLE_DELAY}, missing
-        assert VlcProcess().capabilities == MpvProcess().capabilities - {
-            CAP_SUBTITLE_DELAY
-        }
-        assert len(VlcProcess().capabilities) < len(ALL_CAPABILITIES)
+        assert missing == set(), missing
+        assert VlcProcess().capabilities == MpvProcess().capabilities
 
 
 class _FakeStdin:
@@ -1808,6 +1809,30 @@ class TestEmbeddedSubtitlesAreEnabledOnStart:
         assert "-r" not in cmd
 
 
+def _delay_press_proc(step=None):
+    """
+    A VlcProcess that records subtitle-delay bursts instead of writing them.
+
+    A subtitle track is selected and listed, because that is the state the delay
+    works in: VLC applies it to the selected track, and four presses with no
+    track selected were measured to move nothing at all.
+    """
+    proc = VlcProcess({} if step is None else {"subtitle_delay_step": step})
+    shown = []
+    sent = []
+
+    def send(commands):
+        sent.append(list(commands))
+        return True
+
+    proc._show_overlay = lambda text, hold=None: shown.append(text)
+    proc._send_commands = send
+    proc._track_choice["strack"] = 1
+    proc._track_listing["strack"] = [-1, 1]
+    proc._tracks_answered["strack"] = True
+    return proc, shown, sent
+
+
 class TestWhatTheOverlaySays:
     """
     The wording of a confirmation, which is the only thing the person watching
@@ -2145,6 +2170,89 @@ class TestWhatTheOverlaySays:
         silent.control("next_audio")
 
         assert shown == ["no audio"], shown
+
+    def test_one_press_of_the_delay_moves_a_step_and_says_so(self):
+        """
+        VLC's own hotkey moves the subtitle delay 50ms at a time and it cannot
+        be asked for an amount, so a quarter-second step is five presses. They
+        go out together: five separate commands would each cost the reply settle
+        and hold the button for a second and a half.
+        """
+        proc, shown, sent = _delay_press_proc()
+
+        proc.control("subplus")
+
+        assert sent == [["key key-subdelay-up"] * 5], sent
+        assert shown == ["Subtitles +0.25s"], shown
+
+    def test_the_pair_returns_to_sync(self):
+        """
+        Later then earlier comes back to where it started, which is what pressing
+        the two buttons in a row should do -- and the overlay says so rather than
+        naming a zero offset.
+        """
+        proc, shown, sent = _delay_press_proc()
+
+        proc.control("subplus")
+        proc.control("subplus")
+        proc.control("subminus")
+        proc.control("subminus")
+
+        assert shown == [
+            "Subtitles +0.25s",
+            "Subtitles +0.50s",
+            "Subtitles +0.25s",
+            "Subtitles in sync",
+        ], shown
+        assert sent[2] == ["key key-subdelay-down"] * 5, sent
+
+    @pytest.mark.parametrize(
+        "step,presses",
+        [
+            (0.05, 1),
+            (0.1, 2),
+            (0.25, 5),
+            (0.3, 6),
+            ("0.05", 1),
+            # A step VLC cannot express still has to move something rather than
+            # being a button that does nothing.
+            ("junk", 1),
+        ],
+    )
+    def test_the_step_is_rounded_to_whole_presses(self, step, presses):
+        proc, shown, sent = _delay_press_proc(step)
+
+        proc.control("subplus")
+
+        assert sent == [["key key-subdelay-up"] * presses], sent
+        assert shown == ["Subtitles %+.2fs" % (presses * 0.05)], shown
+
+    def test_the_delay_is_declined_when_there_is_nothing_to_delay(self):
+        """
+        The delay belongs to the selected subtitle track, not to the film:
+        measured on the Pi, four presses with no track selected left VLC's delay
+        at zero. So the press says why it did nothing rather than moving
+        something nobody can see -- and sends nothing, so the offset being
+        tracked cannot drift away from the player's.
+        """
+        hidden, shown, sent = _delay_press_proc()
+        hidden._track_choice["strack"] = -1
+
+        hidden.control("subplus")
+        hidden.control("subminus")
+
+        assert shown == ["Subtitles are off", "Subtitles are off"], shown
+        assert sent == [], sent
+
+        # A film with no subtitle tracks at all: the player answered, and there
+        # was nothing in the listing.
+        silent, shown, sent = _delay_press_proc()
+        silent._track_listing.pop("strack", None)
+
+        silent.control("subplus")
+
+        assert shown == ["no subtitles"], shown
+        assert sent == [], sent
 
     def test_the_overlay_shows_a_percentage_not_vlcs_own_scale(self):
         proc = _running()

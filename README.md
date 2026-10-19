@@ -382,7 +382,7 @@ The full set of keys, and their defaults, is each backend's `defaults` dict:
 
 | Backend | Keys |
 |---|---|
-| `vlc` | `binary`, `extra_args`, `audio_device`, `video_output`, `video_output_module`, `fast_seek`, `subtitle_text_scale`, `start_timeout`, `report_progress`, `osd_overlay`, `osd_refresh`, `osd_position`, `osd_size`, `osd_opacity`,  `sub_margin`, `volume_step`, `volume_max` |
+| `vlc` | `binary`, `extra_args`, `audio_device`, `video_output`, `video_output_module`, `fast_seek`, `subtitle_text_scale`, `start_timeout`, `report_progress`, `osd_overlay`, `osd_refresh`, `osd_position`, `osd_size`, `osd_opacity`,  `sub_margin`, `volume_step`, `volume_max`, `subtitle_delay_step` |
 
 `extra_args` replaces the built-in flag list rather than adding to it, so a flag
 the backend always passes can be removed by naming the list without it.
@@ -392,6 +392,12 @@ costs a little precision — up to a GOP — and buys a picture that keeps movin
 when two seeks arrive in quick succession. Without it the decoder wedges
 (`Timestamp conversion failed`) and the film freezes on its last frame while the
 clock keeps running, so the elapsed time advances and nothing is playing.
+
+`subtitle_delay_step` is how far one press of the playbar's subtitle-delay
+buttons moves the timing. VLC's floor is 50 ms and it cannot be asked for an
+amount, so a step is rounded to whole multiples of that and the confirmation
+shows the offset actually in force. The default quarter second matches mpv;
+set it to `0.05` when a film needs an offset the quarter-second grid misses.
 
 A key the backend does not recognise is logged and ignored, so a settings file
 written for a different version stays usable.
