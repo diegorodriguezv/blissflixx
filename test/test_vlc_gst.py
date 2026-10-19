@@ -1826,6 +1826,13 @@ class TestWhatTheOverlaySays:
             ("| 4 - [Spaeth]", "Spaeth"),
             # Trailing bits that are not part of the name.
             ("| 5 - Spanish - [Spanish]", "Spanish"),
+            # The asterisk VLC puts on the track that is playing. It is a marker
+            # and not part of the name, and the pattern that strips one off after
+            # a bracketed language leaves it in place when there is no language,
+            # so a track named only by the file read as "Track 1 *" -- which is
+            # what the overlay said.
+            ("| 1 - Track 1 *", "Track 1"),
+            ("| 0 - Commentary *", "Commentary"),
         ],
     )
     def test_the_language_is_taken_from_the_listing(self, line, expected):

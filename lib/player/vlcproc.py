@@ -116,11 +116,21 @@ def _track_language(line):
 
     Returns None when there is nothing to show, which is what makes the caller
     fall back to the plain word rather than to an empty "[on] ".
+
+    A listing marks the track that is playing with a trailing asterisk:
+
+        | -1 - Disable *
+        |  2 - English (CC) - [English] *
+
+    That is a marker and not part of the name. It has to come off before the
+    bracketed-language patterns below are tried, because those only remove an
+    asterisk that follows a language -- given a track whose name is all VLC has,
+    "| 1 - Track 1 *" was read as the name "Track 1 *" and the overlay said it.
     """
     found = _TRACK_NAME.match(line.strip())
     if not found:
         return None
-    rest = found.group(2).strip()
+    rest = re.sub(r"\s*\*\s*$", "", found.group(2).strip())
     bracketed = re.search(r"\[([^\]]+)\]\s*\*?\s*$", rest)
     plain = re.sub(r"\s*\[[^\]]*\]\s*\*?\s*$", "", rest).strip()
     if bracketed:
