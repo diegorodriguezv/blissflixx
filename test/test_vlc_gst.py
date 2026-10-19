@@ -503,6 +503,21 @@ class TestVlcControl:
         )
         assert proc._decoded_frames() == 268
 
+    def test_the_decoder_count_is_read_rather_than_the_displayed_one(self):
+        """
+        "frames displayed" counts what reached the video output, so it reads
+        zero on a Pi running headless -- drm_vout cannot get a display lease
+        there and says so, with the film playing perfectly well. Measured on
+        rpi: 435 decoded, 0 displayed. Reading that counter would report every
+        seek on such a box as a stall.
+        """
+        proc = VlcProcess()
+        proc._send_and_collect = lambda command: [
+            "| video decoded    :      435",
+            "| frames displayed :        0",
+        ]
+        assert proc._decoded_frames() == 435
+
     def test_a_seek_that_starts_the_film_again_reports_the_position(self):
         proc, sent = self._seeking([900, 1240])
         proc._stalled(30)

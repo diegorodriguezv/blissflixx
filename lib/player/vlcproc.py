@@ -197,6 +197,13 @@ _NUMBER_ALONE = re.compile(r"^(?:\s*>\s*)*\(?\s*(\d+(?:\.\d+)?)\s*\)?\s*$")
 #: keeps advancing when the decoder has stopped, which is why a frozen film used
 #: to report a fresh elapsed time and read as a seek that had worked.
 #:
+#: "video decoded" rather than the "frames displayed" printed next to it. That
+#: one counts what reached the video output, so it stays at zero whenever the
+#: vout has no display to put them on -- which is the case on a Pi running
+#: headless, where drm_vout cannot get a lease and says so, and where the film is
+#: playing perfectly well. Reading that counter would report every seek on such
+#: a box as a stall. The decoder's own count is the one that means what we mean.
+#:
 #: The reply is the statistical tree the cli interface prints, one counter per
 #: line with a pipe in front of it:
 #:
