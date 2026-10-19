@@ -439,6 +439,34 @@ Cloudflare challenge page, and the only client that then works needs a Vimeo
 login, so the Vimeo channel was removed rather than left listing videos that
 all fail. A channel is only worth having if its items play.
 
+## YouTube
+
+YouTube answers a Raspberry Pi with "sign in to confirm you're not a bot" often
+enough that it is worth saying what does and does not help.
+
+`configure.sh` installs `quickjs` so yt-dlp can run YouTube's JavaScript
+challenges. Without a runtime yt-dlp warns and extraction is degraded. The node
+in Raspberry Pi OS is version 20 and yt-dlp refuses anything below 22, so naming
+node alone -- which is what this used to do -- bought nothing on a Pi. The
+warning is worth reading rather than scrolling past.
+
+Being signed in is the other half, and the box has no browser to read cookies
+from. Export a Netscape-format `cookies.txt` for youtube.com from a browser that
+is signed in (the "Get cookies.txt LOCALLY" extension does it in one click) and
+copy it to:
+
+    data/cookies.txt
+
+yt-dlp is handed `--cookies` whenever that file exists, and no flag at all when
+it does not, so the file is the whole switch. It lives under `data/`, which git
+ignores.
+
+Neither is a promise. YouTube rate-limits by address as well as by account, so a
+house that has been streaming all evening can be told to sign in with cookies
+that are perfectly good; then the answer is to wait. The updater's smoke test
+resolves an archive.org video rather than a YouTube one for exactly this reason:
+a test that fails because of YouTube says nothing about yt-dlp.
+
 # Plugins
 
 Channels that are separate projects live in `plugins/`, which is not part of this

@@ -111,6 +111,8 @@ def ytdlp_smoke_test():
             "yt_dlp",
             "--js-runtimes",
             "node",
+            "--js-runtimes",
+            "quickjs",
             "--simulate",
             "--no-playlist",
             "--skip-download",

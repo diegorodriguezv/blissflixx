@@ -96,15 +96,47 @@ class TestYoutubeDl:
         """
         yt-dlp stopped assuming one. With no --js-runtimes it looks for deno
         alone, and on a machine without it YouTube extraction is deprecated and
-        returns nothing at all. Node is what configure.sh already installs, by
-        way of npm, for peerflix.
+        returns nothing at all.
+
+        Two are named because neither alone is enough: yt-dlp refuses node below
+        version 22, and the node in Raspberry Pi OS is 20, so node by itself was
+        a runtime yt-dlp rejected without saying so outside a warning. quickjs
+        is the one configure.sh installs and the one that actually clears the
+        minimum here.
 
         Naming a runtime that is not there is safe: yt-dlp says "Ignoring
         unsupported JavaScript runtime(s)" and carries on.
         """
         cmd = YoutubeDlProcess(SHORT_URL)._get_cmd({})
-        assert "--js-runtimes" in cmd, cmd
-        assert cmd[cmd.index("--js-runtimes") + 1] == "node", cmd
+        runtimes = [cmd[i + 1] for i, a in enumerate(cmd) if a == "--js-runtimes"]
+        assert runtimes == ["node", "quickjs"], cmd
+
+    def test_a_cookies_file_is_used_when_there_is_one(self, tmp_path, monkeypatch):
+        """
+        YouTube answers a Pi with "sign in to confirm you're not a bot", and the
+        only way past it is an account that is signed in. There is no browser on
+        the box to read cookies from, so the file has to be carried over; see
+        the README.
+
+        The file being present is the whole switch, so its absence has to be
+        the old behaviour exactly.
+        """
+        import lib.player.ytdlproc as ytdl_module
+
+        jar = tmp_path / "cookies.txt"
+        jar.write_text("# Netscape HTTP Cookie File\n", encoding="utf-8")
+
+        monkeypatch.setattr(ytdl_module, "COOKIES_PATH", str(jar))
+        cmd = YoutubeDlProcess(SHORT_URL)._get_cmd({})
+        assert cmd[cmd.index("--cookies") + 1] == str(jar), cmd
+
+    def test_no_cookies_file_means_no_cookies_flag(self, tmp_path, monkeypatch):
+        import lib.player.ytdlproc as ytdl_module
+
+        monkeypatch.setattr(
+            ytdl_module, "COOKIES_PATH", str(tmp_path / "does-not-exist.txt")
+        )
+        assert "--cookies" not in YoutubeDlProcess(SHORT_URL)._get_cmd({})
 
     def test_url_is_last(self):
         url = SHORT_URL

@@ -25,5 +25,12 @@ DATA_PATH = str(_ROOT / "data")
 BIN_PATH = str(_ROOT / "bin")
 PLIST_PATH = str(_ROOT / "data" / "playlists")
 SETTINGS_PATH = str(_ROOT / "data" / "settings")
+#: A Netscape cookies.txt, if the user has put one there.
+#:
+#: Not a setting. It is a credential rather than configuration, and it belongs
+#: somewhere git already ignores -- data/ is. yt-dlp passes it to the sites that
+#: will not talk to a Raspberry Pi without one; absent is the normal case and
+#: changes nothing. See lib/player/ytdlproc.py.
+COOKIES_PATH = str(_ROOT / "data" / "cookies.txt")
 CHAN_PATH = str(_ROOT / "chls")
 PLUGIN_PATH = str(_ROOT / "plugins")

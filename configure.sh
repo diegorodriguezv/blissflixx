@@ -87,6 +87,20 @@ else
     apt -y install npm
     stage "npm (and nodejs)"
 
+    # A JavaScript runtime for yt-dlp's YouTube extraction.
+    #
+    # Not the nodejs above: yt-dlp refuses node below version 22, and the node
+    # in Raspberry Pi OS is 20, so naming node as the runtime buys nothing here.
+    # quickjs is small and it is in the distribution, and its current build
+    # clears the minimum yt-dlp asks for (2023-12-09).
+    #
+    # Its own line so that a distribution without it cannot take npm, and the
+    # peerflix installed with it, down too. yt-dlp ignores a runtime it cannot
+    # use rather than failing, so a machine where this does not install is a
+    # machine with degraded YouTube extraction and everything else working.
+    apt -y install quickjs
+    stage "quickjs"
+
     # Install default fonts for subtitles
     apt install fonts-freefont-ttf
     stage "subtitle fonts"

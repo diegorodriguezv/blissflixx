@@ -1,6 +1,8 @@
 import json
+import os
 import sys
 
+from ..locations import COOKIES_PATH
 from . import ythelper
 from .processpipe import OUT_FILE, ExternalProcess, ProcessException
 
@@ -51,14 +53,23 @@ class YoutubeDlProcess(ExternalProcess):
             # Which JavaScript runtime to use, if any. yt-dlp stopped assuming
             # one: with no --js-runtimes it looks for deno alone, and on a
             # machine without it, YouTube extraction is deprecated and returns
-            # nothing at all. Node is what configure.sh already installs, by way
-            # of npm, for peerflix.
+            # nothing at all.
             #
-            # Safe to name a runtime that is not there: yt-dlp says
-            # "Ignoring unsupported JavaScript runtime(s)" and carries on, so
-            # this cannot turn a working machine into a broken one.
+            # Two are named because neither alone is enough. yt-dlp refuses node
+            # below version 22, and the node in Raspberry Pi OS is 20 -- so
+            # naming node alone, which is what this did, bought nothing at all
+            # on the Pi and said so only in a warning nobody reads until a video
+            # fails. quickjs is the one configure.sh installs: it is small, it
+            # is in the distribution, and the current build clears yt-dlp's
+            # 2023-12-09 minimum.
+            #
+            # Safe to name runtimes that are not there: yt-dlp says "Ignoring
+            # unsupported JavaScript runtime(s)" and carries on, so this cannot
+            # turn a working machine into a broken one.
             "--js-runtimes",
             "node",
+            "--js-runtimes",
+            "quickjs",
             "--no-part",
             "--no-continue",
             "--no-playlist",
@@ -66,6 +77,20 @@ class YoutubeDlProcess(ExternalProcess):
             "--output",
             OUT_FILE,
         ]
+
+        if os.path.isfile(COOKIES_PATH):
+            # A cookies file, when one has been put there.
+            #
+            # YouTube answers a Raspberry Pi with "sign in to confirm you're not
+            # a bot", and that is not something a version of yt-dlp fixes: it
+            # wants an account that is signed in. There is no browser on the box
+            # to read one out of, so the only way to have one is to carry it
+            # over -- a Netscape cookies.txt exported from a browser that is
+            # signed in, put at COOKIES_PATH. See the README.
+            #
+            # Absent is the normal case, and then no flag is passed at all, so a
+            # box that has never needed this behaves exactly as it did.
+            cmd += ["--cookies", COOKIES_PATH]
 
         if ythelper.skip_download(url):
             cmd.append("--simulate")
