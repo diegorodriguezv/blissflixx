@@ -6,7 +6,7 @@
           <!-- opts.msg when there is one, so reboot and shutdown can be said in
                this bar rather than in a second one that has to be positioned and
                styled and reasoned about separately. -->
-          <span class="truncate error-msg">{ opts.msg || opts.status.Msg }</span>
+          <span class="truncate error-msg">{ opts.msg || opts.status.Notice || opts.status.Msg }</span>
         </li>
       </ul>
       <ul show={ !opts.status.Restart && !opts.msg } class="navitems navitems-right">

@@ -1,3 +1,4 @@
+from collections import namedtuple
 from queue import Full, Queue
 
 import cherrypy
@@ -45,6 +46,20 @@ _PLAY_JOIN_TIMEOUT = 5
 MSG_PLAYER_PLAY = 1
 MSG_PLAYER_STOP = 2
 MSG_PLAYER_QUIT = 3
+#: Move to the neighbouring item of the playlist this film came from. The
+#: direction follows as its own message, the way a play is followed by its pipe.
+MSG_PLAYER_SKIP = 5
+
+#: One queued play: the pipeline to start, and where it sits in a playlist when
+#: it came from one.
+#:
+#: One object rather than a message each, for two reasons. A pipe and a playlist
+#: must never be paired with different films -- a play arriving while another is
+#: ending is exactly when that could happen -- and a play has to cost the two
+#: queue slots that _PLAY_QUEUE_SIZE is sized on, so that a stalled loop still
+#: refuses a play rather than blocking the request thread on the second half of
+#: one.
+_Play = namedtuple("_Play", "pipe playlist index")
 
 
 class _Player:
@@ -55,16 +70,93 @@ class _Player:
         self.main_thread = None
         self.error = None
         self.paused = False
+        #: Where the film playing came from, when it came from a playlist: the
+        #: list of builders for every item, and which one this is. The list goes
+        #: with the film rather than living here, so a play asked for while this
+        #: one is ending cannot make the wrong list advance -- see _play().
+        self.playlist = None
+        self.index = None
+        #: Something to say that is not a failure of the play in progress: an
+        #: item skipped, or the end of a playlist reached. Kept apart from
+        #: self.error because that one means nothing is playing -- see status().
+        self.notice = None
 
     def _stop(self):
         if self.play_pipe:
             self.play_pipe.stop()
 
-    def _play(self, pipe):
+    def _play(self, play):
         self.error = None
         self.paused = False
-        self.play_pipe = pipe
-        self.play_thread = _start_thread(pipe.start, self.msgq)
+        self.play_pipe = play.pipe
+        self.playlist = play.playlist
+        self.index = play.index
+        self.play_thread = _start_thread(play.pipe.start, self.msgq)
+
+    def _clear_place(self):
+        """
+        Forget which playlist this film belonged to.
+
+        What ends a run: the films after this one stop being lined up, and the
+        film playing stops being one of a series.
+        """
+        self.playlist = None
+        self.index = None
+
+    def _neighbour_index(self, delta):
+        """
+        Where the neighbouring item is, or None when there is not one.
+
+        None covers both the end of the list and a film that is not in a
+        playlist at all, which are the same thing from here.
+        """
+        if self.playlist is None or self.index is None:
+            return None
+        target = self.index + delta
+        if target < 0 or target >= len(self.playlist):
+            return None
+        return target
+
+    def _adjacent(self, delta):
+        """
+        The neighbouring item as a play, or None when there is not one.
+
+        Built rather than enqueued because the caller is the loop itself, so it
+        is handed to _play() exactly as a play that arrived on the queue is.
+        """
+        index = self._neighbour_index(delta)
+        if index is None:
+            return None
+        return _Play(self.playlist[index](), self.playlist, index)
+
+    def _no_neighbour(self, delta):
+        """Why there is nothing to skip to, in words."""
+        if self.playlist is None:
+            return "Not playing a playlist"
+        return "End of playlist" if delta > 0 else "Start of playlist"
+
+    def _after(self, title, ended):
+        """
+        What plays next, if anything, once a film has stopped.
+
+        A film that ended moves a playlist on, and so does one that failed, so
+        that a single dead item cannot end a run. The failure is said out loud,
+        because moving past a film silently is worse than not moving past it.
+
+        Anything else ends the run: a stop has already dropped the place by the
+        time it arrives here, and so has a play that replaced this one -- that
+        one is waiting in front of this, and the loop plays it instead.
+        """
+        index = self._neighbour_index(1)
+        if index is None or not (ended or self.error):
+            self.play_pipe = None
+            self.play_thread = None
+            self._clear_place()
+            return
+        skipped = self.error
+        self._play(_Play(self.playlist[index](), self.playlist, index))
+        if skipped:
+            self.notice = "Skipped %s: %s" % (title, skipped)
 
     def _is_playing(self):
         if self.play_pipe is not None and self.play_pipe.is_started():
@@ -80,7 +172,7 @@ class _Player:
 
     def start(self):
         msgq = self.msgq
-        nextpipe = None
+        nextplay = None
         while True:
             m = msgq.get()
             # Nothing in here may be allowed to end this thread.
@@ -100,15 +192,35 @@ class _Player:
             # single bad message costs one action rather than all of them.
             try:
                 if m == MSG_PLAYER_PLAY:
+                    play = msgq.get()
                     if self.play_pipe is not None:
-                        nextpipe = msgq.get()
+                        nextplay = play
                         self._stop()
                     else:
-                        self._play(msgq.get())
+                        self._play(play)
                 elif m == MSG_PLAYER_STOP:
+                    # Stop means stop. Whatever was lined up behind this film
+                    # goes with it, and so does its place in a playlist --
+                    # otherwise pressing stop is followed by a film that was
+                    # already queued, which is not what the button says.
+                    nextplay = None
+                    self.notice = None
                     self._stop()
+                    self._clear_place()
+                elif m == MSG_PLAYER_SKIP:
+                    delta = msgq.get()
+                    play = self._adjacent(delta)
+                    if play is None:
+                        self.notice = self._no_neighbour(delta)
+                    elif self.play_pipe is not None:
+                        nextplay = play
+                        self._stop()
+                    else:
+                        self._play(play)
                 elif m == MSG_PLAYER_PIPE_STOPPED:
                     self.error = msgq.get()
+                    ended = msgq.get()
+                    title = self.play_pipe.title if self.play_pipe is not None else ""
                     # Bounded, and the state is cleared either way. Waiting on a
                     # thread that may never finish left the loop unable to answer
                     # anything, which is worse than a thread still winding down in
@@ -118,12 +230,11 @@ class _Player:
                     if self.play_thread.is_alive():
                         cherrypy.log("PLAY THREAD DID NOT EXIT")
                     cherrypy.log("PIPE STOPPED")
-                    if nextpipe is not None:
-                        self._play(nextpipe)
-                        nextpipe = None
+                    if nextplay is not None:
+                        self._play(nextplay)
+                        nextplay = None
                     else:
-                        self.play_pipe = None
-                        self.play_thread = None
+                        self._after(title, ended)
                 elif m == MSG_PLAYER_QUIT:
                     self._stop()
                     break
@@ -143,9 +254,15 @@ class _Player:
         """
         return get_backend(load("player").get("backend", DEFAULT_BACKEND))
 
-    def play(self, title, src, subs=None, http=False, dlsrv=True):
-        if self.main_thread is None:
-            self.main_thread = _start_thread(self.start)
+    def build(self, title, src, subs=None, http=False, dlsrv=True):
+        """
+        Assemble a pipeline without starting it.
+
+        Split out from play() so that a pipe can be built somewhere that must
+        not queue one: the loop builds a playlist's next item while it is
+        draining the queue it reads, and play() from there would be a message
+        the loop is waiting to hand to itself.
+        """
         pipe = ProcessPipe(title)
         if subs is not None:
             pipe.add_process(SubtitlesProcess(subs))
@@ -155,7 +272,24 @@ class _Player:
             # piped, which is what lets the player follow it.
             pipe.add_process(DlsrvProcess())
         pipe.add_process(self._player_stage(http, dlsrv))
-        self._enqueue(MSG_PLAYER_PLAY, pipe)
+        return pipe
+
+    def playPipe(self, pipe, playlist=None, index=None):
+        """
+        Queue a pipeline that has already been built.
+
+        playlist and index travel with the pipe rather than being kept here, so
+        the list that advances is the one this film came from even if another
+        play arrives while it is ending.
+        """
+        if self.main_thread is None:
+            self.main_thread = _start_thread(self.start)
+        self._enqueue(MSG_PLAYER_PLAY, _Play(pipe, playlist, index))
+
+    def play(
+        self, title, src, subs=None, http=False, dlsrv=True, playlist=None, index=None
+    ):
+        self.playPipe(self.build(title, src, subs, http, dlsrv), playlist, index)
 
     def _enqueue(self, *items):
         """
@@ -171,8 +305,12 @@ class _Player:
         leave the previous attempt's error on screen. That error used to persist
         for as long as the loop was wedged, and read as though it described the
         play that had just been requested.
+
+        The notice goes with it, for the same reason: asking for something is
+        what makes what happened to the last film stop being news.
         """
         self.error = None
+        self.notice = None
         for item in items:
             try:
                 self.msgq.put(item, timeout=_PLAY_ENQUEUE_TIMEOUT)
@@ -184,30 +322,40 @@ class _Player:
                 cherrypy.log(self.error)
                 raise RuntimeError(self.error)
 
-    def playYtdl(self, url, title=None, subs=None):
+    def playYtdl(self, url, title=None, subs=None, playlist=None, index=None):
+        self.playPipe(self.buildYtdl(url, title, subs), playlist, index)
+
+    def buildYtdl(self, url, title=None, subs=None):
         if title is None:
             title = url
         # True means yt-dlp should only resolve the stream (--simulate), so the
         # bytes are piped straight to the player instead of buffered to disk.
-        pipe_directly = ythelper.skip_download(url)
-        self.play(title, YoutubeDlProcess(url), subs, pipe_directly)
+        return self.build(
+            title, YoutubeDlProcess(url), subs, ythelper.skip_download(url)
+        )
 
     # Dead: RtmpProcess is only reachable from here, and rtmpdump is not
     # installed by configure.sh.
     # def playRtmpdump(self, cmd, title):
     #     self.play(title, RtmpProcess(cmd))
 
-    def playTorrent(self, url, idx, title, subs):
-        self.play(title, PeerflixProcess(url, idx), subs, True)
+    def playTorrent(self, url, idx, title, subs, playlist=None, index=None):
+        self.playPipe(self.buildTorrent(url, idx, title, subs), playlist, index)
+
+    def buildTorrent(self, url, idx, title, subs):
+        return self.build(title, PeerflixProcess(url, idx), subs, True)
 
     # Dead: LivestreamerProcess is only reachable from here, and livestreamer is
     # no longer supported upstream and is not installed by configure.sh.
     # def playLivestream(self, url, title):
     #     self.play(title, LivestreamerProcess(url), http=False, dlsrv=False)
 
-    def playLocalFile(self, filepath, title):
+    def playLocalFile(self, filepath, title, playlist=None, index=None):
+        self.playPipe(self.buildLocalFile(filepath, title), playlist, index)
+
+    def buildLocalFile(self, filepath, title):
         # Local File path behaviour is like http
-        self.play(title, LocalFileProcess(filepath), http=True)
+        return self.build(title, LocalFileProcess(filepath), http=True)
 
     def status(self):
         play_pipe = self.play_pipe
@@ -217,11 +365,18 @@ class _Player:
             "Title": "",
             "Paused": False,
             "Error": False,
+            # Something said about a film other than the one playing -- an item
+            # skipped, or the end of a playlist reached. Apart from Msg, which
+            # along with Error means nothing is playing at all.
+            "Notice": "",
         }
 
         if self.error is not None:
             status["Error"] = True
             status["Msg"] = self.error
+
+        if self.notice is not None:
+            status["Notice"] = self.notice
 
         if play_pipe is None or self.error is not None:
             return status
@@ -238,6 +393,11 @@ class _Player:
     def control(self, action):
         if action == "stop":
             self.msgq.put(MSG_PLAYER_STOP)
+        elif action in ("next_item", "prev_item"):
+            # Not forwarded to the pipe: there is nothing the film can do about
+            # it, it is a different film. Queued like any other play, so the loop
+            # does all the stopping and starting, in the order they arrived.
+            self._enqueue(MSG_PLAYER_SKIP, 1 if action == "next_item" else -1)
         elif self._is_playing():
             self.play_pipe.control(action)
             if action in ("pause", "resume"):

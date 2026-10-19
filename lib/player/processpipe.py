@@ -213,6 +213,12 @@ class ProcessPipe:
         self.next_proc = 0
         self.stopping = False
         self.started = False
+        #: Whether the last stage finished on its own, which is the film ending
+        #: rather than being stopped or failing. Reported to the player with the
+        #: error, because the two are the difference between a playlist moving
+        #: on and a playlist being abandoned: both arrive as a stopped pipe with
+        #: no error. See the MSG_PROCESS_FINISHED branch in start().
+        self.ended = False
         # Which stages have reported what. Both are consulted before the next
         # stage is started, so one stage cannot start two.
         self._ready_seen = set()
@@ -296,6 +302,18 @@ class ProcessPipe:
                 cherrypy.log("FINISHED: " + name)
                 self._finished_seen.add(idx)
                 if self._is_last_proc(idx):
+                    # The last stage finishing without an error is the film
+                    # ending. The player is the last stage, and VLC exits on its
+                    # own when the media runs out, so this is the only path that
+                    # means "it played to the end" rather than "something stopped
+                    # it" -- a stage that failed halts instead, and a pipe
+                    # stopped from outside is killing. What a playlist moves on
+                    # from, so it is recorded rather than dropped by stop() a
+                    # line below.
+                    #
+                    # Not for any other stage: a resolver finishing is the start
+                    # of the work, not the end of it.
+                    self.ended = True
                     self.stop()
                     break
 
@@ -358,6 +376,7 @@ class ProcessPipe:
                 cherrypy.log("GOT ERROR: " + error)
         self.pmsgq.put(MSG_PLAYER_PIPE_STOPPED)
         self.pmsgq.put(error)
+        self.pmsgq.put(self.ended)
 
     def is_started(self):
         return self.started

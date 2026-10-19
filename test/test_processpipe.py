@@ -178,7 +178,26 @@ class TestPipeHappyPath:
 
         collected, _ = drain(pipe)
 
-        assert collected == [MSG_PLAYER_PIPE_STOPPED, None]
+        # The last stage finishing on its own is the film ending, and it is
+        # reported alongside the error because both arrive with no error at all
+        # -- a film that ran out and one that was stopped look identical
+        # otherwise. This is what a playlist moves on from.
+        assert collected == [MSG_PLAYER_PIPE_STOPPED, None, True]
+
+    def test_a_stage_before_the_last_finishing_is_not_the_film_ending(self):
+        """
+        A resolver finishing is the start of the work, not the end of it, so it
+        must not read as a film that ran out.
+        """
+        pipe = ProcessPipe("title")
+        pipe.add_process(FakeProcess("resolve", outcome="ready_then_finished"))
+        pipe.add_process(FakeProcess("play", outcome="ready_then_wait"))
+
+        collected, _ = drain(pipe, timeout=0.5)
+
+        # Nothing reported to the parent at all: the pipe is still going.
+        assert collected == []
+        assert pipe.ended is False
 
     def test_pipe_reaches_started_when_last_process_is_ready(self):
         pipe = ProcessPipe("title")
@@ -205,7 +224,9 @@ class TestPipeErrors:
 
         collected, _ = drain(pipe)
 
-        assert collected == [MSG_PLAYER_PIPE_STOPPED, None]
+        # The third value is whether the film ended. A stage that halted is not
+        # one that ran out, and that is what a playlist must not advance on.
+        assert collected == [MSG_PLAYER_PIPE_STOPPED, None, False]
 
     def test_process_error_is_reported_to_parent(self):
         """

@@ -1,5 +1,5 @@
 <playbar>
-  <playerr show={ powerMsg || (status.Error && !errorClosed) } status={ status } msg={ powerMsg } ></playerr>
+  <playerr show={ powerMsg || ((status.Error || status.Notice) && !errorClosed) } status={ status } msg={ powerMsg } ></playerr>
 
   <div show={ status.State } class="navibar playnav">
     <div class="container">
@@ -50,6 +50,10 @@
               <div show={ status.Paused } class="col-xs-6"><button onclick={ pause } type="button" class="btn btn-info btn-lg btn-block"><i class="fa fa-play"></i> PLAY</button></div>
               <div class="col-xs-6"><button onclick={ stop } type="button" class="btn btn-info btn-lg btn-block"><i class="fa fa-stop"></i> STOP</button></div>
             </div>
+            <div class="row">
+              <div class="col-xs-6"><button onclick={ doPrevItem } type="button" class="btn btn-info btn-lg btn-block"><i class="fa fa-step-backward"></i> PREV ITEM</button></div>
+              <div class="col-xs-6"><button onclick={ doNextItem } type="button" class="btn btn-info btn-lg btn-block"><i class="fa fa-step-forward"></i> NEXT ITEM</button></div>
+            </div>
             </br> 
             <div class="row">
               <div class="col-xs-6"><button onclick={ doVoldown } type="button" class="btn btn-info btn-lg btn-block"><i class="fa fa-volume-down"></i> VOL DOWN</button></div>
@@ -95,7 +99,10 @@
 
     updateStatus() {
       self.status = playerStore.getStatus()
-      if (!self.status.Error) self.errorClosed = false
+      // The bar stays closed once closed until there is nothing to say, so a
+      // notice about a film that has since been dealt with does not come back
+      // on the next poll. Both kinds count, not just errors.
+      if (!self.status.Error && !self.status.Notice) self.errorClosed = false
       if (self.showing && !self.status.State) self.hideRemote()
       self.update()
     }
@@ -170,6 +177,14 @@
 
     doNextAudio(e) {
       self.doAction('next_audio')
+    }
+
+    doPrevItem(e) {
+      self.doAction('prev_item')
+    }
+
+    doNextItem(e) {
+      self.doAction('next_item')
     }
 
     doAction(action) {

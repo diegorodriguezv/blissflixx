@@ -53,13 +53,17 @@ class TestTheOrderOfEvents:
     three times as long.
     """
 
-    def test_the_notice_goes_up_before_the_machine_is_asked_to_go(self, api, monkeypatch):
+    def test_the_notice_goes_up_before_the_machine_is_asked_to_go(
+        self, api, monkeypatch
+    ):
         events = []
 
         monkeypatch.setattr(
             blissflixx.time,
             "sleep",
-            lambda seconds: events.append(("waited", seconds, blissflixx.POWER_MESSAGE)),
+            lambda seconds: events.append(
+                ("waited", seconds, blissflixx.POWER_MESSAGE)
+            ),
         )
         monkeypatch.setattr(
             blissflixx.subprocess,
@@ -146,7 +150,9 @@ class TestWhatEveryTabIsTold:
         monkeypatch.setattr(
             blissflixx.subprocess,
             "run",
-            lambda cmd, **kw: ok(returncode=1, stderr="Failed to power off: Access denied"),
+            lambda cmd, **kw: ok(
+                returncode=1, stderr="Failed to power off: Access denied"
+            ),
         )
 
         result = api.default("server", fn="reboot")
@@ -237,7 +243,9 @@ class TestAPressTwice:
             blissflixx.subprocess, "run", lambda cmd, **kw: asked.append(cmd) or ok()
         )
         monkeypatch.setattr(
-            blissflixx.time, "sleep", lambda s: blissflixx.POWER_MESSAGE or asked.append("waited")
+            blissflixx.time,
+            "sleep",
+            lambda s: blissflixx.POWER_MESSAGE or asked.append("waited"),
         )
 
         api.default("server", fn="reboot")
@@ -255,7 +263,9 @@ class TestAPressTwice:
         assert blissflixx.POWER_MESSAGE == "Rebooting...", blissflixx.POWER_MESSAGE
         assert status_of(api)["Msg"] == "Rebooting...", status_of(api)
 
-    def test_the_refusal_says_what_is_happening_not_what_was_pressed(self, api, monkeypatch):
+    def test_the_refusal_says_what_is_happening_not_what_was_pressed(
+        self, api, monkeypatch
+    ):
         """
         A shutdown is under way and somebody presses reboot. The answer has to
         describe the shutdown.
@@ -288,7 +298,9 @@ class TestTheWordsAreTheOnesThePressedTabShows:
     """
 
     def test_the_server_sends_what_the_pressed_tab_says(self):
-        source = (pathlib.Path(locations.HTML_PATH) / "js" / "PowerStore.js").read_text()
+        source = (
+            pathlib.Path(locations.HTML_PATH) / "js" / "PowerStore.js"
+        ).read_text()
 
         for action, message in blissflixx.POWER_MESSAGES.items():
             assert message in source, (
@@ -306,7 +318,9 @@ class TestTheWordsAreTheOnesThePressedTabShows:
         over a poll that is about to stop answering, while the click is already
         in hand.
         """
-        source = (pathlib.Path(locations.HTML_PATH) / "js" / "PowerStore.js").read_text()
+        source = (
+            pathlib.Path(locations.HTML_PATH) / "js" / "PowerStore.js"
+        ).read_text()
 
         assert "self.msg = action === 'shutdown'" in source, source
 
@@ -350,10 +364,19 @@ class TestATabThatOnlyWatched:
         utils = (pathlib.Path(locations.HTML_PATH) / "js" / "Utils.js").read_text()
 
         with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False) as fh:
-            fh.write(script % {"powerMsg": json.dumps(power_msg), "status": json.dumps(status), "utils": utils})
+            fh.write(
+                script
+                % {
+                    "powerMsg": json.dumps(power_msg),
+                    "status": json.dumps(status),
+                    "utils": utils,
+                }
+            )
             path = fh.name
         try:
-            proc = subprocess.run(["node", path], capture_output=True, text=True, timeout=60)
+            proc = subprocess.run(
+                ["node", path], capture_output=True, text=True, timeout=60
+            )
             assert proc.returncode == 0, proc.stderr
             return json.loads(proc.stdout.strip())
         finally:
@@ -373,9 +396,9 @@ class TestATabThatOnlyWatched:
         )
 
     def test_and_while_this_tab_is_the_one_that_pressed(self):
-        assert self._run("Rebooting...", {}) == [], (
-            "showError still navigates during a reboot this tab asked for"
-        )
+        assert (
+            self._run("Rebooting...", {}) == []
+        ), "showError still navigates during a reboot this tab asked for"
 
     def test_but_not_when_the_server_says_nothing_is_wrong(self):
         """
@@ -383,9 +406,9 @@ class TestATabThatOnlyWatched:
         real fault for ever. Every fresh poll clears it, so this is the shape
         every ordinary moment has.
         """
-        assert self._run(None, {"Msg": "", "Restart": False}) == ["error/offline/offline"], (
-            "showError stopped reporting faults that are real"
-        )
+        assert self._run(None, {"Msg": "", "Restart": False}) == [
+            "error/offline/offline"
+        ], "showError stopped reporting faults that are real"
 
     def test_and_not_when_there_is_no_status_at_all_yet(self):
         """
@@ -404,17 +427,22 @@ class TestATabThatOnlyWatched:
         source = (pathlib.Path(locations.HTML_PATH) / "js" / "Utils.js").read_text()
         code = re.sub(r"//.*", "", source)
 
-        assert "playerStore.getStatus().Restart" in code, (
-            "Utils.showError no longer reads the server's own answer"
-        )
+        assert (
+            "playerStore.getStatus().Restart" in code
+        ), "Utils.showError no longer reads the server's own answer"
 
 
 class TestTheBarRendersIt:
     """Nothing was added to the interface, and this is why that is enough."""
 
     def test_the_bar_already_shows_the_servers_own_text(self):
-        source = (pathlib.Path(locations.HTML_PATH) / "tags" / "playerr.html").read_text()
-        assert "opts.msg || opts.status.Msg" in source, source
+        source = (
+            pathlib.Path(locations.HTML_PATH) / "tags" / "playerr.html"
+        ).read_text()
+        # opts.msg is this tab's own (a restart it asked for); the other two come
+        # from the server's status -- Msg for a failure, and Notice for something
+        # that is not one, such as an item skipped by a playlist.
+        assert "opts.msg || opts.status.Notice || opts.status.Msg" in source, source
 
     def test_and_already_refuses_to_let_it_be_dismissed(self):
         """
@@ -422,5 +450,7 @@ class TestTheBarRendersIt:
         a notice that a reader could dismiss would come back on the next poll
         and then have to be dismissed again, once a second, forever.
         """
-        source = (pathlib.Path(locations.HTML_PATH) / "tags" / "playerr.html").read_text()
+        source = (
+            pathlib.Path(locations.HTML_PATH) / "tags" / "playerr.html"
+        ).read_text()
         assert "!opts.status.Restart" in source, source

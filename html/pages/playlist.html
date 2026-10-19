@@ -5,6 +5,13 @@
       <backbtn></backbtn> <span>{ playlist.title }</span>
       </span>
     </div>
+    <div show={ hasItems } class="row">
+      <div class="col-xs-12">
+        <button onclick={ playAll } type="button" class="btn btn-info btn-block">
+          <i class="fa fa-play"></i> Play all
+        </button>
+      </div>
+    </div>
     <hr />
   </div>
   <itemlist items={ playlist.items } wait={ waitMsg } empty={ emptyMsg }></itemlist>
@@ -13,6 +20,7 @@
     var self = this
     self.waitMsg = 'Loading Playlist...'
     self.emptyMsg = 'There are no items in this playlist.'
+    self.hasItems = false
 
     this.on('mount', function() {
       // Remove old page
@@ -32,9 +40,21 @@
         playlistStore.getPlaylist(plid, function(err, playlist) {
           if (err) return Utils.showError(err)
           self.playlist = playlist
+          self.hasItems = !!(playlist.items && playlist.items.length)
           self.update()
         })
       })
+    }
+
+    // The first item, played as one of the playlist: the same call the rows
+    // make, so "play all" is not a second mechanism with its own behaviour.
+    playAll() {
+      var items = self.playlist && self.playlist.items
+      if (!items || !items.length) return
+      var first = items[0]
+      playerStore.play(first.url, first.title, function(err) {
+        if (err) return Utils.showError(err)
+      }, self.playlist.plid, first.itemnum)
     }
   </script>
 </playlist>

@@ -35,8 +35,17 @@ function PlayerStore() {
     })
   }, 1000);
 
-  self.play = function(url, title, cb) {
-    Utils.rpc('playr', 'play', {url: url, title: title}, cb)
+  // plid and itemnum are the playlist a row came from, when it came from one.
+  // They are what lets the server keep going with the next item once this film
+  // ends, or when the playbar's item buttons are pressed. A row from a channel
+  // or a search has neither, and plays on its own as it always did.
+  self.play = function(url, title, cb, plid, itemnum) {
+    var args = {url: url, title: title}
+    if (plid !== undefined && itemnum !== undefined) {
+      args.plid = plid
+      args.itemnum = itemnum
+    }
+    Utils.rpc('playr', 'play', args, cb)
   }
 
   self.playWithSubs = function(url, title, subs, cb) {

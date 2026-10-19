@@ -1,22 +1,27 @@
 """
-Playback control and pipeline composition.
+Playback control, pipeline composition and the player loop.
 
-Two things are covered here that cannot be checked anywhere else without a
+Three things are covered here that cannot be checked anywhere else without a
 Raspberry Pi:
 
-1. The action -> key table. A backend's control() maps 17 named actions to
-   terminal keys written into a FIFO. Patching _send_key captures the mapping,
-   so the whole table is pinned even though no player is running.
-
-2. The pipeline _Player.play() assembles. That method decides which stages run,
+1. The pipeline _Player.play() assembles. That method decides which stages run,
    and patching _start_thread stops its background loop from running, so the
    exact stage list can be asserted without any process being spawned.
 
-Still hardware-only: whether the command actually reaches a running player, whether
-dbus accepts the call, and whether the picture appears. Everything up to the
-handover is covered.
+2. Which player method a url turns into, which is the only place that decision
+   is made.
+
+3. The loop itself: what it does when a film runs out, when it is stopped, and
+   when it moves to the next item of a playlist -- driven with fake pipes, so
+   each step is deterministic.
+
+Still hardware-only: whether the command actually reaches a running player,
+whether dbus accepts the call, and whether the picture appears. Everything up to
+the handover is covered.
 """
 
+import json
+import pathlib
 import queue
 import threading
 import time
@@ -32,27 +37,6 @@ from lib.player.localproc import LocalFileProcess
 from lib.player.pflixproc import PeerflixProcess
 from lib.player.subsproc import SubtitlesProcess
 from lib.player.vlcproc import VlcProcess
-
-# action -> the key a keystroke-driven backend expects on stdin
-OMX_KEYS = {
-    "pause": "p",
-    "resume": "p",
-    "stop": "q",
-    "subminus": "d",
-    "subplus": "f",
-    "plus600": "$'\x1b\x5b\x41'",
-    "minus600": "$'\x1b\x5b\x42'",
-    "plus30": "$'\x1b\x5b\x43'",
-    "minus30": "$'\x1b\x5b\x44'",
-    "volup": "=",
-    "voldown": "-",
-    "next_subtitle": "m",
-    "prev_subtitle": "n",
-    "next_audio": "k",
-    "prev_audio": "j",
-    "show_subtitle": "w",
-    "hide_subtitle": "x",
-}
 
 
 def build_pipe(title="T", src=None, subs=None, http=False, dlsrv=True):
@@ -73,7 +57,7 @@ def build_pipe(title="T", src=None, subs=None, http=False, dlsrv=True):
     while not pl.msgq.empty():
         queued.append(pl.msgq.get_nowait())
     assert queued[0] == player_module.MSG_PLAYER_PLAY
-    return queued[1]
+    return queued[1].pipe
 
 
 def stages(pipe):
@@ -177,13 +161,15 @@ class TestPlayrRouting:
 
     def test_file_url_plays_locally(self):
         mocks = self._route("file:///media/movies/a.mkv")
-        mocks["playLocalFile"].assert_called_once_with("/media/movies/a.mkv", "T")
+        mocks["playLocalFile"].assert_called_once_with(
+            "/media/movies/a.mkv", "T", None, None
+        )
         mocks["playYtdl"].assert_not_called()
 
     def test_torrent_url_selects_a_file_inside_it(self):
         url = "http://x/y.torrent?bf_torr_idx=3"
         mocks = self._route(url)
-        mocks["playTorrent"].assert_called_once_with(url, 3, "T", None)
+        mocks["playTorrent"].assert_called_once_with(url, 3, "T", None, None, None)
         mocks["playYtdl"].assert_not_called()
 
     def test_main_torrent_file_uses_minus_one(self):
@@ -194,7 +180,7 @@ class TestPlayrRouting:
     def test_plain_url_goes_to_ytdl(self):
         url = "https://youtu.be/dQw4w9WgXcQ"
         mocks = self._route(url)
-        mocks["playYtdl"].assert_called_once_with(url, "T", None)
+        mocks["playYtdl"].assert_called_once_with(url, "T", None, None, None)
 
     def test_missing_url_is_rejected(self):
         from lib.api.common import ApiError
@@ -346,7 +332,7 @@ class TestStatus:
     def test_status_shape(self):
         """The frontend polls this continuously, so the keys must stay stable."""
         status = playr.status()
-        assert set(status) == {"State", "Msg", "Title", "Paused", "Error"}
+        assert set(status) == {"State", "Msg", "Title", "Paused", "Error", "Notice"}
 
     def test_idle_player_is_not_running(self):
         """
@@ -459,3 +445,397 @@ class TestTheLoopSurvivesAFailedAction:
         pl.play_pipe = None
         pl.msgq.put(player_module.MSG_PLAYER_QUIT)
         loop.join(timeout=3)
+
+
+class _FakePipe:
+    """
+    A pipeline that starts nothing, and whose stop() the test drives.
+
+    A real pipe reports MSG_PLAYER_PIPE_STOPPED when it is stopped, which is
+    what the loop waits for before it does anything else; here that is a message
+    the test puts on the queue itself, so each step of a run is deterministic.
+    """
+
+    def __init__(self, title="T"):
+        self.title = title
+        self.stopped = False
+
+    def start(self, pmsgq):
+        pass
+
+    def stop(self):
+        self.stopped = True
+
+    def is_started(self):
+        return True
+
+    def is_stopping(self):
+        return False
+
+    def status_msg(self):
+        return self.title
+
+
+def _builder(title):
+    """A playlist entry: a callable the loop calls to get a pipe for that item."""
+
+    def make():
+        return _FakePipe(title)
+
+    return make
+
+
+def _wait_for(condition, timeout=3.0):
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if condition():
+            return True
+        time.sleep(0.01)
+    return False
+
+
+def _finished(pl, title, error=None, ended=True):
+    """Tell the loop that the film playing has stopped, and how."""
+    pl.msgq.put(player_module.MSG_PLAYER_PIPE_STOPPED)
+    pl.msgq.put(error)
+    pl.msgq.put(ended)
+
+
+def _playing(pl, title):
+    return _wait_for(lambda: pl.play_pipe is not None and pl.play_pipe.title == title)
+
+
+class TestPlaylistRuns:
+    """
+    Films going one after another, which is what a playlist is for.
+
+    The player is told the item that is playing and where it sits in the list,
+    and both travel with the film. Everything here goes through the real loop,
+    with only the network of processes faked out.
+    """
+
+    def test_a_film_that_runs_out_plays_the_next_one(self):
+        pl = player_module._Player()
+        playlist = [_builder("one"), _builder("two"), _builder("three")]
+
+        pl.playPipe(_FakePipe("one"), playlist, 0)
+        assert _playing(pl, "one")
+
+        _finished(pl, "one", None, True)
+
+        assert _playing(pl, "two")
+        assert pl.index == 1
+
+    def test_the_last_film_running_out_stops_there(self):
+        pl = player_module._Player()
+        playlist = [_builder("only")]
+
+        pl.playPipe(_FakePipe("only"), playlist, 0)
+        assert _playing(pl, "only")
+
+        _finished(pl, "only", None, True)
+
+        assert _wait_for(lambda: pl.play_pipe is None), "it should have stopped"
+        assert pl.playlist is None, "the run is over, not still holding a list"
+
+    def test_a_film_that_failed_is_skipped_and_said_out_loud(self):
+        """
+        One dead item must not end a run, and moving past it silently is worse
+        than not moving past it, so the title and the reason are kept.
+        """
+        pl = player_module._Player()
+        playlist = [_builder("one"), _builder("two")]
+
+        pl.playPipe(_FakePipe("one"), playlist, 0)
+        assert _playing(pl, "one")
+
+        _finished(pl, "one", "no such torrent", False)
+
+        assert _playing(pl, "two")
+        assert pl.notice == "Skipped one: no such torrent"
+        assert pl.status()["Notice"] == "Skipped one: no such torrent"
+
+    def test_a_failure_on_the_last_film_is_not_swallowed(self):
+        """
+        Nothing to move on to, so the failure is left where a plain failed play
+        leaves it: on screen, with nothing playing.
+        """
+        pl = player_module._Player()
+        playlist = [_builder("only")]
+
+        pl.playPipe(_FakePipe("only"), playlist, 0)
+        assert _playing(pl, "only")
+
+        _finished(pl, "only", "it failed", False)
+
+        assert _wait_for(lambda: pl.play_pipe is None)
+        assert pl.status()["Error"] is True
+        assert pl.status()["Msg"] == "it failed"
+
+    def test_stop_ends_the_run(self):
+        """
+        A stop must not be followed by the next item. The place in the playlist
+        goes with the film, so the stop that arrives afterwards has nothing left
+        to advance.
+        """
+        pl = player_module._Player()
+        playlist = [_builder("one"), _builder("two")]
+
+        pl.playPipe(_FakePipe("one"), playlist, 0)
+        assert _playing(pl, "one")
+
+        pl.msgq.put(player_module.MSG_PLAYER_STOP)
+        assert _wait_for(lambda: pl.playlist is None)
+
+        _finished(pl, "one", None, False)
+
+        assert _wait_for(lambda: pl.play_pipe is None), "two must not start"
+
+    def test_stop_drops_a_play_that_was_already_queued(self):
+        """
+        Stop means stop. A film asked for while this one was playing used to
+        start anyway, because the queue was only cleared when a pipe stopped --
+        so the button that says stop was followed by another film.
+        """
+        pl = player_module._Player()
+
+        pl.playPipe(_FakePipe("first"))
+        assert _playing(pl, "first")
+
+        pl.playPipe(_FakePipe("second"))
+        pl.msgq.put(player_module.MSG_PLAYER_STOP)
+        _finished(pl, "first", None, False)
+
+        assert _wait_for(lambda: pl.play_pipe is None), "second must not start"
+
+    def test_next_item_moves_on_without_waiting_for_the_film_to_run_out(self):
+        """
+        A skip is a stop and a start, not a fast-forward: the item playing is
+        given up and the next one begins, which is what makes it usable on a
+        film that has stalled or is one nobody wants to watch.
+        """
+        pl = player_module._Player()
+        playlist = [_builder("one"), _builder("two"), _builder("three")]
+
+        pl.playPipe(_FakePipe("one"), playlist, 0)
+        assert _playing(pl, "one")
+
+        pl.control("next_item")
+        # A pipe that is told to stop reports that it stopped.
+        _finished(pl, "one", None, False)
+
+        assert _playing(pl, "two")
+        assert pl.index == 1
+
+    def test_prev_item_goes_back(self):
+        pl = player_module._Player()
+        playlist = [_builder("one"), _builder("two"), _builder("three")]
+
+        pl.playPipe(_FakePipe("three"), playlist, 2)
+        assert _playing(pl, "three")
+
+        pl.control("prev_item")
+        _finished(pl, "three", None, False)
+
+        assert _playing(pl, "two")
+        assert pl.index == 1
+
+    def test_skipping_past_the_end_says_so_and_plays_nothing_else(self):
+        pl = player_module._Player()
+        playlist = [_builder("one")]
+
+        pl.playPipe(_FakePipe("one"), playlist, 0)
+        assert _playing(pl, "one")
+
+        pl.control("next_item")
+
+        assert _wait_for(lambda: pl.notice == "End of playlist")
+        assert pl.play_pipe.title == "one", "the film playing must not be disturbed"
+
+    def test_skipping_before_the_start_says_so(self):
+        pl = player_module._Player()
+        playlist = [_builder("one"), _builder("two")]
+
+        pl.playPipe(_FakePipe("one"), playlist, 0)
+        assert _playing(pl, "one")
+
+        pl.control("prev_item")
+
+        assert _wait_for(lambda: pl.notice == "Start of playlist")
+        assert pl.play_pipe.title == "one"
+
+    def test_skipping_a_film_that_is_not_in_a_playlist_says_so(self):
+        """
+        The buttons are on every playbar, and a film played from a channel or a
+        search is not part of a list. Saying so is the alternative to a button
+        that does nothing and cannot be told from a broken one.
+        """
+        pl = player_module._Player()
+
+        pl.playPipe(_FakePipe("single"))
+        assert _playing(pl, "single")
+
+        pl.control("next_item")
+
+        assert _wait_for(lambda: pl.notice == "Not playing a playlist")
+        assert pl.play_pipe.title == "single"
+
+    def test_a_notice_does_not_hide_the_film_that_is_playing(self):
+        """
+        A skipped item is not a failed play. The error field means nothing is
+        playing at all, which is why a skip is reported separately -- otherwise
+        the interface would report a stopped player while the next film ran.
+        """
+        pl = player_module._Player()
+        playlist = [_builder("one"), _builder("two")]
+
+        pl.playPipe(_FakePipe("one"), playlist, 0)
+        assert _playing(pl, "one")
+
+        _finished(pl, "one", "it failed", False)
+        assert _playing(pl, "two")
+
+        status = pl.status()
+        assert status["Notice"] == "Skipped one: it failed"
+        assert status["Error"] is False
+        assert status["State"] == player_module.ST_RUNNING
+        assert status["Title"] == "two"
+
+    def test_asking_for_something_else_clears_the_notice(self):
+        pl = player_module._Player()
+        playlist = [_builder("one"), _builder("two")]
+
+        pl.playPipe(_FakePipe("one"), playlist, 0)
+        assert _playing(pl, "one")
+        _finished(pl, "one", "it failed", False)
+        assert _playing(pl, "two")
+
+        pl.playPipe(_FakePipe("elsewhere"))
+
+        assert pl.notice is None
+        assert pl.status()["Notice"] == ""
+
+
+class TestPlaylistContext:
+    """
+    Which play belongs to a playlist, and which does not.
+
+    The playlist a row came from is what lets the server carry on when the film
+    ends or the item buttons are pressed, so it has to travel with the play --
+    and it has to be the playlist's item the row actually was, which is why the
+    url is checked rather than the position trusted.
+    """
+
+    @pytest.fixture
+    def plists(self, tmp_path, monkeypatch):
+        from lib.api import playlists as playlists_module
+
+        path = tmp_path / "playlists"
+        path.mkdir()
+        monkeypatch.setattr(playlists_module, "PLIST_PATH", str(path))
+        return playlists_module
+
+    def _write(self, plists, name, items):
+        """
+        A playlist file as the real ones are written.
+
+        Every item carries an img: PlaylistItem reads one out of the dict, so a
+        row without it raises and the whole playlist becomes unreadable -- which
+        is what the fallback test below is about.
+        """
+        items = [dict(item, img="/img/icons/list.svg") for item in items]
+        (pathlib.Path(plists.PLIST_PATH) / (name + ".bfpl")).write_text(
+            json.dumps({"title": name, "items": items})
+        )
+
+    def _play(self, **kwargs):
+        """Dispatch a play with all three player entry points stubbed."""
+        local = m.Mock()
+        torrent = m.Mock()
+        ytdl = m.Mock()
+        with m.patch("lib.player.player._start_thread", lambda *a, **k: m.Mock()):
+            with (
+                m.patch.object(player_module._Player, "playLocalFile", local),
+                m.patch.object(player_module._Player, "playTorrent", torrent),
+                m.patch.object(player_module._Player, "playYtdl", ytdl),
+            ):
+                playr.play(**kwargs)
+        return local, torrent, ytdl
+
+    def test_playing_a_row_carries_the_playlist_and_the_place_in_it(self, plists):
+        self._write(
+            plists,
+            "Run",
+            [
+                {"title": "one", "url": "https://example.com/1"},
+                {"title": "two", "url": "https://example.com/2"},
+                {"title": "three", "url": "https://example.com/3"},
+            ],
+        )
+
+        _local, _torrent, ytdl = self._play(
+            url="https://example.com/2", title="two", plid="Run", itemnum=1
+        )
+
+        url, _title, _subs, playlist, index = ytdl.call_args[0]
+        assert url == "https://example.com/2"
+        assert index == 1
+        assert len(playlist) == 3, "every item, so either direction can be reached"
+
+    def test_a_row_the_playlist_no_longer_has_plays_on_its_own(self, plists):
+        """
+        A playlist can be edited, or a remote one refreshed, between the page
+        being drawn and the row being pressed. If the url at that index is not
+        the one asked for then this play is not that item any more, and playing
+        it alone is more honest than dragging a list behind it.
+        """
+        self._write(plists, "Run", [{"title": "one", "url": "https://example.com/1"}])
+
+        _local, _torrent, ytdl = self._play(
+            url="https://example.com/other", title="other", plid="Run", itemnum=0
+        )
+
+        _url, _title, _subs, playlist, index = ytdl.call_args[0]
+        assert playlist is None
+        assert index is None
+
+    def test_a_playlist_that_cannot_be_read_still_plays_the_item(self, plists):
+        """
+        A row is worth playing whether or not the list it came from is still
+        readable, so a missing file costs the playlist and not the play.
+        """
+        _local, _torrent, ytdl = self._play(
+            url="https://example.com/1", title="one", plid="NoSuchList", itemnum=0
+        )
+
+        _url, _title, _subs, playlist, index = ytdl.call_args[0]
+        assert playlist is None
+        assert index is None
+
+    def test_an_index_past_the_end_plays_the_item_alone(self, plists):
+        self._write(plists, "Run", [{"title": "one", "url": "https://example.com/1"}])
+
+        _local, _torrent, ytdl = self._play(
+            url="https://example.com/1", title="one", plid="Run", itemnum=7
+        )
+
+        assert ytdl.call_args[0][3] is None
+
+    def test_each_item_is_routed_the_way_a_play_of_it_would_be(self, settings):
+        """
+        What a playlist holds is a url, and how to play that url is decided in
+        one place -- per item, so a list can mix a torrent and a video and each
+        still gets its own stages.
+        """
+        from lib.api.playr import _item_builder
+
+        local = _item_builder({"title": "a", "url": "file:///media/a.mkv"})()
+        assert stages(local) == ["localfile", "vlc"]
+
+        torrent = _item_builder(
+            {"title": "b", "url": "http://x/y.torrent?bf_torr_idx=3"}
+        )()
+        assert stages(torrent) == ["peerflix", "vlc"]
+
+        video = _item_builder({"title": "c", "url": "https://example.com/v"})()
+        assert stages(video) == ["yt-dlp", "vlc"]

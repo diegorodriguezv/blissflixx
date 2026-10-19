@@ -22,6 +22,7 @@ PLAYBAR = REPO_ROOT / "html" / "tags" / "playbar.html"
 
 # Action names VLC's control() compares against. Parsed rather than grepped so
 # mpv property names cannot be mistaken for actions.
+from lib.player.player import _Player
 from lib.player.vlcproc import VlcProcess
 
 _control_source = textwrap.dedent(inspect.getsource(VlcProcess.control))
@@ -46,14 +47,28 @@ def _compared_action_names(node):
                     yield element.value
 
 
-SERVER_ACTIONS = {
-    name
-    for node in ast.walk(_control_tree)
-    if isinstance(node, ast.Compare)
-    and isinstance(node.left, ast.Name)
-    and node.left.id == "action"
-    for name in _compared_action_names(node)
-}
+def _actions_of(function):
+    """Every action name a control() compares against, from its source."""
+    tree = ast.parse(textwrap.dedent(inspect.getsource(function)))
+    return {
+        name
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Compare)
+        and isinstance(node.left, ast.Name)
+        and node.left.id == "action"
+        for name in _compared_action_names(node)
+    }
+
+
+SERVER_ACTIONS = _actions_of(VlcProcess.control)
+
+# Actions the player loop answers itself, before a backend is involved. Which
+# film is playing is not something the film can do anything about, so those two
+# have to live above the backend -- and an action answered there is just as
+# reachable as one answered in a backend, which is what these tests are about.
+PLAYER_ACTIONS = _actions_of(_Player.control)
+
+ALL_SERVER_ACTIONS = SERVER_ACTIONS | PLAYER_ACTIONS
 
 
 def ui_actions():
@@ -70,8 +85,8 @@ class TestControlSurfaceMatches:
 
     def test_every_ui_action_reaches_a_backend(self):
         """
-        Every action the playbar can send has a branch in control(), so nothing
-        is offered that the backend silently drops.
+        Every action the playbar can send is answered somewhere, so nothing is
+        offered that is silently dropped.
 
         The subtitle-delay buttons were the long-standing exception: VLC's cli
         has no verb for the delay, so the backend did not advertise the
@@ -82,22 +97,35 @@ class TestControlSurfaceMatches:
         stopping for any other reason failed rather than passing. It came out
         empty, and this is what keeps it that way.
         """
-        assert ui_actions() - SERVER_ACTIONS == set()
+        assert ui_actions() - ALL_SERVER_ACTIONS == set()
 
     def test_every_server_action_is_reachable(self):
         """
         The regression guard for the original finding. If this fails, a control
         exists in the key map with no button behind it.
         """
-        assert SERVER_ACTIONS - ui_actions() == set()
+        assert ALL_SERVER_ACTIONS - ui_actions() == set()
 
     def test_the_set_is_the_expected_size(self):
         """
-        A floor as much as a count: an action that loses its branch in control()
-        without losing its button is what this catches. Two more than the
-        fifteen it was, because the subtitle-delay pair is reached now.
+        A floor as much as a count: an action that loses its branch without
+        losing its button is what this catches.
+
+        Seventeen are answered in a backend, and the loop answers five above it
+        -- pause and resume because it is the loop that tracks whether the film
+        is paused, stop for the same reason, and the two for changing film. The
+        union is two more than either list alone, because three of the five are
+        answered in both.
         """
         assert len(SERVER_ACTIONS) == 17, sorted(SERVER_ACTIONS)
+        assert PLAYER_ACTIONS == {
+            "pause",
+            "resume",
+            "stop",
+            "next_item",
+            "prev_item",
+        }, sorted(PLAYER_ACTIONS)
+        assert len(ALL_SERVER_ACTIONS) == 19, sorted(ALL_SERVER_ACTIONS)
 
     def test_the_remote_panel_is_where_they_live(self):
         """

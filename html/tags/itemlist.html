@@ -102,9 +102,12 @@
           var url = item.url.substring(11)
           Utils.goRoute('showmore', item.chid, item.title, url)
         } else {
+          // A playlist row is played from where it sits, so that what follows
+          // it follows it. Both fields are on the row already for that; a row
+          // from anywhere else has neither and plays by itself.
           playerStore.play(item.url, item.title, function(err) {
             if (err) return Utils.showError(err)
-          })
+          }, item.playlist, item.itemnum)
         }
       }
     }
