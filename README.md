@@ -382,10 +382,16 @@ The full set of keys, and their defaults, is each backend's `defaults` dict:
 
 | Backend | Keys |
 |---|---|
-| `vlc` | `binary`, `extra_args`, `audio_device`, `video_output`, `video_output_module`, `subtitle_text_scale`, `start_timeout`, `report_progress`, `osd_overlay`, `osd_refresh`, `osd_position`, `osd_size`, `osd_opacity`,  `sub_margin`, `volume_step`, `volume_max` |
+| `vlc` | `binary`, `extra_args`, `audio_device`, `video_output`, `video_output_module`, `fast_seek`, `subtitle_text_scale`, `start_timeout`, `report_progress`, `osd_overlay`, `osd_refresh`, `osd_position`, `osd_size`, `osd_opacity`,  `sub_margin`, `volume_step`, `volume_max` |
 
 `extra_args` replaces the built-in flag list rather than adding to it, so a flag
 the backend always passes can be removed by naming the list without it.
+
+`fast_seek` is on here and off in VLC. It seeks to the nearest keyframe, which
+costs a little precision — up to a GOP — and buys a picture that keeps moving
+when two seeks arrive in quick succession. Without it the decoder wedges
+(`Timestamp conversion failed`) and the film freezes on its last frame while the
+clock keeps running, so the elapsed time advances and nothing is playing.
 
 A key the backend does not recognise is logged and ignored, so a settings file
 written for a different version stays usable.

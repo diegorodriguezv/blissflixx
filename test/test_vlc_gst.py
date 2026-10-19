@@ -20,6 +20,7 @@ import unittest.mock as m
 
 import pytest
 
+from lib.player import vlcproc
 from lib.player.backend import (
     CAP_AUDIO_TRACK,
     CAP_PAUSE,
@@ -31,6 +32,7 @@ from lib.player.backend import (
 from lib.player.gstproc import GStreamerProcess
 from lib.player.processpipe import ProcessException
 from lib.player.vlcproc import (
+    _DECODED_FRAMES,
     _REPLY_TIMEOUT,
     _VOLUME_START_PERCENT,
     MARQ_FILE,
@@ -106,8 +108,34 @@ class TestVlcCommand:
             # http://192.168.1.119:9696/, which says nothing to a viewer.
             "--no-video-title-show",
             "--play-and-exit",
+            # Keyframe seeking. Two seeks in a row used to stop the film dead;
+            # see the note on fast_seek in vlcproc. Asserted separately too, so
+            # turning it off is a deliberate act rather than a tidy-up.
+            "--input-fast-seek",
             FILE_OUT,
         ]
+
+    def test_seeks_go_to_a_keyframe(self):
+        """
+        --input-fast-seek, and not by accident.
+
+        Pressing +30 twice used to freeze the picture on its last frame while
+        the elapsed time carried on. Measured on rpi, two seeks froze 6 times
+        out of 6; with this flag, none of six. Spacing the clicks out changed
+        nothing -- 6/6 frozen either way -- so the decoder is what has to be
+        spared the resynchronisation, not the cli.
+
+        The cost is that a seek lands on the nearest keyframe, so it can be up
+        to a GOP out. That is why this is an option: someone who wants exact
+        seeking back can turn it off.
+        """
+        cmd = vlc({"outfile": FILE_OUT})
+        assert "--input-fast-seek" in cmd
+        assert "--no-input-fast-seek" not in cmd
+
+    def test_fast_seeking_can_be_turned_off(self):
+        cmd = VlcProcess({"fast_seek": "0"}).build_command({"outfile": FILE_OUT})
+        assert not [a for a in cmd if a.startswith("--input-fast-seek")]
 
     def test_the_overlay_is_wired_up(self):
         """
@@ -375,6 +403,14 @@ class TestVlcPlatformVariants:
 
 
 class TestVlcControl:
+    @pytest.fixture(autouse=True)
+    def _no_settle_wait(self, monkeypatch):
+        """
+        _stalled() gives a seek a couple of seconds to start delivering frames
+        before it judges it. Right on a Pi, and nothing but dead time here.
+        """
+        monkeypatch.setattr(vlcproc, "_SEEK_SETTLE", 0)
+
     def _sent(self, action, **config):
         proc = VlcProcess({**config})
         sent = []
@@ -414,6 +450,106 @@ class TestVlcControl:
         """
         sent = self._sent(action)
         assert sent.split()[1][0] in "+-", sent
+
+    @staticmethod
+    def _seeking(counts, paused=False):
+        """
+        A VlcProcess whose stats answer with `counts` in turn, and which says
+        nothing at all if the list runs out.
+
+        So a test can say "the decoder was producing frames" or "it went flat
+        and stayed flat" without a player, and without waiting out _SEEK_SETTLE.
+        """
+        proc = VlcProcess()
+        sent = []
+        proc._send_command = lambda command: sent.append(command) or True
+        proc._seek = lambda seconds: sent.append("seek %+d" % seconds) or True
+        proc._show_overlay = lambda text, hold=None: sent.append(text)
+        proc._paused = paused
+        proc._read_position = lambda: (105.0, 1297.0)
+        left = list(counts)
+
+        def decoded():
+            if not left:
+                return None
+            value = left.pop(0)
+            if value is None:
+                return None
+            return int(
+                _DECODED_FRAMES.match("| video decoded    :   %d" % value).group(1)
+            )
+
+        proc._decoded_frames = decoded
+        return proc, sent
+
+    def test_the_frame_count_is_read_out_of_the_stats_reply(self):
+        """
+        `stats` is the only reading that can tell a playing film from a frozen
+        one, so it has to survive the shape the interface really sends: the
+        statistical tree, a pipe in front of the counter, and the prompt in front
+        of that about as often as not.
+        """
+        proc = VlcProcess()
+        replies = {
+            "| input bitrate    :     1310 kb/s",
+            "| video decoded    :      268",
+            "| frames displayed :      224",
+        }
+        proc._send_and_collect = lambda command: sorted(replies)
+        assert proc._decoded_frames() == 268
+
+        proc._send_and_collect = lambda command: sorted(
+            ["> | video decoded    :      268"] + list(replies)
+        )
+        assert proc._decoded_frames() == 268
+
+    def test_a_seek_that_starts_the_film_again_reports_the_position(self):
+        proc, sent = self._seeking([900, 1240])
+        proc._stalled(30)
+        assert "1:45 / 21:37" in sent, sent
+
+    def test_a_seek_that_freezes_the_film_says_so(self):
+        """
+        The confirmation used to come from get_time, which advances whether or
+        not a frame is decoded -- so a film frozen by two seeks in a row
+        reported its new position as though the jump had worked. The overlay was
+        hiding the fault rather than reporting it.
+        """
+        proc, sent = self._seeking([900, 900])
+        assert proc._stalled(30) is True
+        assert "Stalled 1:45 / 21:37" in sent, sent
+        assert "1:45 / 21:37" not in [s for s in sent if not s.startswith("Stalled")]
+
+    def test_a_film_that_will_not_say_is_not_called_a_stall(self):
+        """
+        No reading either side of the seek means there is nothing to compare.
+        Reporting a stall on that basis would be worse than the original lie: it
+        would cry wolf over a film that was playing perfectly well.
+        """
+        proc, sent = self._seeking([None, None])
+        assert proc._stalled(30) is None
+        assert "1:45 / 21:37" in sent, sent
+
+    def test_a_seek_while_paused_is_not_a_stall(self):
+        """
+        A paused film decodes nothing, and that is what a paused film is for --
+        it is meant to be holding a still frame. Reading the flat count as a
+        fault here would put "Stalled" on screen every time someone searched
+        for a scene while the film was held.
+        """
+        proc, sent = self._seeking([900, 900], paused=True)
+        assert proc._stalled(30) is None
+        assert not [s for s in sent if s.startswith("Stalled")], sent
+
+    def test_the_seek_is_sent_whether_or_not_frames_come_back(self):
+        """
+        The check is a report, not a gate. The picture is already moving by the
+        time anyone could be told about it, so there is nothing here that could
+        sensibly hold the jump back.
+        """
+        proc, sent = self._seeking([900, 900])
+        proc._stalled(30)
+        assert "seek +30" in sent, sent
 
     def test_the_label_says_what_the_toggle_actually_did(self):
         """

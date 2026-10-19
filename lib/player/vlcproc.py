@@ -161,6 +161,14 @@ _TITLE_QUESTION_GAPS = (2, 3, 5, 8, 12, 15, 20, 25)
 #: both. marq has one timeout for the whole session, so the confirmations are
 #: taken away by hand instead -- see _expire_overlay.
 _CONFIRM_HOLD = 5
+#: How long a seek is given to start delivering frames again before it is
+#: called a stall. Long enough for VLC to re-prime after a jump, short enough
+#: that the confirmation has not been sitting there looking stuck itself.
+#:
+#: Measured on rpi with --input-fast-seek, the decoder is producing frames again
+#: within about two seconds of a seek. Without it, the count stays dead flat
+#: for good, so this is not the difference between slow and stuck.
+_SEEK_SETTLE = 2.5
 #: Where the marquee reads its text from. VLC re-reads it every --marq-refresh
 #: seconds, so writing to it is how the position gets on the screen.
 MARQ_FILE = os.path.join(TMP_DIR, "marq.txt")
@@ -182,6 +190,25 @@ MARQ_FILE = os.path.join(TMP_DIR, "marq.txt")
 #: logging cannot be read as an answer. Those lines are already dropped as
 #: logging before this is applied; this is the second line of defence.
 _NUMBER_ALONE = re.compile(r"^(?:\s*>\s*)*\(?\s*(\d+(?:\.\d+)?)\s*\)?\s*$")
+
+#: One line of VLC's own `stats` answer, the running count of frames the video
+#: decoder has produced. This is the only thing that says whether the picture is
+#: actually moving. get_time does not: VLC's input clock is a wall clock and
+#: keeps advancing when the decoder has stopped, which is why a frozen film used
+#: to report a fresh elapsed time and read as a seek that had worked.
+#:
+#: The reply is the statistical tree the cli interface prints, one counter per
+#: line with a pipe in front of it:
+#:
+#:     +-[Video Decoding]
+#:     | video decoded    :      268
+#:     | frames displayed :      224
+#:
+#: The pipe is optional because the interface writes the block with a prompt in
+#: front of it about as often as not.
+_DECODED_FRAMES = re.compile(
+    r"^(?:\s*>\s*)*\|?\s*video decoded\s*:\s*(\d+)", re.IGNORECASE
+)
 
 
 def _format_seconds(value):
@@ -397,6 +424,38 @@ class VlcProcess(PlayerBackend):
         "audio_device": "hdmi:CARD=vc4hdmi,DEV=0",
         "video_output": "drm_vout",
         "video_output_module": "vc4",
+        # Keyframe seeking, on by default here and off in VLC.
+        #
+        # Two seeks in quick succession -- pressing +30 twice -- stopped the film
+        # dead on this box. The picture froze on its last frame while the elapsed
+        # time carried on, because VLC's input clock keeps running when the
+        # decoder does not, and a seek's confirmation reads that clock. VLC says
+        # why:
+        #
+        #     main decoder error: Timestamp conversion failed
+        #         (delay 1000000, buffering 100000, bound 9000000)
+        #     main decoder error: Could not convert timestamp ... for FFmpeg
+        #
+        # Measured on rpi, cvlc with the arguments below, against an HTTP
+        # stream, counting "video decoded" from VLC's own stats:
+        #
+        #     two seeks 0.3s apart    frozen 6/6
+        #     two seeks 3s apart      frozen 6/6
+        #     two seeks 0.3s apart,
+        #         --input-fast-seek   frozen 0/6
+        #
+        # Two facts worth keeping. It takes two seeks -- a single one survived
+        # every time -- so the throttle that looked like the fix is not: spacing
+        # the clicks out froze just as reliably. And it is not the torrents: this
+        # reproduces on an ordinary HTTP source. Fast seek goes to the nearest
+        # keyframe instead of asking the decoder to resynchronise its clock,
+        # which is the step that fails.
+        #
+        # The cost is precision: the position lands on the nearest keyframe, so
+        # it can be up to a GOP out, and subtitles can be briefly out by that
+        # much after a seek. For a thirty second jump on a film that is not
+        # visible, which is why this is on rather than off.
+        "fast_seek": "1",
         # The Pi's screen is small, so VLC's default text size is too small to
         # read at typical viewing distance. 95 rather than 60 because of the
         # text rendering bug at this resolution.
@@ -641,6 +700,12 @@ class VlcProcess(PlayerBackend):
             "--no-video-title-show",
             "--play-and-exit",
         ]
+        # See the note on fast_seek: two seeks in a row used to wedge the
+        # decoder. Added here rather than in the list above because it is the
+        # one flag that is genuinely optional -- the rest are this box's
+        # measured working invocation.
+        if str(self.opt("fast_seek")).lower() not in ("0", "false", "", "none"):
+            cmd.append("--input-fast-seek")
         if "subtitles" in args:
             cmd.append("--sub-file=" + args["subtitles"])
         cmd.append(args["outfile"])
@@ -1005,6 +1070,71 @@ class VlcProcess(PlayerBackend):
                     return None
         return None
 
+    def _decoded_frames(self):
+        """
+        How many frames VLC's video decoder has produced, or None if it won't say.
+
+        The one reading that distinguishes a film that is playing from a film
+        that has stopped, which get_time cannot do. Both of those used to look
+        identical from here: the clock advanced, the picture did not.
+
+        Asked for once, either side of a seek, and never on a timer. Polling the
+        cli interface is what stopped it answering at all, ten or twenty seconds
+        into playback, and that lesson is expensive enough to have been written
+        down twice already. This is the same shape as the one-shot read that
+        replaced the timer, only it counts frames instead of seconds.
+        """
+        for line in self._send_and_collect("stats") or []:
+            found = _DECODED_FRAMES.match(line.strip())
+            if found:
+                try:
+                    return int(found.group(1))
+                except ValueError:
+                    return None
+        return None
+
+    def _stalled(self, seconds):
+        """
+        Move the film, then check whether anything came back.
+
+        Returns True when the seek went somewhere and the picture never
+        restarted. A seek used to be confirmed from the clock alone, so a frozen
+        film reported its new position as though the jump had worked -- the
+        confirmation was the thing that hid the fault, not the fault itself.
+
+        Two seeks in a row used to cause exactly this. A single seek has never
+        been observed to do it. If it happens again, the film is now saying so
+        on screen instead of quietly looking fine.
+
+        None rather than True when the count cannot be read either side of the
+        seek. A player that will not answer is not evidence of a stall, and
+        reporting one on that basis would be worse than the original lie: it
+        would cry wolf over a film that was playing.
+        """
+        before = self._decoded_frames()
+        self._seek(seconds)
+        if before is None:
+            # Nothing to compare against, so there is nothing to wait for.
+            self._report_progress(label="Seek")
+            return None
+        time.sleep(_SEEK_SETTLE)
+        after = self._decoded_frames()
+        if after is None or after > before:
+            self._report_progress(label="Seek")
+            return None
+        # A paused film decodes nothing and that is correct -- it is meant to be
+        # showing a still frame -- so this is only a stall if it was meant to be
+        # moving.
+        if self._paused:
+            self._report_progress(label="Seek")
+            return None
+        cherrypy.log(
+            "VLC SEEK STALLED: %+d seconds, no frames decoded in %s seconds"
+            % (seconds, _format_seconds(_SEEK_SETTLE))
+        )
+        self._show_overlay(self._where("Stalled"), hold=_CONFIRM_HOLD)
+        return True
+
     def _seek(self, seconds):
         """
         Seek forwards or backwards from wherever the film is now.
@@ -1042,8 +1172,12 @@ class VlcProcess(PlayerBackend):
         keep answering. Asking once, right after the user does something, is
         both cheaper and answered far more reliably.
 
-        The time does not tick. Showing the position when a seek happens says
-        the seek landed, which is what it is for.
+        The time does not tick. Showing the position after a seek says where the
+        film is, which is most of what is wanted -- but it does not on its own
+        say the seek landed, because VLC's clock keeps running when the decoder
+        has stopped, so a frozen film reported its new position perfectly
+        happily. The position is shown because frames started arriving again,
+        not instead of finding out. See _stalled().
         """
         # Anything the user does ends the background searching. See _acted.
         self._acted = True
@@ -1079,8 +1213,7 @@ class VlcProcess(PlayerBackend):
             self._send_command("quit")
             self._force_quit()
         elif action in ("plus30", "minus30", "plus600", "minus600"):
-            self._seek(_SEEK_SECONDS[action])
-            self._report_progress(label="Seek")
+            self._stalled(_SEEK_SECONDS[action])
         elif action in ("volup", "voldown"):
             # Stepped in percent, not in VLC's units, and that is the whole fix.
             # A tenth of 256 is 25.6, so a unit step had to be rounded to 26 --

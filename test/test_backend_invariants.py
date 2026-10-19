@@ -360,6 +360,7 @@ class TestReadmeMatchesTheCode:
             "audio_device",
             "video_output",
             "video_output_module",
+            "fast_seek",
             "subtitle_text_scale",
             "start_timeout",
             "report_progress",
