@@ -1275,7 +1275,14 @@ class VlcProcess(PlayerBackend):
             # track action reads the listing for the same reason.
             self._track_ids("strack")
             self._send_command("strack " + str(_TRACK_DISABLED))
-            self._show_overlay(self._subtitle_label(off=True), hold=_CONFIRM_HOLD)
+            # Recorded, not just sent. A step moves relative to the choice, so
+            # leaving the choice on the track that was just switched off made
+            # "next sub" step from a track the player is no longer on -- on a
+            # one-track film it wrapped straight back to the Disable entry and
+            # could not turn subtitles on at all. The track to come back to is
+            # remembered separately, in _track_showing; see _show_track.
+            self._track_choice["strack"] = _TRACK_DISABLED
+            self._show_overlay(self._subtitle_label(), hold=_CONFIRM_HOLD)
         elif action == "show_subtitle":
             self._show_track("strack")
             self._show_overlay(self._subtitle_label(), hold=_CONFIRM_HOLD)
@@ -1312,7 +1319,7 @@ class VlcProcess(PlayerBackend):
         if hold:
             _start_thread(self._expire_overlay, text, hold)
 
-    def _subtitle_label(self, off=False):
+    def _subtitle_label(self):
         """
         What the overlay says after a subtitle change.
 
@@ -1321,19 +1328,14 @@ class VlcProcess(PlayerBackend):
         back instead said nothing about why -- it read as a state rather than as
         an absence.
 
-        off is for the press that has just switched subtitles off. That cannot be
-        read back from the recorded choice, because hide_subtitle deliberately
-        leaves the choice alone: that choice is what a later step lands relative
-        to, and saying anything more about it here would be a different repair.
-
-        Otherwise the name comes from the choice, except when the choice is
-        VLC's Disable entry -- which names nothing -- and then it comes from the
-        track that was showing.
+        The state comes from the choice, which hide_subtitle records like any
+        other change. VLC's Disable entry names nothing of its own, so when the
+        choice is off the track to name is the one that was showing.
         """
         if self._no_tracks("strack"):
             return "no subtitles"
         chosen = self._track_choice.get("strack")
-        if off or (chosen is not None and chosen < 0):
+        if chosen is not None and chosen < 0:
             return _track_label(
                 "subtitle", _TRACK_DISABLED, self._showing_track_name("strack")
             )
@@ -1528,9 +1530,14 @@ class VlcProcess(PlayerBackend):
         Turn a track back on.
 
         There is no "enable" command, so a real track id has to be sent. The
-        last one chosen is preferred, so show/hide/show returns to the same
+        last one showing is preferred, so show/hide/show returns to the same
         track rather than jumping somewhere else; otherwise the first track in
         the listing.
+
+        The showing track comes from _track_showing rather than from the choice,
+        because hiding records -1 in the choice -- a step from "off" has to move
+        relative to the Disable entry, which is a different question from which
+        track to come back to.
 
         This used to send "strack 0" on the assumption that 0 meant "the first
         one". It does not. A real listing on the Pi came back as
@@ -1543,11 +1550,13 @@ class VlcProcess(PlayerBackend):
         """
         target = self._track_choice.get(command)
         if target is None or target == _TRACK_DISABLED:
-            tracks = self._track_listing.get(command) or self._track_ids(command)
-            real = [t for t in tracks if t != _TRACK_DISABLED]
-            if not real:
-                return False
-            target = real[0]
+            target = self._track_showing.get(command)
+            if target is None:
+                tracks = self._track_listing.get(command) or self._track_ids(command)
+                real = [t for t in tracks if t != _TRACK_DISABLED]
+                if not real:
+                    return False
+                target = real[0]
             self._track_choice[command] = target
             self._remember_track(command, target)
         return self._send_command(command + " " + str(target))

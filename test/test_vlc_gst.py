@@ -2018,6 +2018,75 @@ class TestWhatTheOverlaySays:
 
         assert shown == ["[on] Track 1", "[off] Track 1"], shown
 
+    def test_next_after_hiding_turns_subtitles_back_on(self):
+        """
+        Hiding records VLC's Disable entry in the choice, so a step from there
+        moves relative to where the player actually is. Leaving the choice on
+        the track that was just switched off made the step start from a track
+        the player is no longer on: on a one-track film it wrapped straight back
+        to the Disable entry, so "next sub" could not turn subtitles on at all.
+        """
+        proc = VlcProcess()
+        shown = []
+        sent = []
+        proc._show_overlay = lambda text, hold=None: shown.append(text)
+
+        def send(command):
+            sent.append(command)
+            return True
+
+        proc._send_command = send
+        proc._send_and_collect = lambda verb: [
+            "+----[ spu-es ]",
+            "| -1 - Disable",
+            "| 1 - Track 1",
+            "+----[ end of spu-es ]",
+        ]
+
+        proc.control("show_subtitle")  # on
+        proc.control("hide_subtitle")  # off
+        proc.control("next_subtitle")  # and back on
+
+        assert shown == ["[on] Track 1", "[off] Track 1", "[on] Track 1"], shown
+        assert sent[-1] == "strack 1", sent
+
+    def test_show_after_hide_returns_to_the_track_that_was_on(self):
+        """
+        Recording -1 in the choice is what makes a step from "off" correct, but
+        it also means the choice no longer says which track to come back to --
+        so that is remembered separately. show/hide/show returning to the same
+        track is what the memory is for; without it the second show would pick
+        the first track in the listing instead.
+        """
+        proc = VlcProcess()
+        shown = []
+        sent = []
+        proc._show_overlay = lambda text, hold=None: shown.append(text)
+
+        def send(command):
+            sent.append(command)
+            return True
+
+        proc._send_command = send
+        proc._send_and_collect = lambda verb: [
+            "+----[ spu-es ]",
+            "| -1 - Disable",
+            "| 2 - English (CC) - [English]",
+            "| 5 - Commentary",
+            "+----[ end of spu-es ]",
+        ]
+
+        proc.control("next_subtitle")  # onto Commentary
+        proc.control("hide_subtitle")
+        proc.control("show_subtitle")
+
+        assert shown == [
+            "[on] Commentary",
+            "[off] Commentary",
+            "[on] Commentary",
+        ], shown
+        assert sent[-1] == "strack 5", sent
+
     def test_a_track_vlc_left_unnamed_still_gets_something_said_about_it(self):
         """
         VLC synthesises "Track N" whenever a file supplies no name of its own,
