@@ -36,6 +36,21 @@ hr {
 }
 
 /*
+ * The two build numbers disagreeing, which is the one thing on this page that
+ * needs acting on rather than reading.
+ *
+ * Warm rather than the cool blue the diagnostics use, because this is not a
+ * label: it is the answer to "why is the fix I just deployed not working". A
+ * server answering that is not the one on disk explains exactly that, and it is
+ * the failure that looks like every other failure from the outside.
+ */
+.build-stale {
+  margin-top: 6px;
+  font-size: 15px;
+  color: #b08d3f;
+}
+
+/*
  * What the last UPDATE did, under the build number.
  *
  * Smaller than the build label and left-aligned to nothing, because it is

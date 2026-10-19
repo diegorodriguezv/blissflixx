@@ -113,6 +113,52 @@ POWER_MESSAGE = None
 #: -- so nothing on screen is late by this.
 POWER_GRACE_SECONDS = 3
 
+
+def _git_sha():
+    """
+    The commit the checkout is sitting on, or "unknown".
+
+    Said plainly rather than returning nothing when git is not there: a build
+    that cannot be identified is worth knowing about, and an empty answer would
+    be indistinguishable from a field nobody filled in.
+    """
+    try:
+        sha = subprocess.run(
+            ["git", "rev-parse", "--short", "HEAD"],
+            cwd=locations.ROOT_PATH,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if sha.returncode == 0 and sha.stdout.strip():
+            return sha.stdout.strip()
+    except Exception:
+        pass
+    return "unknown"
+
+
+#: The commit this process booted from, read once when the module is imported.
+#:
+#: Needed because the checkout and the running code are not the same thing, and
+#: asking git says nothing about which of the two is answering. git pull moves
+#: the checkout while this process keeps running the code it loaded an hour ago,
+#: so `git rev-parse HEAD` afterwards reports the new commit for a server that
+#: has never run a line of it.
+#:
+#: That is not theoretical. During the seek fix, rpi served a build from five
+#: hours earlier for a whole session -- the restart killed a bash wrapper, the
+#: replacement could not bind the port, and the old process went on answering
+#: every request looking perfectly healthy. The version the settings page called
+#: "running build" reported the commit that had just been checked out, which was
+#: the opposite of the truth, so it certified the exact state it should have
+#: caught.
+#:
+#: Taken at import because import is the process starting, and before any pull
+#: can happen. It cannot be taken lazily: by the time a request arrives, the
+#: checkout may already have been moved, and then the lazy read is wrong in
+#: precisely the case that matters.
+_BOOTED_AT = _git_sha()
+
 #: Reboot and halt go to systemd directly, and polkit decides whether this
 #: process may ask.
 #:
@@ -251,6 +297,8 @@ class Api:
             return self._power(fn, "reboot", POWER_ACTIONS["reboot"])
         elif fn == "version":
             return self._version()
+        elif fn == "versions":
+            return self._versions()
         elif fn == "last_update":
             return updater.last_update() or {"parts": [], "changed": False}
         else:
@@ -305,7 +353,7 @@ class Api:
 
     def _version(self):
         """
-        The build this server is running, as a short commit hash.
+        The commit the checkout is on, as a short hash.
 
         Shown on the settings page, so a browser serving old files can be caught
         rather than argued with. "The reboot bar does not appear" and "this
@@ -314,22 +362,40 @@ class Api:
         asking whether it worked is how an afternoon goes.
 
         From git, because that is what is deployed and the checkout is what the
-        interface is served from. Says so plainly rather than showing nothing
-        when git is not there.
+        interface is served from.
+
+        This is the *checkout*, not this process. It is also what UpdateCheck.js
+        watches to decide when to reload a browser, so it has to keep moving
+        when a pull lands -- a server restarted onto new code keeps serving the
+        same static files either way, but a browser sitting on an old page does
+        not. Making this report the running build would stop the page ever
+        reloading. For what is actually running, ask fn=versions.
         """
-        try:
-            sha = subprocess.run(
-                ["git", "rev-parse", "--short", "HEAD"],
-                cwd=locations.ROOT_PATH,
-                capture_output=True,
-                text=True,
-                timeout=10,
-            )
-            if sha.returncode == 0 and sha.stdout.strip():
-                return sha.stdout.strip()
-        except Exception:
-            pass
-        return "unknown"
+        return _git_sha()
+
+    def _versions(self):
+        """
+        What is on disk and what this process is running, and whether they agree.
+
+        Two numbers because one cannot answer the question it looks like it is
+        answering. A checkout that has been pulled since the server started is
+        the ordinary state of every update -- and it is indistinguishable from
+        a broken one, where the server did not come back and something else is
+        still holding the port. On this machine that was real: an update left
+        the old process serving, reporting the new commit and behaving like the
+        new build, for a whole session.
+
+        So both, and whether they are the same, which is the thing worth
+        knowing. `same` false means the code answering is not the code on disk,
+        which is what a restart fixes and nothing else does.
+        """
+        installed = _git_sha()
+        running = _BOOTED_AT
+        return {
+            "installed": installed,
+            "running": running,
+            "same": installed == running,
+        }
 
     def _power(self, fn, verb, action):
         """
@@ -646,7 +712,6 @@ class HtmlDocument:
         if vpath == ("index.html",):
             return self.index()
         raise cherrypy.HTTPError(404)
-
 
     @staticmethod
     def _server_build():

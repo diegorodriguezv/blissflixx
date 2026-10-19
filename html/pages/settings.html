@@ -7,22 +7,30 @@
       <a href="" onclick={ reboot } type="button" class="btn btn-primary btn-block btn-lg"><span class="glyphicon glyphicon-repeat"></span> REBOOT</a>
 
       <!--
-      The build this page is talking to, read from the server rather than
-      written into the page.
+      What is on disk, and what this server is actually running, shown
+      separately.
 
-      It is here because "the reboot bar does not appear" and "this browser has
-      been running a build from three days ago" are indistinguishable from the
-      outside, and guessing between them cost an afternoon. A number on the
-      screen answers it in a second, and it keeps answering it for whoever
-      finds the next thing that works on the Pi and not in the browser.
+      It was one line labelled "running build", and it was wrong. It read the
+      checkout, which git pull moves while the server keeps running the code it
+      booted with -- so after an update the page reported the new commit for a
+      process that had never executed a line of it. On this machine that hid a
+      server that had failed to restart and left the old one serving, for a
+      whole session, while the page went on certifying the new build.
+
+      Two numbers and a verdict. When they differ, the code answering is not
+      the code on disk, which is what a restart fixes.
       -->
-      <!-- The bare name, not self.build. riot resolves an expression against
+      <!-- The bare names, not self.running. riot resolves an expression against
            the tag, and "self" is a variable inside the tag's script rather
            than a property on the tag, so nothing is found under that name and
            it falls back far enough to render an element -- which is what put
            "[object HTMLSpanElement]" on the television. Every other tag in this
            interface refers to its own state the same way. -->
-      <p class="build-label">running build <span id="build">{ build }</span></p>
+      <p class="build-label">running <span id="build">{ running }</span></p>
+      <p class="build-label">installed <span id="installed">{ installed }</span></p>
+      <p show={ stale } class="build-stale">
+        these differ, so a server is answering that is not the one on disk. Reboot it.
+      </p>
 
       <!--
       What the last UPDATE did, one line per thing it moved.
@@ -44,9 +52,19 @@
   <script>
     var self = this
 
-    Utils.rpc('server', 'version', null, function(err, data) {
-      if (err) return
-      self.build = data
+    // Set before the answer arrives, so the first render has something to show
+    // for them. riot evaluates the expressions when the tag is built and the
+    // request has not been sent by then; an undefined here would be rendered
+    // as the word "undefined" rather than as nothing.
+    self.running = '...'
+    self.installed = '...'
+    self.stale = false
+
+    Utils.rpc('server', 'versions', null, function(err, data) {
+      if (err || !data) return
+      self.running = data.running
+      self.installed = data.installed
+      self.stale = data.same ? false : true
       self.update()
     })
 

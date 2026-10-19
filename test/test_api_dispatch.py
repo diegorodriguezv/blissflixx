@@ -328,7 +328,9 @@ class TestTheVersionEndpoint:
     """
 
     def test_it_answers_with_a_short_hash(self, api):
-        assert re.fullmatch(r"[0-9a-f]{7,}|unknown", api.default("server", fn="version"))
+        assert re.fullmatch(
+            r"[0-9a-f]{7,}|unknown", api.default("server", fn="version")
+        )
 
     def test_it_is_the_hash_that_is_checked_out(self, api):
         """
@@ -355,6 +357,7 @@ class TestTheVersionEndpoint:
         Says so rather than raising. The page is a diagnostic, not a dependency,
         and a machine with no checkout still has a settings page.
         """
+
         def boom(*a, **kw):
             raise OSError("no git here")
 
@@ -365,13 +368,96 @@ class TestTheVersionEndpoint:
         """
         A version nobody looks at is no use, and the page is compiled at
         runtime rather than shipped, so the check is that the call is in it.
+
+        It asks for `versions` rather than this, because the page shows what is
+        running as well as what is checked out. See TestWhatIsActuallyRunning.
         """
         import pathlib
 
         from lib import locations
 
-        source = (pathlib.Path(locations.HTML_PATH) / "pages" / "settings.html").read_text()
-        assert "'version'" in source, "the settings page never asks what build this is"
+        source = (
+            pathlib.Path(locations.HTML_PATH) / "pages" / "settings.html"
+        ).read_text()
+        assert "'versions'" in source, "the settings page never asks what build this is"
+
+
+class TestWhatIsActuallyRunning:
+    """
+    The checkout and the running code come apart, and one number cannot say which
+    is which.
+
+    git pull moves the checkout while the server carries on running what it loaded
+    when it started, so asking git afterwards reports the new commit for a process
+    that has never executed a line of it.
+
+    That is not a hypothetical. Deploying a seek fix, rpi served a build from five
+    hours earlier for a whole session: the restart killed a bash wrapper, the
+    replacement could not bind the port, and the old process went on answering
+    every request. The settings page called that number the "running build", so it
+    was certifying the exact state it existed to catch.
+    """
+
+    def test_it_reports_both_and_says_whether_they_agree(self, api):
+        answer = api.default("server", fn="versions")
+        assert set(answer) == {"installed", "running", "same"}
+        assert answer["same"] == (answer["installed"] == answer["running"])
+
+    def test_the_running_one_is_the_one_the_process_booted_with(self, api, monkeypatch):
+        """
+        Not read at request time. That is the whole point: by the time a request
+        arrives the checkout may already have been pulled, and then a lazy read
+        reports the new commit for old code -- wrong in precisely the case the
+        report exists for.
+        """
+        assert blissflixx._BOOTED_AT == api.default("server", fn="versions")["running"]
+
+        monkeypatch.setattr(blissflixx, "_BOOTED_AT", "aaaaaaa")
+        monkeypatch.setattr(blissflixx, "_git_sha", lambda: "bbbbbbb")
+        answer = api.default("server", fn="versions")
+        assert answer == {"installed": "bbbbbbb", "running": "aaaaaaa", "same": False}
+
+    def test_a_pulled_checkout_is_visible_as_a_difference(self, api, monkeypatch):
+        monkeypatch.setattr(blissflixx, "_BOOTED_AT", "aaaaaaa")
+        monkeypatch.setattr(blissflixx, "_git_sha", lambda: "bbbbbbb")
+        assert api.default("server", fn="versions")["same"] is False
+
+        monkeypatch.setattr(blissflixx, "_git_sha", lambda: "aaaaaaa")
+        assert api.default("server", fn="versions")["same"] is True
+
+    def test_it_still_answers_without_git(self, api, monkeypatch):
+        def boom(*a, **kw):
+            raise OSError("no git here")
+
+        monkeypatch.setattr(blissflixx.subprocess, "run", boom)
+        answer = api.default("server", fn="versions")
+        assert answer["installed"] == "unknown"
+
+    def test_version_itself_keeps_tracking_the_checkout(self, api):
+        """
+        It cannot be switched to the running build. UpdateCheck.js watches it to
+        decide when to reload a browser, and a browser has to reload after a pull
+        lands whether or not the server came back -- it is still being served the
+        old static files either way. Reporting the running build instead would
+        leave the page waiting for a change it would never see.
+        """
+        monkeypatched = api.default("server", fn="versions")
+        assert api.default("server", fn="version") == monkeypatched["installed"]
+
+    def test_a_different_build_is_said_out_loud(self):
+        """
+        Two numbers that differ need explaining, or they are two numbers. The
+        failure they describe -- a server answering that is not on disk -- is
+        indistinguishable from every other "my fix did not work".
+        """
+        import pathlib
+
+        from lib import locations
+
+        source = (
+            pathlib.Path(locations.HTML_PATH) / "pages" / "settings.html"
+        ).read_text()
+        assert "show={ stale }" in source, "nothing is shown when the two disagree"
 
 
 class TestThePowerButtons:
@@ -485,9 +571,11 @@ class TestThePowerButtons:
             for line in help_text.splitlines()
             if line.startswith("  ") and line.strip() and " " in line.strip()
         }
-        assert action in verbs, (
-            "%r is not a systemctl verb. systemctl's own list says: %s"
-            % (action, sorted(v for v in verbs if v[0] == action[0]))
+        assert (
+            action in verbs
+        ), "%r is not a systemctl verb. systemctl's own list says: %s" % (
+            action,
+            sorted(v for v in verbs if v[0] == action[0]),
         )
 
     def test_no_sudo_anywhere_in_the_power_path(self, api, monkeypatch):
