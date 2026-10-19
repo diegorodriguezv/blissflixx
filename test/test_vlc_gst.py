@@ -2206,6 +2206,20 @@ class TestWhatTheOverlaySays:
         ], shown
         assert sent[2] == ["key key-subdelay-down"] * 5, sent
 
+    def test_a_burst_that_never_reached_the_player_moves_nothing(self):
+        """
+        The offset is what was sent, so a send that failed must not advance it.
+        The overlay would otherwise confirm a move the player never made, and
+        every press after that would be that much further out than the film is.
+        """
+        proc, shown, sent = _delay_press_proc()
+        proc._send_commands = lambda commands: False
+
+        proc.control("subplus")
+        proc.control("subplus")
+
+        assert shown == ["Subtitles in sync", "Subtitles in sync"], shown
+
     @pytest.mark.parametrize(
         "step,presses",
         [

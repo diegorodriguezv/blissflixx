@@ -989,13 +989,21 @@ class VlcProcess(PlayerBackend):
             proc = getattr(self, "proc", None)
             if proc is None or proc.poll() is not None:
                 return False
+            if not commands:
+                return True
             payload = "".join(command + "\n" for command in commands)
             try:
                 proc.stdin.write(payload.encode("utf-8"))
                 proc.stdin.flush()
             except (OSError, ValueError):
                 return False
-            self._collect_reply()
+            lines = self._collect_reply()
+            # Logged the way a single command is, but counted rather than
+            # repeated, so the log says what moved without five identical lines.
+            cherrypy.log(
+                "VLC CLI: %d x %s -> %s"
+                % (len(commands), commands[0], _summarise_reply(lines))
+            )
             return True
 
     def _collect_reply(self, settle=_REPLY_SETTLE):
@@ -1475,7 +1483,10 @@ class VlcProcess(PlayerBackend):
         """
         presses = _subtitle_delay_presses(self.opt("subtitle_delay_step"))
         hotkey = "key key-subdelay-" + ("up" if direction > 0 else "down")
-        self._send_commands([hotkey] * presses)
+        if not self._send_commands([hotkey] * presses):
+            # The commands never reached the player, so its delay did not move
+            # and neither does what this says is in force.
+            return self._subtitle_delay
         moved = presses * _SUBDELAY_QUANTUM
         self._subtitle_delay = round(self._subtitle_delay + direction * moved, 3)
         return self._subtitle_delay
