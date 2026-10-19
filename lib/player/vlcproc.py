@@ -340,14 +340,19 @@ def _track_label(name, chosen, language=None):
 
     -1 is how VLC spells "none", so it reads as "off" rather than as a track
     numbered minus one.
+
+    Off names the track the way on does, because the caller can say which track
+    was showing and VLC's Disable entry names nothing of its own: "[off] Track
+    1" says what was switched off, where "[off] subtitle" says only that
+    subtitles are off.
+
+    name is never empty, which is what keeps the last substitution honest: with
+    no track to name this falls back to it rather than leaving "[off] " with
+    nothing after it, which is the one string marq cannot be given.
     """
     if chosen is None:
         return name
-    if chosen < 0:
-        return "[off] %s" % name
-    if language:
-        return "[on] %s" % language
-    return "[on] %s" % name
+    return "[%s] %s" % ("on" if chosen >= 0 else "off", language or name)
 
 
 #: What the cli interface prints when it is ready for the next command. The only
@@ -556,6 +561,16 @@ class VlcProcess(PlayerBackend):
         # Track id to language, from the listing the ids came from; the listing
         # is the only place a track's language appears.
         self._track_names = {}
+        # The last real track that was showing, per interface verb. VLC's
+        # "Disable" entry (-1) names nothing of its own, so a press that lands
+        # on it has to reach back to this to say "[off] Track 1" rather than
+        # "[off] subtitle". See _showing_track_name.
+        self._track_showing = {}
+        # Whether the player has answered the listing for this verb at all. A
+        # film with no tracks answers with an empty listing, so "answered, and
+        # there was nothing there" has to be told from "never asked" -- only the
+        # first may be shown as "no subtitles". See _no_tracks.
+        self._tracks_answered = {}
         # What is playing, for the announcement at the start.
         self._title = ""
         # Whether we have paused it. VLC's cli can report the state but not set
@@ -1240,8 +1255,17 @@ class VlcProcess(PlayerBackend):
             )
         elif action == "hide_subtitle":
             # -1 is VLC's "disabled", and it is always in the listing.
+            #
+            # The listing is read first because that is the only thing that says
+            # whether this film has subtitles to hide at all. Without it a film
+            # that has none answers "[off] subtitle", which claims a track was
+            # switched off when there was never one to switch off -- and it
+            # would depend on the startup subtitle search having got as far as
+            # asking, which is not something this press can assume. Every other
+            # track action reads the listing for the same reason.
+            self._track_ids("strack")
             self._send_command("strack " + str(_TRACK_DISABLED))
-            self._show_overlay("[off] subtitle", hold=_CONFIRM_HOLD)
+            self._show_overlay(self._subtitle_label(off=True), hold=_CONFIRM_HOLD)
         elif action == "show_subtitle":
             self._show_track("strack")
             self._show_overlay(self._subtitle_label(), hold=_CONFIRM_HOLD)
@@ -1278,19 +1302,48 @@ class VlcProcess(PlayerBackend):
         if hold:
             _start_thread(self._expire_overlay, text, hold)
 
-    def _subtitle_label(self):
-        return _track_label(
-            "subtitle",
-            self._track_choice.get("strack"),
-            self._track_language("strack"),
-        )
+    def _subtitle_label(self, off=False):
+        """
+        What the overlay says after a subtitle change.
+
+        "no subtitles" when the player has answered and the film has none. Every
+        subtitle button is then a no-op, and the bare word "subtitle" that came
+        back instead said nothing about why -- it read as a state rather than as
+        an absence.
+
+        off is for the press that has just switched subtitles off. That cannot be
+        read back from the recorded choice, because hide_subtitle deliberately
+        leaves the choice alone: that choice is what a later step lands relative
+        to, and saying anything more about it here would be a different repair.
+
+        Otherwise the name comes from the choice, except when the choice is
+        VLC's Disable entry -- which names nothing -- and then it comes from the
+        track that was showing.
+        """
+        if self._no_tracks("strack"):
+            return "no subtitles"
+        chosen = self._track_choice.get("strack")
+        if off or (chosen is not None and chosen < 0):
+            return _track_label(
+                "subtitle", _TRACK_DISABLED, self._showing_track_name("strack")
+            )
+        return _track_label("subtitle", chosen, self._track_language("strack"))
 
     def _audio_label(self):
-        return _track_label(
-            "audio",
-            self._track_choice.get("atrack"),
-            self._track_language("atrack"),
-        )
+        """
+        What the overlay says after an audio change.
+
+        The same three states as subtitles, so the same labels. There is no
+        hide-audio action, so off is never passed here.
+        """
+        if self._no_tracks("atrack"):
+            return "no audio"
+        chosen = self._track_choice.get("atrack")
+        if chosen is not None and chosen < 0:
+            return _track_label(
+                "audio", _TRACK_DISABLED, self._showing_track_name("atrack")
+            )
+        return _track_label("audio", chosen, self._track_language("atrack"))
 
     def _expire_overlay(self, text, hold):
         """
@@ -1452,6 +1505,7 @@ class VlcProcess(PlayerBackend):
                     "(subtitles are on by default)" % tracks[0]
                 )
                 self._track_choice["strack"] = tracks[0]
+                self._remember_track("strack", tracks[0])
                 self._send_command("strack " + str(tracks[0]))
                 return
             # The listing is empty because the media is not open yet, not because
@@ -1485,6 +1539,7 @@ class VlcProcess(PlayerBackend):
                 return False
             target = real[0]
             self._track_choice[command] = target
+            self._remember_track(command, target)
         return self._send_command(command + " " + str(target))
 
     def _step_track(self, command, direction):
@@ -1515,9 +1570,16 @@ class VlcProcess(PlayerBackend):
             current = next((t for t in tracks if t != _TRACK_DISABLED), None)
             if current is None:
                 return False
+        # Whether it was read from the choice or assumed to be the first real
+        # track, this is the one that was showing, and it is what an "[off] ..."
+        # label names when this step lands on the Disable entry. Audio is never
+        # turned on at startup the way subtitles are, so without this the first
+        # press has nothing to name.
+        self._remember_track(command, current)
         index = tracks.index(current)
         target = tracks[(index + direction) % len(tracks)]
         self._track_choice[command] = target
+        self._remember_track(command, target)
         return self._send_command(command + " " + str(target))
 
     def _track_ids(self, command):
@@ -1530,6 +1592,18 @@ class VlcProcess(PlayerBackend):
         lines = self._send_and_collect(command)
         if lines is None:
             return []
+        # The player answered, which is not the same as having named a track. A
+        # film with no subtitle tracks answers with the header and the footer of
+        # an empty listing and nothing between them -- not even the "-1 - Disable"
+        # that a film with tracks always carries -- so "answered, and there was
+        # nothing there" is a thing this knows, and it is the only thing that
+        # lets the overlay say "no subtitles".
+        #
+        # Set and never cleared. An answer, once heard, is not un-heard by a
+        # later reply that came back with nothing in it, and the listing for a
+        # film does not change while it is playing.
+        if lines:
+            self._tracks_answered[command] = True
         ids = []
         names = {}
         for line in lines:
@@ -1551,14 +1625,62 @@ class VlcProcess(PlayerBackend):
         cherrypy.log("VLC CLI: " + command + " -> " + _summarise_reply(lines))
         return self._track_listing.get(command, [])
 
+    def _track_name(self, command, track_id):
+        """
+        VLC's name for a track id, or None when it did not name it.
+
+        None for -1 as well as for an id never listed. "Disable" is the state,
+        not a track, and has no name of its own -- which is what makes
+        _showing_track_name necessary.
+        """
+        if track_id is None or track_id < 0:
+            return None
+        return self._track_names.get(command, {}).get(track_id)
+
     def _track_language(self, command):
         """
         The language of the chosen track, or None when VLC did not name it.
         """
-        chosen = self._track_choice.get(command)
-        if chosen is None or chosen < 0:
-            return None
-        return self._track_names.get(command, {}).get(chosen)
+        return self._track_name(command, self._track_choice.get(command))
+
+    def _showing_track_name(self, command):
+        """
+        The name of the last real track that was showing, or None.
+
+        This outlives a choice of -1 on purpose: a press that lands on VLC's
+        Disable entry, or one that hides the track that was on, leaves nothing
+        chosen to name, and this is what there is to name instead.
+        """
+        return self._track_name(command, self._track_showing.get(command))
+
+    def _remember_track(self, command, track_id):
+        """
+        Note the track that is now the one showing.
+
+        Real tracks only. -1 is how VLC spells "none", so recording it would
+        erase the very name an "[off] ..." label needs.
+        """
+        if track_id is not None and track_id >= 0:
+            self._track_showing[command] = track_id
+
+    def _no_tracks(self, command):
+        """
+        True when the player has answered the listing and named no tracks.
+
+        False when it named some, and false when it has not answered at all,
+        which is what a listing never asked for looks like from here. That
+        distinction is the whole point: "no subtitles" is a claim about the
+        film, and a player that would not answer -- or one whose media is not
+        open yet, when the listing comes back empty for that reason instead --
+        is not evidence of one. Same rule as _stalled() returning None.
+
+        The listing is filtered of -1, so a stream carrying nothing but VLC's
+        own "Disable" entry counts as having no tracks, which is what it is.
+        """
+        if not self._tracks_answered.get(command, False):
+            return False
+        real = [t for t in self._track_listing.get(command, []) if t != _TRACK_DISABLED]
+        return not real
 
     def _current_volume(self):
         """

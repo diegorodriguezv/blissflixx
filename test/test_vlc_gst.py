@@ -1844,6 +1844,48 @@ class TestWhatTheOverlaySays:
         assert _track_label("subtitle", 2, "English") == "[on] English"
         assert _track_label("subtitle", -1, None) == "[off] subtitle"
 
+    def test_off_names_the_track_the_same_way_on_does(self):
+        """
+        "[off] English" rather than "[off] subtitle". VLC's Disable entry names
+        nothing of its own, so the track that was showing is the only thing left
+        to name, and "[off] Track 1" says what was switched off where "[off]
+        subtitle" says only that subtitles are off.
+
+        The plain word stays as the fallback for when there is nothing to name,
+        which is the case above and the reason it is a word rather than an empty
+        string: "[off] " with nothing after it is the one label marq cannot be
+        given.
+        """
+        from lib.player.vlcproc import _track_label
+
+        assert _track_label("subtitle", -1, "English") == "[off] English"
+
+    def test_saying_a_film_has_no_tracks_needs_the_player_to_have_answered(self):
+        """
+        "no subtitles" is a claim about the film, and a player that would not
+        answer the listing is not evidence of one. Not answering is also not the
+        same as answering with nothing, and both look alike from here until
+        something records which one happened. So all three states stay distinct,
+        and only the middle one may claim there is nothing there.
+        """
+        proc = VlcProcess()
+
+        # Never asked.
+        assert proc._no_tracks("strack") is False
+
+        # Answered, and there was nothing in the listing.
+        proc._tracks_answered["strack"] = True
+        assert proc._no_tracks("strack") is True
+
+        # Answered, with tracks.
+        proc._track_listing["strack"] = [-1, 2]
+        assert proc._no_tracks("strack") is False
+
+        # Answered, with VLC's own Disable entry and nothing beside it -- a state
+        # rather than a track, so still nothing there to switch to.
+        proc._track_listing["strack"] = [-1]
+        assert proc._no_tracks("strack") is True
+
     def test_no_language_gives_the_plain_word_not_a_number(self):
         """
         With nothing to name, it says "subtitle" -- never "subtitle 0", which
@@ -1890,6 +1932,143 @@ class TestWhatTheOverlaySays:
         proc.control("next_subtitle")
 
         assert shown == ["[on] Commentary"], shown
+
+    @pytest.mark.parametrize(
+        "action",
+        ["next_subtitle", "prev_subtitle", "show_subtitle", "hide_subtitle"],
+    )
+    def test_a_film_without_subtitles_says_it_has_none(self, action):
+        """
+        VLC answers "strack" for a film with no subtitle tracks with the header
+        and the footer of an empty listing and nothing between them -- not even
+        the "-1 - Disable" that a film with tracks always carries:
+
+            +----[ spu-es ]
+            +----[ end of spu-es ]
+
+        Every subtitle button is then a no-op, and the bare word "subtitle" that
+        came back instead said nothing about that. It reads as a state rather
+        than as an absence, so a viewer cannot tell a film with no subtitles from
+        a press that worked.
+        """
+        proc = VlcProcess()
+        shown = []
+        proc._show_overlay = lambda text, hold=None: shown.append(text)
+        proc._send_command = lambda command: True
+        proc._send_and_collect = lambda verb: [
+            "+----[ spu-es ]",
+            "+----[ end of spu-es ]",
+        ]
+
+        proc.control(action)
+
+        assert shown == ["no subtitles"], (action, shown)
+
+    def test_stepping_onto_the_disable_entry_names_the_track_it_left(self):
+        """
+        The last real track in this listing is "Commentary", so a step from
+        there wraps onto VLC's -1 - Disable, which is what the listing always
+        includes. That entry names nothing, so the label has to reach back to
+        the track that was showing rather than give up and say "[off] subtitle".
+        """
+        proc = VlcProcess()
+        shown = []
+        proc._show_overlay = lambda text, hold=None: shown.append(text)
+        proc._send_command = lambda command: True
+        proc._send_and_collect = lambda verb: [
+            "+----[ spu-es ]",
+            "| -1 - Disable",
+            "| 2 - English (CC) - [English]",
+            "| 5 - Commentary",
+            "+----[ end of spu-es ]",
+        ]
+
+        proc.control("next_subtitle")  # onto Commentary
+        proc.control("next_subtitle")  # and on to the Disable entry
+
+        assert shown == ["[on] Commentary", "[off] Commentary"], shown
+
+    def test_hiding_names_the_track_it_switched_off(self):
+        """
+        hide_subtitle leaves the recorded choice alone -- that choice is what a
+        later step lands relative to, and moving it is a separate thing from
+        this -- so the press says for itself that it left subtitles off, and
+        names the track rather than falling back to the plain word.
+        """
+        proc = VlcProcess()
+        shown = []
+        proc._show_overlay = lambda text, hold=None: shown.append(text)
+        proc._send_command = lambda command: True
+        proc._send_and_collect = lambda verb: [
+            "+----[ spu-es ]",
+            "| -1 - Disable",
+            "| 1 - Track 1",
+            "+----[ end of spu-es ]",
+        ]
+
+        proc.control("show_subtitle")  # choose the track
+        proc.control("hide_subtitle")
+
+        assert shown == ["[on] Track 1", "[off] Track 1"], shown
+
+    def test_a_track_vlc_left_unnamed_still_gets_something_said_about_it(self):
+        """
+        VLC synthesises "Track N" whenever a file supplies no name of its own,
+        which was checked on a file with no metadata at all and on one whose
+        title and language were both set to the empty string -- so a nameless
+        line should not arrive. If one does, the label still has to be a word.
+        """
+        proc = VlcProcess()
+        shown = []
+        proc._show_overlay = lambda text, hold=None: shown.append(text)
+        proc._send_command = lambda command: True
+        proc._send_and_collect = lambda verb: [
+            "+----[ spu-es ]",
+            "| -1 - Disable",
+            "| 1 - ",
+            "+----[ end of spu-es ]",
+        ]
+
+        proc.control("show_subtitle")
+
+        assert shown == ["[on] subtitle"], shown
+
+    def test_audio_says_the_same_thing_about_its_own_tracks(self):
+        """
+        Audio has the same three states as subtitles, so it gets the same labels.
+
+        Nothing switches audio on at startup the way _wait_for_subtitles does for
+        subtitles, so the very first press is the one that steps off the only
+        track onto the Disable entry -- and it still has a track to name, VLC's
+        active one, which is what the step reads as the current position.
+        """
+        proc = VlcProcess()
+        shown = []
+        proc._show_overlay = lambda text, hold=None: shown.append(text)
+        proc._send_command = lambda command: True
+        proc._send_and_collect = lambda verb: [
+            "+----[ audio-es ]",
+            "| -1 - Disable",
+            "| 1 - Track 1",
+            "+----[ end of audio-es ]",
+        ]
+
+        proc.control("next_audio")  # off the only track, onto Disable
+        proc.control("next_audio")  # and back onto it
+
+        assert shown == ["[off] Track 1", "[on] Track 1"], shown
+
+        silent = VlcProcess()
+        shown = []
+        silent._show_overlay = lambda text, hold=None: shown.append(text)
+        silent._send_command = lambda command: True
+        silent._send_and_collect = lambda verb: [
+            "+----[ audio-es ]",
+            "+----[ end of audio-es ]",
+        ]
+        silent.control("next_audio")
+
+        assert shown == ["no audio"], shown
 
     def test_the_overlay_shows_a_percentage_not_vlcs_own_scale(self):
         proc = _running()
