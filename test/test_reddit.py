@@ -65,9 +65,10 @@ class TestRedditFeedParams:
         # passed until the clock crossed UTC midnight and local and UTC dates
         # disagreed -- a test that fails once a day for a reason that has
         # nothing to do with what it is testing.
-        assert reddit._top_window_date() == (
-            datetime.now(timezone.utc) - timedelta(days=365)
-        ).date().isoformat()
+        assert (
+            reddit._top_window_date()
+            == (datetime.now(timezone.utc) - timedelta(days=365)).date().isoformat()
+        )
 
     def test_sitewide_domain_feeds_are_not_served(self):
         assert (
@@ -762,7 +763,9 @@ class TestALinkToAChannelIsNotAVideo:
         separates the host from the handle, and a video link never has one there.
         """
         items = reddit._extract(
-            reddit._listing([_post("not a handle", 1, "https://www.youtube.com/watch?v=abc")]),
+            reddit._listing(
+                [_post("not a handle", 1, "https://www.youtube.com/watch?v=abc")]
+            ),
             False,
         )
         assert len(items.to_list()) == 1
@@ -806,6 +809,52 @@ class TestALinkToAChannelIsNotAVideo:
                 False,
             )
             assert items.to_list() == [], sr
+
+
+class TestAnImageIsNotAFilm:
+    """
+    The other post that cannot play, for the same reason as a channel link.
+
+    yt-dlp answers an image with "Unsupported URL": Reddit's image posts point
+    at the file, or at the newer media viewer with the file inside an encoded
+    query string, and the generic extractor gives up on both. Listed, they look
+    exactly like a video until somebody presses one.
+    """
+
+    @pytest.mark.parametrize(
+        "url",
+        [
+            # The direct file.
+            "https://i.redd.it/c8vb10nug6wh1.jpeg",
+            # The image viewer, which is what was actually reported.
+            "https://www.reddit.com/media?url=https%3A%2F%2Fi.redd.it%2Fc8vb10nug6wh1.jpeg",
+            # Other hosts, other extensions.
+            "https://i.imgur.com/abc123.png",
+            "https://preview.redd.it/xyz.webp",
+            # A set of pictures is not a film either.
+            "https://www.reddit.com/gallery/abc123",
+        ],
+    )
+    def test_it_is_dropped_before_the_item_is_built(self, url):
+        items = reddit._extract(reddit._listing([_post("a picture", 10, url)]), False)
+        assert items.to_list() == [], url
+
+    @pytest.mark.parametrize(
+        "url",
+        [
+            "https://v.redd.it/abc123",
+            "https://i.imgur.com/abc123.gifv",
+            "https://youtu.be/aaaaaaaaaaa",
+            "https://example.com/a-video.mp4",
+        ],
+    )
+    def test_but_a_video_is_kept(self, url):
+        """
+        Including .gifv, which is an imgur video page rather than a picture --
+        the trailing guard in the pattern is what tells the two apart.
+        """
+        items = reddit._extract(reddit._listing([_post("a film", 10, url)]), False)
+        assert [item.url for item in items.to_list()] == [url], url
 
 
 class TestTopIsRankedByScore:
@@ -981,7 +1030,9 @@ class TestTheSortsThatAreNotShipped:
         the only version of this where the helper's vocabulary and what it can
         honestly produce are the same thing.
         """
-        assert reddit._feed_params(f"http://www.reddit.com/r/videos/{sort}.json") is None
+        assert (
+            reddit._feed_params(f"http://www.reddit.com/r/videos/{sort}.json") is None
+        )
 
     def test_the_channel_shows_nothing_rather_than_the_wrong_thing(self):
         """
@@ -989,9 +1040,7 @@ class TestTheSortsThatAreNotShipped:
         listing, not an error. A channel asking for a ranking it cannot have
         gets an empty category, not a category of something else.
         """
-        items = reddit.get_feed(
-            {"url": "http://www.reddit.com/r/videos/best.json"}
-        )
+        items = reddit.get_feed({"url": "http://www.reddit.com/r/videos/best.json"})
         assert items.to_list() == []
 
     def test_top_is_the_sort_that_is_served(self):

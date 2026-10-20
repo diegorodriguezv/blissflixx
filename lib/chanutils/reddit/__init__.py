@@ -82,8 +82,11 @@ def _top_window_date():
     now and not a year back from whenever this was last edited.
     """
     return (
-        datetime.now(timezone.utc) - timedelta(days=_TOP_WINDOW_DAYS)
-    ).date().isoformat()
+        (datetime.now(timezone.utc) - timedelta(days=_TOP_WINDOW_DAYS))
+        .date()
+        .isoformat()
+    )
+
 
 #: Seconds to hold a listing before asking again. Every channel that shares a
 #: subreddit shares this too, so clicking through several of them in a row
@@ -648,6 +651,24 @@ _CHANNEL_URL = re.compile(
     r"^https?://(?:[\w-]+\.)*youtube\.com/(?:@[\w.-]+|channel/|c/|user/)"
 )
 
+#: A post that links to a picture rather than to a film.
+#:
+#: Reddit's image posts point at the file directly, or -- for the ones made
+#: through the newer image viewer -- at
+#:
+#:     https://www.reddit.com/media?url=https%3A%2F%2Fi.redd.it%2F...jpeg
+#:
+#: with the file inside an encoded query string. yt-dlp answers both with
+#: "Unsupported URL", so they are the same kind of unplayable as a channel
+#: link: dropped here, never built, rather than listed looking as playable as
+#: the rest. The extension is what both shapes have in common, which is why it
+#: is matched anywhere in the URL and not only at the end of the path.
+#:
+#: A gallery is a set of pictures, not a video, and yt-dlp cannot play one.
+#: The trailing guard keeps ".gifv" out of it: that one is a video page, and the
+#: extractor for it works.
+_IMAGE_URL = re.compile(r"\.(?:jpe?g|png|gif|webp|bmp)(?![a-z0-9])|/gallery/", re.I)
+
 
 def _extract(data, moviesubs):
     results = PlayItemList()
@@ -682,8 +703,9 @@ def _extract(data, moviesubs):
         # Dropped here, before the item is built, rather than by each channel
         # that asks for a listing. An item that cannot play cannot be explained
         # once it is on screen looking as playable as the rest, so it is never
-        # built. See _CHANNEL_URL for what happens to one that is left in.
-        if not url or _CHANNEL_URL.match(url):
+        # built. See _CHANNEL_URL for what happens to one that is left in, and
+        # _IMAGE_URL for the other kind that cannot play.
+        if not url or _CHANNEL_URL.match(url) or _IMAGE_URL.search(url):
             continue
         subs = None
         if moviesubs:
