@@ -158,6 +158,28 @@ class TestPipeHappyPath:
         assert second.started_with == {"outfile": "/tmp/a", "title": "title"}
         assert collected[0] == MSG_PLAYER_PIPE_STOPPED
 
+    def test_each_pipe_gives_its_first_stage_its_own_arguments(self):
+        """
+        A dict as a default argument is one dict for the life of the process, so
+        every pipeline's first stage was handed the same one. Whatever that stage
+        wrote there -- outfile, and later the slave URL of a two-stream source --
+        was still there for the next film.
+
+        It showed as a muxed source being given the audio stream of the YouTube
+        video played before it: the second film's resolver found no slave, left
+        the key alone, and the player found the first film's still in place.
+        """
+        first = FakeProcess("only", outcome="ready_then_wait")
+        second = FakeProcess("only", outcome="ready_then_wait")
+        for proc in (first, second):
+            pipe = ProcessPipe("t")
+            pipe.add_process(proc)
+            start_pipe(pipe)
+
+        assert first.started_with is not second.started_with, (
+            "the second pipeline was handed the first one's arguments dict"
+        )
+
     def test_the_args_passed_on_are_not_edited_in_place(self):
         """
         The dict goes from stage to stage and the last one keeps it. Adding the

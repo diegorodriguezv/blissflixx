@@ -343,7 +343,19 @@ class ProcessPipe:
     def _is_last_proc(self, idx):
         return idx == len(self.procs) - 1
 
-    def _start_next(self, args={}):
+    def _start_next(self, args=None):
+        """
+        Hand the next stage its arguments, and start it.
+
+        args is None rather than {} for a reason: a dict as a default is one
+        dict for the life of the process, so every pipeline's first stage was
+        being handed the same one. Whatever that stage wrote there -- the film's
+        URL, and now the slave URL of a two-stream source -- was still there for
+        the next film, which is how a muxed source came to be given the audio
+        stream of the YouTube video played before it.
+        """
+        if args is None:
+            args = {}
         if self.next_proc >= len(self.procs):
             # Nothing left to start. Every caller checks this first, so getting
             # here means a message arrived for a stage that does not exist --
