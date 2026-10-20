@@ -382,6 +382,25 @@ class TestVlcCommand:
         """
         assert "--play-and-exit" in vlc({"outfile": FILE_OUT})
 
+    def test_a_second_stream_is_given_to_vlc_as_a_slave(self):
+        """
+        Above 360p YouTube has no stream carrying both picture and sound, and a
+        one-URL pipeline could never show a film in HD. VLC plays two inputs at
+        once; measured at 1080p H.264 it was hardware-decoded, lost no frames,
+        and stayed in sync through a seek.
+        """
+        cmd = VlcProcess({"osd_overlay": "0"}).build_command(
+            {"outfile": "http://v.mp4", "slave": "http://a.m4a"}
+        )
+        assert "--input-slave=http://a.m4a" in cmd, cmd
+
+    def test_and_a_muxed_source_gets_no_slave(self):
+        """A source that carries both arrives as one URL and plays as it always did."""
+        cmd = VlcProcess({"osd_overlay": "0"}).build_command(
+            {"outfile": "http://x.mp4"}
+        )
+        assert not [a for a in cmd if a.startswith("--input-slave")], cmd
+
 
 class TestVlcPlatformVariants:
     @pytest.mark.parametrize(

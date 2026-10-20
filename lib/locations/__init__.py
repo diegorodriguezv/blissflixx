@@ -25,6 +25,13 @@ DATA_PATH = str(_ROOT / "data")
 BIN_PATH = str(_ROOT / "bin")
 PLIST_PATH = str(_ROOT / "data" / "playlists")
 SETTINGS_PATH = str(_ROOT / "data" / "settings")
+#: The checkout's own JavaScript runtime, unpacked here by configure.sh.
+#:
+#: Not installed system-wide on purpose. yt-dlp requires node 22 and the
+#: distribution ships 20, but replacing the system node would move the runtime
+#: that npm and peerflix were installed with -- a change to the machine, not to
+#: this project. See lib/player/nodejs.py, which is the one place that knows.
+NODE_PATH = str(_ROOT / "data" / "node")
 #: A Netscape cookies.txt, if the user has put one there.
 #:
 #: Not a setting. It is a credential rather than configuration, and it belongs

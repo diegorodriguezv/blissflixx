@@ -142,15 +142,46 @@ class TestPeerflixReady:
 
 
 class TestYoutubeDlReady:
-    def test_json_url_becomes_the_output(self):
-        """Piped playback hands the player the direct stream url."""
-        proc = feed(stub_proc(YoutubeDlProcess("u")), '"http://direct/x.mp4"', "false")
+    """
+    The stage asks yt-dlp for three possible streams and one live flag, each on
+    its own labelled line, and turns whichever are real into the player's args.
+
+    Labelled rather than positional because warnings land between the lines, and
+    because a field an extractor does not have prints as NA -- which is an
+    answer ("this one does not say"), not an error.
+    """
+
+    def _ready(self, *lines, pid=4242):
+        proc = feed(stub_proc(YoutubeDlProcess("u"), pid=pid), *lines)
         proc.args = {}
-        assert proc._ready() == {
-            "pid": 4242,
-            "outfile": "http://direct/x.mp4",
-            "is_live": False,
-        }
+        return proc._ready()
+
+    def test_a_muxed_source_becomes_the_output_and_no_slave(self):
+        """One URL means the source carries picture and sound together."""
+        out = self._ready(
+            'BFFILM:"http://direct/x.mp4"',
+            "BFVIDEO:NA",
+            "BFAUDIO:NA",
+            "BFLIVE:false",
+        )
+        assert out["outfile"] == "http://direct/x.mp4"
+        assert "slave" not in out, "a muxed source has no second stream"
+        assert out["is_live"] is False
+
+    def test_two_streams_become_the_film_and_its_slave(self):
+        """
+        Above 360p YouTube serves picture and sound separately, and that is what
+        makes 1080p possible here: a single URL can only ever be a muxed stream,
+        and the muxed ones stop at 360p. VLC plays both at once.
+        """
+        out = self._ready(
+            "BFFILM:NA",
+            'BFVIDEO:"http://v.mp4"',
+            'BFAUDIO:"http://a.m4a"',
+            "BFLIVE:false",
+        )
+        assert out["outfile"] == "http://v.mp4"
+        assert out["slave"] == "http://a.m4a"
 
     def test_a_live_stream_is_flagged_for_the_player(self):
         """
@@ -162,55 +193,50 @@ class TestYoutubeDlReady:
         so, and telling them apart would mean polling, which is what stopped
         the cli interface answering at all. yt-dlp already knows.
         """
-        proc = feed(stub_proc(YoutubeDlProcess("u")), '"http://live/x.m3u8"', "true")
-        proc.args = {}
-        out = proc._ready()
-        assert out["is_live"] is True, out
-        assert out["outfile"] == "http://live/x.m3u8", out
+        out = self._ready(
+            'BFFILM:"http://live/x.m3u8"', "BFVIDEO:NA", "BFAUDIO:NA", "BFLIVE:true"
+        )
+        assert out["is_live"] is True
+        assert out["outfile"] == "http://live/x.m3u8"
 
     def test_a_site_that_does_not_report_live_still_plays(self):
         """
-        xnxx reports no is_live field at all, and yt-dlp prints a bare NA for a
-        field it does not have.
+        xnxx reports no is_live field at all, so yt-dlp prints a bare NA.
 
-        That is the case this shape exists for, and it was found by shipping the
-        other one: printed inside a single object, {"url": "...", "is_live": NA}
-        is not JSON, so the line cannot be parsed at all and the film never
-        starts. An absence of information about whether something is live took
-        the video down with it. On its own line a bare NA parses as itself and
-        means only that this site does not say.
+        That is an absence of information rather than a statement, so it reads
+        as not live -- which keeps a film showing its length rather than losing
+        it. The film still plays.
         """
-        proc = feed(stub_proc(YoutubeDlProcess("u")), '"http://hls-cdn/x.m3u8"', "NA")
-        proc.args = {}
-        out = proc._ready()
-        assert out["outfile"] == "http://hls-cdn/x.m3u8", out
+        out = self._ready(
+            'BFFILM:"http://hls-cdn/x.m3u8"', "BFVIDEO:NA", "BFAUDIO:NA", "BFLIVE:NA"
+        )
+        assert out["outfile"] == "http://hls-cdn/x.m3u8"
         assert out["is_live"] is False, "missing is not the same as live"
 
-    def test_a_warning_between_the_two_lines_does_not_hide_the_answer(self):
-        """
-        The two answers are printed one after the other, but the player writes
-        warnings of its own in between.
-        """
-        proc = feed(
-            stub_proc(YoutubeDlProcess("u")),
-            '"http://live/x.m3u8"',
+    def test_a_warning_between_the_lines_does_not_hide_the_answer(self):
+        """yt-dlp writes warnings of its own between the answers."""
+        out = self._ready(
+            'BFFILM:"http://live/x.m3u8"',
             'WARNING: "-f best" selects the best pre-merged format',
-            "true",
+            "BFVIDEO:NA",
+            "BFAUDIO:NA",
+            "BFLIVE:true",
         )
-        proc.args = {}
-        assert proc._ready()["is_live"] is True
+        assert out["is_live"] is True
 
-    def test_a_url_that_never_arrives_is_an_error_not_a_crash(self):
-        proc = feed(stub_proc(YoutubeDlProcess("u")), "NA")
-        proc.args = {}
+    def test_no_playable_stream_is_an_error_not_a_crash(self):
         with pytest.raises(ProcessException, match="No URL in YTDL"):
-            proc._ready()
+            self._ready("BFFILM:NA", "BFVIDEO:NA", "BFAUDIO:NA", "BFLIVE:false")
 
-    def test_a_missing_url_inside_an_object_is_still_an_error(self):
-        proc = feed(stub_proc(YoutubeDlProcess("u")), '{"url": "NA"}')
-        proc.args = {}
+    def test_an_audio_url_with_no_picture_is_an_error(self):
+        """
+        A half-answer is not a playable one. Handing the sound URL to the player
+        as the film would give a film with no picture.
+        """
         with pytest.raises(ProcessException, match="No URL in YTDL"):
-            proc._ready()
+            self._ready(
+                "BFFILM:NA", "BFVIDEO:NA", 'BFAUDIO:"http://a.m4a"', "BFLIVE:false"
+            )
 
     def test_pid_is_reported_for_the_next_stage(self):
         """
@@ -218,66 +244,31 @@ class TestYoutubeDlReady:
         know which process to stop watching. A missing pid is what makes the
         local-file branch raise KeyError.
         """
-        proc = feed(stub_proc(YoutubeDlProcess("u"), pid=99), '{"url": "http://x"}')
-        proc.args = {}
-        assert proc._ready()["pid"] == 99
-
-    def test_print_url_string_becomes_the_output(self):
-        """
-        yt-dlp's --print %(url)j form emits a JSON string, not an object. This is
-        the form the player now uses because the full extraction JSON was one
-        11 MB line for a video with many automatic caption tracks.
-        """
-        proc = feed(stub_proc(YoutubeDlProcess("u")), '"http://direct/x.mp4"', "false")
-        proc.args = {}
-        assert proc._ready()["outfile"] == "http://direct/x.mp4"
-
-    def test_requested_formats_falls_back_to_the_first_entry(self):
-        """Merged dash/audio formats have no top-level url."""
-        proc = feed(
-            stub_proc(YoutubeDlProcess("u")),
-            '{"requested_formats": [{"url": "http://v.mp4"}, {"url": "http://a.m4a"}]}',
+        out = self._ready(
+            'BFFILM:"http://x"', "BFVIDEO:NA", "BFAUDIO:NA", "BFLIVE:false", pid=99
         )
-        proc.args = {}
-        assert proc._ready()["outfile"] == "http://v.mp4"
+        assert out["pid"] == 99
 
     def test_download_destination_line_yields_the_output_path(self):
         """When yt-dlp writes a file rather than streaming, the path is used."""
         from lib.player.processpipe import OUT_FILE
 
-        proc = feed(
-            stub_proc(YoutubeDlProcess("u")),
-            "[download] Destination: " + OUT_FILE,
-        )
-        proc.args = {}
-        assert proc._ready()["outfile"] == OUT_FILE
+        out = self._ready("[download] Destination: " + OUT_FILE)
+        assert out["outfile"] == OUT_FILE
 
     def test_error_line_raises(self):
-        proc = feed(stub_proc(YoutubeDlProcess("u")), "ERROR: something broke")
-        proc.args = {}
         with pytest.raises(ProcessException):
-            proc._ready()
+            self._ready("ERROR: something broke")
 
-    def test_json_without_any_url_is_rejected(self):
-        proc = feed(stub_proc(YoutubeDlProcess("u")), '{"title": "no url here"}')
-        proc.args = {}
-        with pytest.raises(ProcessException, match="No URL in YTDL"):
-            proc._ready()
-
-    def test_missing_print_url_is_rejected(self):
-        proc = feed(stub_proc(YoutubeDlProcess("u")), "null")
-        proc.args = {}
-        with pytest.raises(ProcessException, match="No URL in YTDL"):
-            proc._ready()
-
-    def test_noise_before_the_json_is_skipped(self):
-        proc = feed(
-            stub_proc(YoutubeDlProcess("u")),
+    def test_noise_before_the_answer_is_skipped(self):
+        out = self._ready(
             "[youtube] Extracting URL",
-            '{"url": "http://x.mp4"}',
+            'BFFILM:"http://x.mp4"',
+            "BFVIDEO:NA",
+            "BFAUDIO:NA",
+            "BFLIVE:false",
         )
-        proc.args = {}
-        assert proc._ready()["outfile"] == "http://x.mp4"
+        assert out["outfile"] == "http://x.mp4"
 
 
 class TestYtdlErrorMessages:

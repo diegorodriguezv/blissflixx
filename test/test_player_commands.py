@@ -155,23 +155,28 @@ class TestYoutubeDl:
         ), "the raw url form came back"
         assert "--dump-single-json" not in piped
 
-    def test_the_url_and_whether_it_is_live_are_printed_separately(self):
+    def test_the_streams_and_the_live_flag_are_printed_separately(self):
         """
-        A live stream has no total to show, and VLC answers with the size of its
-        sliding window anyway -- 11 on one IPTV channel, 13 two seconds later.
-        The only honest source for whether it is live is yt-dlp.
+        Four labelled lines: the film's URL, the picture's, the sound's, and
+        whether it is live.
 
-        Two lines, not one object. A field an extractor has no value for comes
-        out as a bare NA, and inside an object that makes the whole line
-        unparseable, so the URL goes down with the missing flag. is_live is
-        missing for some sites -- xnxx reports it not at all -- and a film that
-        cannot say whether it is live is still a film.
+        Lines rather than one object, because a field an extractor has no value
+        for comes out as a bare NA, and inside an object that makes the whole
+        line unparseable -- so the URL would go down with the missing flag.
+        is_live is missing for some sites (xnxx reports it not at all), and a
+        film that cannot say whether it is live is still a film.
+
+        Labelled rather than positional so the lines can be told apart from the
+        warnings yt-dlp writes between them, and so a half-answer can say which
+        half is missing.
         """
         cmd = YoutubeDlProcess(SHORT_URL)._get_cmd({})
         templates = [cmd[i + 1] for i, part in enumerate(cmd) if part == "--print"]
-        assert len(templates) == 2, templates
-        assert any("url" in t for t in templates), templates
-        assert any("is_live" in t for t in templates), templates
+        assert len(templates) == 4, templates
+        for marker in ("BFFILM:", "BFVIDEO:", "BFAUDIO:", "BFLIVE:"):
+            assert any(t.startswith(marker) for t in templates), (marker, templates)
+        assert any("requested_formats.0.url" in t for t in templates), templates
+        assert any("requested_formats.1.url" in t for t in templates), templates
         for template in templates:
             assert (
                 "{" not in template
@@ -185,9 +190,16 @@ class TestYoutubeDl:
         assert "--simulate" not in cmd
         assert "--dump-single-json" not in cmd
 
-    def test_youtube_forces_mp4(self):
+    def test_youtube_asks_for_h264_picture_and_sound_separately(self):
+        """
+        H.264 is not a preference: it is the only codec this box both decodes
+        and displays, and the "+" pair is what makes 1080p reachable at all.
+        """
         cmd = YoutubeDlProcess(YT_URL)._get_cmd({})
-        assert "(mp4)" in cmd
+        fmt = cmd[cmd.index("--format") + 1]
+        assert "bestvideo[height<=1080][vcodec^=avc1]+bestaudio[ext=m4a]" in fmt, fmt
+        assert "av01" not in fmt, fmt
+        assert "vp9" not in fmt, fmt
 
     def test_a_techcrunch_article_is_exchanged_for_its_media(self, monkeypatch):
         """
@@ -423,3 +435,56 @@ def _capture(proc):
 
     q = queue.Queue()
     return q
+
+
+class TestTheJavaScriptRuntime:
+    """
+    A runtime the checkout owns, or the one on PATH.
+
+    yt-dlp refuses node below version 22, which is what Raspberry Pi OS ships,
+    so configure.sh unpacks a pinned LTS into data/node. peerflix goes through
+    the same helper, because once the distribution's node is no longer installed
+    it is the only node on the machine.
+    """
+
+    def _bundled(self, tmp_path, monkeypatch):
+        import lib.player.nodejs as nodejs
+
+        binary = tmp_path / "bin" / "node"
+        binary.parent.mkdir()
+        binary.write_text("#!/bin/sh\n")
+        monkeypatch.setattr(nodejs, "_BUNDLED", str(binary))
+        return nodejs, binary
+
+    def test_a_bundled_runtime_is_named_by_path(self, tmp_path, monkeypatch):
+        """
+        By path rather than by name: a bare "node" would find the distribution's
+        and be rejected as too old, which is the bug this exists to avoid.
+        """
+        nodejs, binary = self._bundled(tmp_path, monkeypatch)
+        assert nodejs.node_binary() == str(binary)
+        assert nodejs.node_runtime() == "node:" + str(binary.parent)
+
+    def test_without_one_the_name_on_path_is_used(self, tmp_path, monkeypatch):
+        import lib.player.nodejs as nodejs
+
+        monkeypatch.setattr(nodejs, "_BUNDLED", str(tmp_path / "absent"))
+        assert nodejs.node_binary() == "node"
+        assert nodejs.node_runtime() == "node"
+
+    def test_and_ytdlp_is_told_about_it(self, tmp_path, monkeypatch):
+        self._bundled(tmp_path, monkeypatch)
+        cmd = YoutubeDlProcess(SHORT_URL)._get_cmd({})
+        runtimes = [cmd[i + 1] for i, a in enumerate(cmd) if a == "--js-runtimes"]
+        expected = "node:" + str(tmp_path / "bin")
+        assert runtimes == [expected, "quickjs"], runtimes
+
+    def test_peerflix_runs_on_the_same_runtime(self, monkeypatch):
+        """
+        peerflix is invoked as "<node> ... /usr/local/bin/peerflix", so the node
+        it runs on is the one named here.
+        """
+        import lib.player.pflixproc as pflixproc
+
+        monkeypatch.setattr(pflixproc, "node_binary", lambda: "/opt/node/bin/node")
+        assert PeerflixProcess("http://x/y.torrent", 0).cmd[0] == "/opt/node/bin/node"

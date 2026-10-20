@@ -444,11 +444,25 @@ all fail. A channel is only worth having if its items play.
 YouTube answers a Raspberry Pi with "sign in to confirm you're not a bot" often
 enough that it is worth saying what does and does not help.
 
-`configure.sh` installs `quickjs` so yt-dlp can run YouTube's JavaScript
-challenges. Without a runtime yt-dlp warns and extraction is degraded. The node
-in Raspberry Pi OS is version 20 and yt-dlp refuses anything below 22, so naming
-node alone -- which is what this used to do -- bought nothing on a Pi. The
-warning is worth reading rather than scrolling past.
+`configure.sh` unpacks a pinned node LTS into `data/node` so yt-dlp can run
+YouTube's JavaScript challenges. Not the distribution's: yt-dlp refuses node
+below 22 and Raspberry Pi OS ships 20, so asking for `node` bought nothing and
+said so only in a warning. It is unpacked into the checkout rather than
+installed system-wide, so the runtime npm and peerflix were installed with is
+untouched. `quickjs` is installed too, as the fallback: it works, but it is an
+interpreter and took four times as long to solve the same challenge — 79 s
+against 19 s on a Pi 4.
+
+Picture and sound are requested as **two streams**, which is what makes 1080p
+reachable at all: one URL can only be a muxed stream, and YouTube's muxed
+streams stop at 360p. The player takes them as VLC's input and its slave, which
+measured as hardware-decoded 1080p with no dropped frames and in sync.
+
+**H.264 only**, and that is not a preference. It is the only codec this hardware
+both decodes and displays: AV1 and VP9 arrive as `I420` and are copied per frame,
+which is about 1 fps at 1080p, while H.264 arrives as a DRM buffer and is scanned
+out directly. So the ceiling is whatever YouTube still serves in H.264 — 1080p on
+many videos, less on others.
 
 Being signed in is the other half, and the box has no browser to read cookies
 from. Export a Netscape-format `cookies.txt` for youtube.com from a browser that

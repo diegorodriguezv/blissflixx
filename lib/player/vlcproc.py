@@ -781,6 +781,19 @@ class VlcProcess(PlayerBackend):
             cmd.append("--input-fast-seek")
         if "subtitles" in args:
             cmd.append("--sub-file=" + args["subtitles"])
+        if args.get("slave"):
+            # The sound, when the source serves it separately from the picture.
+            #
+            # Above 360p YouTube has no stream carrying both, so a one-URL
+            # pipeline could never show a film in HD. VLC plays two inputs at
+            # once: this one and the slave. Measured on a Pi 4 with 1080p H.264:
+            # hardware decoding, no dropped frames, and in sync -- including
+            # after a seek.
+            #
+            # VLC calls the option experimental, which is why it is used for
+            # exactly the case that needs it and nothing else: a muxed source
+            # still arrives as one URL and plays as it always did.
+            cmd.append("--input-slave=" + args["slave"])
         cmd.append(args["outfile"])
         return cmd
 

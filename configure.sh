@@ -83,21 +83,46 @@ else
     apt update
     stage "package lists"
 
-    # This includes nodejs
-    apt -y install npm
-    stage "npm (and nodejs)"
+    # A JavaScript runtime, for yt-dlp's YouTube extraction and for peerflix.
+    #
+    # Not the distribution's. yt-dlp refuses node below version 22 and Raspberry
+    # Pi OS ships 20, so asking apt for npm once took about ten minutes and left
+    # a runtime yt-dlp would not use. This is the pinned LTS release, unpacked
+    # into the checkout instead of installed system-wide: swapping the system
+    # node would move the runtime npm and peerflix were installed with, which is
+    # a change to the machine rather than to this project. lib/player/nodejs.py
+    # is the one place that knows the path.
+    #
+    # Checked against the release's own SHASUMS256.txt. A download that arrives
+    # damaged is a mystery later ("it worked on the other Pi"), and a runtime
+    # that moved on its own is the sort of change everything else here is pinned
+    # against.
+    NODE_VERSION="v22.23.3"
+    case "$(uname -m)" in
+        armv7l) NODE_ARCH="linux-armv7l" ;;
+        aarch64|arm64) NODE_ARCH="linux-arm64" ;;
+        x86_64|amd64) NODE_ARCH="linux-x64" ;;
+        *) NODE_ARCH="" ;;
+    esac
+    NODE_TARBALL="node-$NODE_VERSION-$NODE_ARCH.tar.xz"
+    if [ -n "$NODE_ARCH" ] &&
+       curl -fsS --max-time 300 -o "/tmp/$NODE_TARBALL" \
+           "https://nodejs.org/dist/$NODE_VERSION/$NODE_TARBALL" &&
+       curl -fsS --max-time 120 -o /tmp/SHASUMS256.txt \
+           "https://nodejs.org/dist/$NODE_VERSION/SHASUMS256.txt" &&
+       ( cd /tmp && grep " $NODE_TARBALL\$" SHASUMS256.txt | sha256sum -c - ); then
+        mkdir -p data/node
+        tar -xJf "/tmp/$NODE_TARBALL" -C data/node --strip-components=1
+        echo "  node $NODE_VERSION in $(pwd)/data/node"
+    else
+        echo "  node $NODE_VERSION not installed; yt-dlp will fall back to quickjs"
+    fi
+    rm -f "/tmp/$NODE_TARBALL" /tmp/SHASUMS256.txt
+    stage "node runtime"
 
-    # A JavaScript runtime for yt-dlp's YouTube extraction.
-    #
-    # Not the nodejs above: yt-dlp refuses node below version 22, and the node
-    # in Raspberry Pi OS is 20, so naming node as the runtime buys nothing here.
-    # quickjs is small and it is in the distribution, and its current build
-    # clears the minimum yt-dlp asks for (2023-12-09).
-    #
-    # Its own line so that a distribution without it cannot take npm, and the
-    # peerflix installed with it, down too. yt-dlp ignores a runtime it cannot
-    # use rather than failing, so a machine where this does not install is a
-    # machine with degraded YouTube extraction and everything else working.
+    # A second runtime yt-dlp accepts, so that a failed download above costs
+    # speed and not YouTube. Its build clears the minimum yt-dlp asks for
+    # (2023-12-09); yt-dlp ignores a runtime it cannot use rather than failing.
     apt -y install quickjs
     stage "quickjs"
 
@@ -152,8 +177,20 @@ else
     # any binary that was running, so nothing could say what was actually
     # allowing the bind.
 
-    # Install peerflix globally
-    npm install -g peerflix
+    # Install peerflix globally, with the node unpacked above when it is there.
+    #
+    # That node ships its own npm, so the distribution's npm -- sixty packages,
+    # and the runtime we no longer want -- is not needed. The prefix is given
+    # explicitly because npm's default would be the unpacked tree, and the app
+    # runs /usr/local/bin/peerflix.
+    #
+    # Falls back to the distribution's npm if the download failed, so a box
+    # without a working nodejs.org still ends up with a working peerflix.
+    if [ -x data/node/bin/npm ]; then
+        PATH="$(pwd)/data/node/bin:$PATH" npm install -g peerflix --prefix /usr/local
+    else
+        apt -y install npm && npm install -g peerflix
+    fi
     stage "peerflix"
     
     # The user that started the command (since sudo was used, root is the active user)

@@ -5,6 +5,7 @@ import cherrypy
 
 from ..api.torrent import torrent2magnet
 from ..locations import DATA_PATH
+from .nodejs import node_binary
 from .processpipe import TMP_DIR, ExternalProcess, ProcessException
 
 _PEERFLIX_PORT = "9696"
@@ -35,7 +36,7 @@ _LISTENING_RE = re.compile(r"(http://\S+?)/?\s*$")
 class PeerflixProcess(ExternalProcess):
     def __init__(self, torrent, idx):
         super().__init__()
-        cmd = ["node", "--max-old-space-size=128", "/usr/local/bin/peerflix"]
+        cmd = [node_binary(), "--max-old-space-size=128", "/usr/local/bin/peerflix"]
         # Avoid problems with downloading torrent files
         torrent = torrent2magnet(torrent)
         cmd.append(torrent)

@@ -151,7 +151,35 @@ def get_format(url):
         # a plain file on a CDN with no signature and no token.
         return "best[protocol=https][ext=mp4]"
     elif YOUTUBE_URL.match(url) or VIMEO_URL.match(url):
-        # Otherwise may download in webm format
-        return "(mp4)"
+        # Picture and sound, separately, in H.264 -- which is what makes 1080p
+        # possible at all here.
+        #
+        # This used to be "(mp4)", which picks the highest-resolution mp4. Above
+        # 360p those are video-only, so the film played silently from a stream
+        # the Pi could not present: the 1080p AV1 it selected dropped 668 of
+        # 1358 frames while the clock kept running, which is the frozen picture
+        # with a working seek bar this was reported as.
+        #
+        # H.264 is not a preference, it is the only codec this hardware both
+        # decodes and displays. h264 comes out of the decoder as a DRM buffer and
+        # is scanned out directly; VP9 and AV1 arrive as I420 and are copied per
+        # frame, which measured at about 1fps at 1080p. So the ceiling is
+        # whatever YouTube still serves in H.264: 1080p on many videos, 480p or
+        # less on others.
+        #
+        # The "+" pair is the other half. One URL can only ever be a muxed
+        # stream, and YouTube's muxed streams stop at 360p -- so the resolution
+        # cap was structural. ytdlproc hands the two URLs to VLC as its input and
+        # its slave, which measured as 1080p, hardware, zero dropped frames, and
+        # in sync including after a seek.
+        #
+        # The fallbacks cover videos with no separate streams at all: prefer a
+        # muxed H.264 one, then any muxed one, because a film that plays is
+        # better than a format error.
+        return (
+            "bestvideo[height<=1080][vcodec^=avc1]+bestaudio[ext=m4a]"
+            "/best[height<=1080][vcodec^=avc1]"
+            "/best"
+        )
     else:
         return None
