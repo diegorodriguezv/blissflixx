@@ -625,6 +625,10 @@ class VlcProcess(PlayerBackend):
         # The input this stage was asked to play, remembered so that a failure
         # line can be told apart from one about a slave stream. Set in start().
         self._input_url = None
+        # Whether this stage has already said, in its own words, why it failed.
+        # A message that says what happened needs no log tail after it; see
+        # _add_output_to_error.
+        self._failure_reported = False
         # What is playing, for the announcement at the start.
         self._title = ""
         # Whether we have paused it. VLC's cli can report the state but not set
@@ -714,7 +718,26 @@ class VlcProcess(PlayerBackend):
             and not self.has_error()
         ):
             self._set_error("Could not open the stream")
+            self._failure_reported = True
         self._replies.put(line)
+
+    def _add_output_to_error(self, tail):
+        """
+        Leave an error this stage already put in words alone.
+
+        Everything else folds the process's last lines into its error, because a
+        player that died without saying why leaves nothing else to go on. Here
+        the message is the whole story, and what the tail would add is the
+        shutdown noise that follows it --
+
+            main playlist: end of playlist, exiting
+            [cli] lua interface error: ... Interrupted.
+
+        -- which turns a one-line message into something nobody reads to the end.
+        """
+        if self._failure_reported:
+            return
+        super()._add_output_to_error(tail)
 
     def _reset_replies(self):
         self._replies = Queue()

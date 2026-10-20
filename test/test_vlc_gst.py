@@ -3057,6 +3057,24 @@ class TestAStreamThatWillNotOpen:
         proc._observe_output(self._opened(self.SLAVE))
         assert proc.get_errors() == []
 
+    def test_the_shutdown_noise_is_not_appended_to_it(self):
+        """
+        Everything else folds the player's last lines into its error. Here the
+        message is the whole story, and the tail after it is VLC shutting down:
+        "end of playlist, exiting", the interrupted cli script. Said once.
+        """
+        proc = self._proc()
+        proc._observe_output(self._opened(self.MAIN))
+        tail = types.SimpleNamespace(summary=lambda: "end of playlist, exiting")
+        proc._add_output_to_error(tail)
+        assert proc.get_errors() == ["Could not open the stream"]
+
+    def test_a_failure_it_did_not_put_in_words_still_gets_the_tail(self):
+        proc = self._proc()
+        tail = types.SimpleNamespace(summary=lambda: "Failed to get xlease")
+        proc._add_output_to_error(tail)
+        assert proc.get_errors() == ["vlc failed: Failed to get xlease"]
+
     def test_before_the_interface_is_up_it_is_left_to_ready(self):
         """
         _ready() is reading these same lines then, and reports them with VLC's
