@@ -76,6 +76,34 @@ class TestValuesMatchOriginalExpressions:
                 assert isinstance(getattr(locations, name), str), name
 
 
+class TestTheCookiesFileStaysOutOfTheCheckout:
+    """
+    It is a session credential, not project data.
+
+    Two things have to stay true for that: it lives under data/, and data/ is
+    ignored. The first is a path, the second is a line in .gitignore, and either
+    one alone would let it be committed by accident.
+    """
+
+    def test_it_lives_under_data(self):
+        assert locations.COOKIES_PATH.startswith(
+            locations.DATA_PATH + osp.sep
+        ), locations.COOKIES_PATH
+
+    def test_and_the_directory_it_lives_in_is_ignored(self):
+        ignore = (Path(locations.ROOT_PATH) / ".gitignore").read_text().splitlines()
+        assert "data/" in [line.strip() for line in ignore], ignore
+
+    def test_the_runtime_is_ignored_too(self):
+        """
+        The JavaScript runtime is unpacked into data/node by configure.sh -- a
+        couple of hundred megabytes that must never be a commit either.
+        """
+        assert locations.NODE_PATH.startswith(
+            locations.DATA_PATH + osp.sep
+        ), locations.NODE_PATH
+
+
 class TestRelationships:
     """
     The structure matters independently of where the checkout lives: settings

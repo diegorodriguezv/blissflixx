@@ -465,15 +465,29 @@ out directly. So the ceiling is whatever YouTube still serves in H.264 — 1080p
 many videos, less on others.
 
 Being signed in is the other half, and the box has no browser to read cookies
-from. Export a Netscape-format `cookies.txt` for youtube.com from a browser that
-is signed in (the "Get cookies.txt LOCALLY" extension does it in one click) and
-copy it to:
+from. Export a Netscape-format `cookies.txt` from a browser that is signed in
+(the "Get cookies.txt LOCALLY" extension does it in one click) and copy it to:
 
     data/cookies.txt
 
-yt-dlp is handed `--cookies` whenever that file exists, and no flag at all when
-it does not, so the file is the whole switch. It lives under `data/`, which git
-ignores.
+**Cookies are optional.** yt-dlp is handed `--cookies` whenever that file exists
+and no flag at all when it does not, so a fresh install works without one: every
+site that does not need an account plays, and the ones that do say as much in the
+play error. The file is what extends that to YouTube and Reddit.
+
+The extension exports one site at a time; the format is one cookie per line, so
+appending two exports is enough to cover both. yt-dlp also writes the jar back as
+it plays, refreshing sessions and keeping whatever a site hands it, so the file
+has to stay writable by the service.
+
+It is a session credential, which is worth removing rather than leaving on a card
+that might change hands:
+
+    rm -f data/cookies.txt
+
+Nothing else refers to it -- the next play simply runs without cookies, and no
+restart is needed. It lives under `data/`, which git ignores, so it cannot be
+committed by accident.
 
 Neither is a promise. YouTube rate-limits by address as well as by account, so a
 house that has been streaming all evening can be told to sign in with cookies
