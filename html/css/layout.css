@@ -218,6 +218,17 @@ ul.navitems-left>li {
   margin-bottom: -10px;
 }
 
+/*
+ * The row under a playlist's title.
+ *
+ * .item-list-title pulls the next thing up by 10px, which is right for the pages
+ * where that is a rule: the title and its hr are meant to sit together. This one
+ * is a button, and the back arrow on the title line was touching its top edge.
+ */
+.playlist-actions {
+  margin-top: 15px;
+}
+
 .item-img {
   width: 100%;
 }
