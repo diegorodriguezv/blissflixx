@@ -85,9 +85,25 @@
   <script>
     var self = this
 
+    //: Polls with no state before the player counts as stopped.
+    //:
+    //: A skip stops the film playing before it starts the next one, and the
+    //: server reports no state at all in between: the pipeline is stopping, and
+    //: that is a real second rather than a blip -- it is VLC being given the
+    //: time to release the display before the next film takes it. The page
+    //: polls once a second, so closing this panel on the first silent poll shut
+    //: it on every NEXT ITEM, and it had to be opened again to press the button
+    //: a second time.
+    //:
+    //: Six is more than the five seconds the pipeline allows a stage to stop, so
+    //: one item changing into another is not a stop -- and the end of a film
+    //: still closes the panel, which is what the rule is for.
+    var SILENT_POLLS = 6
+
     this.on('mount', function() {
       self.status = playerStore.getStatus()
       self.powerMsg = powerStore.getMsg()
+      self.silentPolls = 0
       RiotControl.on('se_status_changed', self.updateStatus)
       RiotControl.on('se_power_changed', self.updatePower)
     })
@@ -103,7 +119,8 @@
       // notice about a film that has since been dealt with does not come back
       // on the next poll. Both kinds count, not just errors.
       if (!self.status.Error && !self.status.Notice) self.errorClosed = false
-      if (self.showing && !self.status.State) self.hideRemote()
+      self.silentPolls = self.status.State ? 0 : self.silentPolls + 1
+      if (self.showing && self.silentPolls > SILENT_POLLS) self.hideRemote()
       self.update()
     }
 
