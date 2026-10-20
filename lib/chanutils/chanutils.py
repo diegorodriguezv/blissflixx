@@ -231,10 +231,19 @@ def series_season_episode(name):
 
 
 class UrlInfo:
+    #: How much of a reply is read. This is asked for a page title, and the same
+    #: box takes a stream -- an .m3u8, an .mp4 -- where there is no title at the
+    #: top of it. Reading all of a film to look for one is not happening.
+    MAX_BYTES = 512 * 1024
+
     def __init__(self, url):
         self.url = url
-        self.page = requests.get(self.url).text
-        self.tree = lxml.html.fromstring(self.page)
+        # A streamed read with a timeout, for the same two reasons: the reply
+        # may be a film, and a host that never answers must not hold the page.
+        with requests.get(url, timeout=_TIMEOUT, stream=True) as r:
+            self.page = r.raw.read(self.MAX_BYTES, decode_content=True)
+        # An empty reply has no title either; lxml refuses to parse one.
+        self.tree = lxml.html.fromstring(self.page if self.page else b"<html></html>")
 
     def get_html_title(self):
         # The raw <title> text is returned undecoded. This has been changed
@@ -247,9 +256,16 @@ class UrlInfo:
         # decoded form is left as a deliberate decision rather than an
         # accident. Only caller is lib/api/playlink.py, which shows the title
         # in the player.
-        text = self.tree.find(".//title").text
+        #
+        # That caller also takes a stream, and a stream has no <title> in it at
+        # all: an .m3u8 starts with #EXTM3U. None says so, and playlink names
+        # the item from its URL -- this used to index straight through the
+        # missing node, which made pasting a stream URL a 500.
+        node = self.tree.find(".//title")
+        if node is None or not node.text:
+            return None
         # decoded = html.unescape(text)
-        return text
+        return node.text
 
     def get_youtube_video_description(self):
         return self.tree.find(".//meta[@property='og:description']").get("content")

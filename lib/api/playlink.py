@@ -1,3 +1,8 @@
+import os
+import urllib.parse
+
+import requests
+
 from ..chanutils import UrlInfo
 from ..chanutils.torrent import is_torrent
 from ..playitem import PlayItem, PlayItemList
@@ -7,13 +12,31 @@ from .torrent import set_torridx
 MAX_TITLE_LEN = 100
 
 
+def _link_title(link):
+    """
+    A name for a link that has no page title of its own.
+
+    The Play URL box takes a stream as readily as a page, and a stream has no
+    <title> to read: an .m3u8 begins with #EXTM3U. Its last path segment is what
+    was pasted, and is what the person will recognise in the list.
+    """
+    path = urllib.parse.urlparse(link).path.rstrip("/")
+    return urllib.parse.unquote(os.path.basename(path)) or link
+
+
 def item(link=None):
     if not link:
         raise ApiError("Item URL must be defined")
     results = PlayItemList()
     if link.lower().startswith("http"):
-        info = UrlInfo(link)
-        title = info.get_html_title()
+        try:
+            info = UrlInfo(link)
+        except requests.RequestException as exc:
+            raise ApiError(
+                "Could not fetch that URL: " + str(exc),
+                ApiError._SERVICE_UNAVAILABLE,
+            )
+        title = info.get_html_title() or _link_title(link)
     else:
         title = link
     if len(title) > MAX_TITLE_LEN:
