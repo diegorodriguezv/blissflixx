@@ -279,9 +279,17 @@ class TestYoutubeDl:
         cmd = YoutubeDlProcess(BBC_URL_SAMPLE)._get_cmd({})
         assert "best[height<720]" in cmd
 
-    def test_unknown_host_falls_back_to_best(self):
+    def test_an_unknown_streamed_host_asks_for_the_pair_too(self):
+        """
+        The old fallback was one muxed stream, because the pipeline could only
+        take one URL. It takes two now, so every streamed source gets the same
+        expression -- and a plain mp4 URL still resolves to one URL through its
+        last fallback, because the generic extractor offers nothing to pair.
+        """
         cmd = YoutubeDlProcess("http://example.com/v.mp4")._get_cmd({})
-        assert "best" in cmd
+        fmt = cmd[cmd.index("--format") + 1]
+        assert fmt.startswith("bestvideo["), fmt
+        assert fmt.endswith("/best"), fmt
 
     def test_format_precedes_the_url(self):
         cmd = YoutubeDlProcess(SHORT_URL)._get_cmd({})

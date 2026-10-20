@@ -69,10 +69,11 @@ class TestGetFormat:
     pinned exactly rather than by shape.
     """
 
-    #: 1080p H.264 picture plus AAC sound, as two streams; then a muxed H.264
-    #: stream; then any muxed stream at all.
+    #: 1080p H.264 picture plus sound, as two streams; then the same pair with
+    #: whatever audio there is; then a muxed H.264 stream; then any muxed stream.
     YOUTUBE = (
         "bestvideo[height<=1080][vcodec^=avc1]+bestaudio[ext=m4a]"
+        "/bestvideo[height<=1080][vcodec^=avc1]+bestaudio"
         "/best[height<=1080][vcodec^=avc1]"
         "/best"
     )
@@ -104,8 +105,25 @@ class TestGetFormat:
             "best[height<720]"
         )
 
-    def test_unknown_host_has_no_format_filter(self):
-        assert get_format("http://example.com/video.mp4") is None
+    def test_an_unknown_streamed_host_gets_the_same_treatment(self):
+        """
+        Not only YouTube. Reddit serves picture and sound separately too, and
+        "best" -- pre-merged -- matched nothing there, which is what "Requested
+        format is not available" meant once its cookies were in place.
+
+        The old fallback asked for a muxed stream because the pipeline could
+        only take one URL. That limit is gone, so the fallback is the same
+        expression everywhere: pair first, muxed second.
+        """
+        assert get_format("http://example.com/video.mp4") == self.YOUTUBE
+
+    def test_a_host_that_is_downloaded_first_keeps_one_stream(self):
+        """
+        ITV and openload are fetched to a file before playback, and that stage
+        calls itself ready when the first part lands -- before any merge. Asking
+        for a pair there would hand the player a video-only file.
+        """
+        assert get_format("https://www.itv.com/watch") is None
 
     def test_youtube_naked_id(self):
         assert get_format("dQw4w9WgXcQ") == self.YOUTUBE
