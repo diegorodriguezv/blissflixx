@@ -622,6 +622,9 @@ class VlcProcess(PlayerBackend):
         # there was nothing there" has to be told from "never asked" -- only the
         # first may be shown as "no subtitles". See _no_tracks.
         self._tracks_answered = {}
+        # The input this stage was asked to play, remembered so that a failure
+        # line can be told apart from one about a slave stream. Set in start().
+        self._input_url = None
         # What is playing, for the announcement at the start.
         self._title = ""
         # Whether we have paused it. VLC's cli can report the state but not set
@@ -642,7 +645,7 @@ class VlcProcess(PlayerBackend):
         #
         # _ready() swaps this for a fresh queue once it has what it was waiting
         # for, so on_output_line has to be rebound with it rather than holding
-        # the old queue's put.
+        # the old queue.
         self._reset_replies()
         self._create_overlay_file()
 
@@ -681,9 +684,41 @@ class VlcProcess(PlayerBackend):
             # if it cannot. This only saves the ticks before then.
             cherrypy.log("could not create the VLC overlay file: %s" % exc)
 
+    #: What VLC says when the media it was given cannot be opened. Not one of
+    #: _ERROR_MARKERS, which are about the interface itself failing to come up.
+    _CANNOT_OPEN = "unable to open the MRL"
+
+    def _observe_output(self, line):
+        """
+        Every line the player writes, and the one that means it failed.
+
+        VLC exits when it cannot open its input, and --play-and-exit makes that
+        read exactly like the film ending: a playlist moved on to the next item
+        without a word, and a film played on its own went back to the page with
+        nothing said at all. Recorded here as this stage's error, which is what
+        the pipe reports -- "Skipped <title>: Could not open the stream" in a
+        run, and the message on its own otherwise.
+
+        Only once the interface is up: before that _ready() is reading these
+        same lines and has a better message of its own, VLC's reason included.
+
+        And only for the input this stage was asked to play. VLC says the same
+        thing about a slave stream, and the second half of a two-stream source
+        failing is not the film failing.
+        """
+        if (
+            self._ready_seen
+            and self._CANNOT_OPEN in line
+            and self._input_url
+            and self._input_url in line
+            and not self.has_error()
+        ):
+            self._set_error("Could not open the stream")
+        self._replies.put(line)
+
     def _reset_replies(self):
         self._replies = Queue()
-        self.on_output_line = self._replies.put
+        self.on_output_line = self._observe_output
         # The cli interface has no volume query, so it is tracked from the last
         # set point. It is tracked as a percentage of VLC's own 100%, not in
         # VLC's 0-512 units, because that is the grid the buttons step on and
@@ -799,6 +834,18 @@ class VlcProcess(PlayerBackend):
 
     def name(self):
         return "vlc"
+
+    def start(self, args):
+        """
+        Remember the input before the player is given it.
+
+        The failure line names the URL that could not be opened, and that is the
+        only way to tell the main input from a slave stream: VLC says the same
+        thing about both. Kept here rather than in build_command(), which is
+        meant to be pure so it can be tested without a player.
+        """
+        self._input_url = args.get("outfile")
+        super().start(args)
 
     def _ready(self):
         """

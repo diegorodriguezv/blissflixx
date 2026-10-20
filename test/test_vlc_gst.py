@@ -3009,3 +3009,59 @@ class TestWaitingForARealAnswer:
         # saying it is ready for the next one. Different things.
         assert _is_echo("> pause") is True
         assert _is_echo(">") is False
+
+
+class TestAStreamThatWillNotOpen:
+    """
+    VLC exits when it cannot open its input, and --play-and-exit makes that
+    indistinguishable from the film ending.
+
+    Without this a dead channel moved a playlist on to the next item in silence,
+    and a film played on its own went back to the page with nothing said at all
+    -- which is what a stream URL pasted into Play URL did when the source had
+    gone away. Reported as this stage's error so the pipe says so.
+    """
+
+    MAIN = "https://example.com/live/index.m3u8"
+    SLAVE = "https://example.com/live/audio.m4a"
+
+    @staticmethod
+    def _opened(url):
+        return (
+            "[758006b0] main input error: VLC is unable to open the MRL '%s'. "
+            "Check the log for details." % url
+        )
+
+    def _proc(self, ready=True):
+        proc = VlcProcess({"osd_overlay": "0"})
+        proc._input_url = self.MAIN
+        proc._ready_seen = ready
+        return proc
+
+    def test_the_input_it_was_given_failing_is_an_error(self):
+        proc = self._proc()
+        proc._observe_output(self._opened(self.MAIN))
+        assert proc.get_errors() == ["Could not open the stream"]
+
+    def test_an_ordinary_end_is_not(self):
+        proc = self._proc()
+        proc._observe_output("[756006b0] main playlist: end of playlist, exiting")
+        assert proc.get_errors() == []
+
+    def test_a_slave_stream_failing_is_not_the_film_failing(self):
+        """
+        Above 360p a source arrives as two streams. VLC says the same thing about
+        the second one, and a film whose sound did not arrive is still a film.
+        """
+        proc = self._proc()
+        proc._observe_output(self._opened(self.SLAVE))
+        assert proc.get_errors() == []
+
+    def test_before_the_interface_is_up_it_is_left_to_ready(self):
+        """
+        _ready() is reading these same lines then, and reports them with VLC's
+        own reason, which says more than this can.
+        """
+        proc = self._proc(ready=False)
+        proc._observe_output(self._opened(self.MAIN))
+        assert proc.get_errors() == []
