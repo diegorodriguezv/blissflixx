@@ -1260,10 +1260,9 @@ class VlcProcess(PlayerBackend):
 
     def _seek(self, seconds):
         """
-        Seek forwards or backwards from wherever the film is now.
+        Move the film, clamped to the film.
 
-        The sign is not decoration and omitting it is a real bug. VLC's cli
-        routes seek through common.seek in share/lua/modules/common.lua:
+        VLC's cli routes seek through common.seek in share/lua/modules/common.lua:
 
             if string.sub(value,1,1) == "+" or string.sub(value,1,1) == "-" then
                 vlc.var.set(input,"time",vlc.var.get(input,"time") + pos)
@@ -1271,13 +1270,45 @@ class VlcProcess(PlayerBackend):
                 vlc.var.set(input,"time",pos)
             end
 
-        Without a leading sign that is an absolute seek, so "plus30" jumped to
-        00:30 of the film instead of moving 30 seconds on from wherever you were.
-        Every other backend takes a plain signed number, which is why only VLC
-        misbehaved and why it looked like a mapping error rather than a syntax
-        one.
+        and neither branch clamps. A time past the end is not refused: the
+        demuxer runs to EOF, flashes a second or two of the beginning, and ends
+        the input -- minutes of frozen picture and then the next film in a
+        playlist, which is what "+10 minutes" near the end looked like.
+
+        So the arithmetic is done here and sent as an absolute time, which is
+        what lets it be clamped. The sign still matters and its absence was once
+        a real bug: an unsigned value is absolute, so "plus30" jumped to 00:30 of
+        the film instead of moving thirty seconds on. That bug is why the delta
+        used to be passed straight through; it is now turned into an absolute
+        target deliberately, and the target is what the player is given.
+
+        When the player will not say where it is or how long it is, the delta is
+        passed through unchanged. Blind is what happened before, and a press is
+        better served approximately than refused.
         """
-        return self._send_command("seek %+d" % seconds)
+        target = self._seek_target(seconds)
+        if target is None:
+            return self._send_command("seek %+d" % seconds)
+        return self._send_command("seek %d" % target)
+
+    def _seek_target(self, seconds):
+        """
+        Where the seek should land, or None when the player will not say.
+
+        Clamped to the film, and to one second short of its end. Exactly the
+        length is an immediate end-of-input, so "+30" five seconds from the end
+        would end the film rather than play its last stretch -- the press would
+        mean "finish this" rather than "move on a bit". Stopping a second short
+        leaves the end reachable by watching, which is how a film is meant to
+        end.
+        """
+        reported = self._read_position()
+        if reported is None:
+            return None
+        position, length = reported
+        if length is None or length <= 0:
+            return max(0.0, position + seconds)
+        return max(0.0, min(position + seconds, length - 1))
 
     def control(self, action):
         """

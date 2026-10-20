@@ -455,7 +455,7 @@ class TestVlcControl:
         assert self._sent(action) == expected
 
     @pytest.mark.parametrize("action", ["plus30", "plus600", "minus30", "minus600"])
-    def test_every_seek_carries_an_explicit_sign(self, action):
+    def test_a_blind_seek_still_carries_an_explicit_sign(self, action):
         """
         VLC's common.lua decides relative-vs-absolute on the first character:
 
@@ -465,10 +465,49 @@ class TestVlcControl:
         So "seek 30" is an absolute jump to 00:30 and "seek +30" is 30 seconds
         from here. These were sent unsigned, so plus30 took you to the start of
         the film -- which reads like an action mapping bug rather than the syntax
-        it was. Pinned so the sign cannot be dropped by tidying.
+        it was.
+
+        This is the case where the player will not say where it is, so the delta
+        goes through untouched and the sign is the only thing making it relative.
         """
         sent = self._sent(action)
         assert sent.split()[1][0] in "+-", sent
+
+    def _sent_from(self, action, position, length):
+        """A seek on a player that answers where it is, and how long it is."""
+        proc = VlcProcess()
+        sent = []
+        proc._send_command = lambda command: sent.append(command) or True
+        proc._show_overlay = lambda text, hold=None: None
+        proc._read_position = lambda: (position, length)
+        proc.control(action)
+        return sent[0] if sent else None
+
+    def test_a_seek_past_the_end_stops_short_of_it(self):
+        """
+        VLC does not clamp a seek, so a time past the end runs to EOF, flashes
+        the beginning and ends the input -- minutes of frozen picture and then
+        the next film in a playlist. Observed as exactly that with +10 minutes
+        near the end.
+
+        One second short rather than at the length: exactly the length is an
+        immediate end-of-input, so the press would mean "finish this" instead of
+        "move on".
+        """
+        assert self._sent_from("plus600", 1000.0, 1297.0) == "seek 1296"
+
+    def test_a_seek_before_the_start_stops_at_it(self):
+        assert self._sent_from("minus600", 5.0, 1297.0) == "seek 0"
+
+    def test_an_ordinary_seek_lands_where_it_was_asked(self):
+        assert self._sent_from("plus30", 100.0, 1297.0) == "seek 130"
+
+    def test_and_a_film_with_no_length_yet_still_seeks(self):
+        """
+        A stream VLC cannot measure has no length to clamp against. Moving on is
+        better than refusing over a number the player has not given.
+        """
+        assert self._sent_from("plus30", 100.0, None) == "seek 130"
 
     @staticmethod
     def _seeking(counts, paused=False):
