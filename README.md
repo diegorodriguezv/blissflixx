@@ -264,6 +264,8 @@ To create a playlist click on the 'NEW PLAYLIST' button and specify a title. You
 
 When you are browsing your channels you will have an option to add items to your created playlists.
 
+You can also import an M3U playlist by URL with the 'ADD REMOTE PLAYLIST' button, which is how an IPTV channel list is added. The list is fetched again every hour, so it stays as current as the source. Its items cannot be edited here -- they come from the list.
+
 ## Play URL
 
 If you want to play something that is not provided by any of your channels then you can use this page to play it. First select the play icon in the menu bar and then copy the URL of the page containing the video and paste it into the 'What to Play' box. You will then be able to play and/or add it to a playlist. 

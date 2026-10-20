@@ -1,0 +1,29 @@
+# Ideas to implement in the future:
+
+look back at the history to understand how the bbc channel proxy service was implemented, try to figure out how the backend was working and see what it would take to do it
+add the play with subtitles action to each item when in a "view files" page
+sometimes a torrent has one or more subtitles inside, add them to the player 
+allow loading srt in the torrent
+allow downloading subtitles while playing
+allow selecting the subtitle when play with subtitles
+describe the current architecture. find ways to simplify the code for humans. yagni. reduce complexity where possible. look up for stale modules, dependencies, repeating or unnecesary operations. plan a simplified internal architecture that allows all current features plus allow for change where it can be expected.
+rename the different Player classes and modules with meaningful descriptions of intention and responsabilities... if not possible then refactor
+
+# Ideas to implement soon:
+torrent movie/series search button duckduckgo
+floating go up button
+clicking the title when playing opens a panel with the full title and details about the video
+subtitles 
+
+
+# Bugs:
+
+the playlist functionality doesn't really works, it is a form of grouping of videos, but you can't play all the videos one after another automatically, which is the meaning of a playlist
+
+there is no space between the back button of the title and the play all button in the playlist, but i remember seeing the same problem somewhere else
+
+
+# Dictionary of ui elements
+bottom bar 
+error bar
+

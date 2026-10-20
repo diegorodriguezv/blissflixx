@@ -43,7 +43,7 @@ var Popovers = new function() {
   }
 
   this._newRemotePlaylistHtml = function() {
-    html = '<div>Remote Playlist URL:</div>'
+    html = '<div>M3U Playlist URL:</div>'
     return html + '<form id="new-remote-playlist"><input id="new-remote-playlist-url" class="form-control" type="text" required=""></form>'
   }
 
