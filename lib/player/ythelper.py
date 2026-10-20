@@ -154,8 +154,19 @@ def resolve(url):
 #: one, then any muxed one, because a film that plays is better than a format
 #: error. That is also what a plain mp4 URL resolves to -- one muxed format,
 #: nothing to pair.
+#:
+#: The first branch prefers a plain http(s) stream over an adaptive one, because
+#: VLC cannot demux every adaptive playlist it is given: Reddit's video is an
+#: fMP4 HLS playlist addressed by byte ranges, which VLC 3 answers with
+#:
+#:     adaptive demux error: Failed to create demuxer (nil) Unknown
+#:
+#: and then ends the input, so the film "finishes" after a second. Reddit also
+#: offers the same picture as a plain https mp4; it just ranks lower by bitrate,
+#: which is why naming the protocol is what picks it.
 _PAIRED = (
-    "bestvideo[height<=1080][vcodec^=avc1]+bestaudio[ext=m4a]"
+    "bestvideo[height<=1080][vcodec^=avc1][protocol^=http]+bestaudio[ext=m4a]"
+    "/bestvideo[height<=1080][vcodec^=avc1]+bestaudio[ext=m4a]"
     "/bestvideo[height<=1080][vcodec^=avc1]+bestaudio"
     "/best[height<=1080][vcodec^=avc1]"
     "/best"

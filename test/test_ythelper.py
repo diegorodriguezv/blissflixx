@@ -69,10 +69,12 @@ class TestGetFormat:
     pinned exactly rather than by shape.
     """
 
-    #: 1080p H.264 picture plus sound, as two streams; then the same pair with
-    #: whatever audio there is; then a muxed H.264 stream; then any muxed stream.
+    #: 1080p H.264 picture plus sound, preferring a plain http stream over an
+    #: adaptive one; then the same without that; then any audio; then a muxed
+    #: H.264 stream; then any muxed stream.
     YOUTUBE = (
-        "bestvideo[height<=1080][vcodec^=avc1]+bestaudio[ext=m4a]"
+        "bestvideo[height<=1080][vcodec^=avc1][protocol^=http]+bestaudio[ext=m4a]"
+        "/bestvideo[height<=1080][vcodec^=avc1]+bestaudio[ext=m4a]"
         "/bestvideo[height<=1080][vcodec^=avc1]+bestaudio"
         "/best[height<=1080][vcodec^=avc1]"
         "/best"
@@ -96,6 +98,17 @@ class TestGetFormat:
         assert "av01" not in expression, expression
         assert "vp9" not in expression, expression
         assert "avc1" in expression, expression
+
+    def test_and_prefers_a_plain_stream_over_an_adaptive_one(self):
+        """
+        VLC cannot demux every adaptive playlist: Reddit's fMP4 HLS — picture
+        addressed by byte ranges — fails with "adaptive demux error: Failed to
+        create demuxer", and VLC then ends the input, so a 38-second clip
+        "finishes" after one second. Reddit also offers the same picture as a
+        plain https mp4; it ranks lower by bitrate, so the protocol is named.
+        """
+        expression = self.YOUTUBE
+        assert "[protocol^=http]" in expression, expression
 
     def test_vimeo_gets_the_same_treatment(self):
         assert get_format("https://vimeo.com/12345") == self.YOUTUBE
