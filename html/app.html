@@ -5,11 +5,9 @@
 
   <playbar></playbar>
 
-  <!-- The way back up, for a list that runs to a thousand rows. Always there:
-       a button that only appeared after some scrolling was invisible at the top
-       of the page, which is exactly where you look to find out whether it is
-       there at all. -->
-  <a href="" onclick={ backToTop } class="bf-top" title="Back to top">
+  <!-- The way back up, for a list that runs to a thousand rows. Hidden until
+       the page has been scrolled far enough that walking back is work. -->
+  <a show={ showTop } href="" onclick={ backToTop } class="bf-top" title="Back to top">
     <i class="fa fa-arrow-up"></i>
   </a>
 
@@ -18,12 +16,33 @@
     self.mountedTag = null
     self.loadedTags = {}
 
+    //: How far down the page has to be before the button is worth showing.
+    //: About one screen of a phone, so it arrives before the top of the page is
+    //: out of sight and not merely because a page is longer than the window.
+    var TOP_AFTER = 400
+
     this.on('mount', function() {
       self.bindCtrlKeys()
+      self.showTop = false
+      $(window).on('scroll', self.updateTopButton)
       riot.route.exec(function(page) {
         self.loadPage(page)
       })
     })
+
+    this.on('unmount', function() {
+      $(window).off('scroll', self.updateTopButton)
+    })
+
+    updateTopButton() {
+      // Only when it changes: this runs on every scroll event, and re-rendering
+      // the tag on each one is a lot of work for a button that has not moved.
+      var show = $(window).scrollTop() > TOP_AFTER
+      if (show !== self.showTop) {
+        self.showTop = show
+        self.update()
+      }
+    }
 
     backToTop() {
       // Animated rather than set, so it is clear what happened: the page
