@@ -120,6 +120,9 @@
         })
         self.searched = true
         if (data.title && !self.f_title.value.trim()) self.f_title.value = data.title
+        // What the server read out of the release name, so a second search is
+        // the same search rather than a wider one.
+        if (data.year && !self.f_year.value) self.f_year.value = data.year
         self.update()
       })
     }
