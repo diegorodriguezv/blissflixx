@@ -196,6 +196,13 @@ ul.navitems-left>li {
   display: flex;
   align-items: center;
   height: 50px;
+  /*
+   * Not floated, which is what .navitems-left>li>span asks of it. A float is
+   * sized to its content and a long nowrap title therefore took the whole
+   * window rather than the column, drawing itself under the controls.
+   */
+  float: none;
+  width: 100%;
 }
 
 .now-playing .truncate {
