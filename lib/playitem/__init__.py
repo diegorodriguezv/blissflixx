@@ -195,7 +195,9 @@ class PlayItem:
         self.add_default_actions()
 
     def _set_subs_lang(self, subs):
-        if subs is not None:
+        # A torrent's own subtitle files have no language to look up: the file
+        # is the subtitle. Only an online search carries one.
+        if subs is not None and "torrent" not in subs:
             sub_settings = load("subtitles")
             if "lang" in sub_settings:
                 subs["lang"] = sub_settings["lang"]

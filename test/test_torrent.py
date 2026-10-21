@@ -86,6 +86,89 @@ class TestIsTorrentUrl:
         assert not is_torrent_url("http://x/f.torrent")
 
 
+class TestFileList:
+    """
+    What a torrent's "View Files" page shows.
+
+    It used to show everything -- the .nfo, the .jpg, the subtitles -- which
+    made a page of a pack's episodes into a directory listing. Only what can be
+    watched is listed now, and the files that are subtitles come back as
+    choices on the row rather than as rows of their own.
+    """
+
+    FILES = [
+        ("Below.S01E01.1080p.mkv", "2.1GB"),
+        ("Below.S01E01.1080p.eng.srt", "84KB"),
+        ("Below.S01E02.1080p.mkv", "2.0GB"),
+        ("Below.S01E02.1080p.eng.srt", "79KB"),
+        ("Subs/English.srt", "12KB"),
+        ("readme.nfo", "2KB"),
+        ("cover.jpg", "120KB"),
+    ]
+
+    @pytest.fixture
+    def items(self, monkeypatch):
+        from lib.api import torrent as torrent_api
+
+        monkeypatch.setattr(torrent_api, "torrent_files", lambda link: self.FILES)
+        return torrent_api.showmore("magnet:?xt=urn:btih:" + HASH).to_dict()
+
+    def test_only_video_files_are_listed(self, items):
+        assert [i["title"] for i in items] == [
+            "Below.S01E01.1080p.mkv",
+            "Below.S01E02.1080p.mkv",
+        ]
+
+    def test_the_torrents_own_index_is_kept(self, items):
+        """Filtering what is shown must not renumber what is played."""
+        assert items[0]["url"].endswith("bf_torr_idx=0")
+        assert items[1]["url"].endswith("bf_torr_idx=2")
+
+    def test_a_file_gets_the_subtitles_that_name_it(self, items):
+        first = items[0]["subs"]["torrent"]["files"]
+        assert [f["name"] for f in first] == ["Below.S01E01.1080p.eng.srt"]
+        assert first[0]["idx"] == 1
+
+    def test_each_episode_gets_its_own(self, items):
+        second = items[1]["subs"]["torrent"]["files"]
+        assert [f["name"] for f in second] == ["Below.S01E02.1080p.eng.srt"]
+
+    def test_the_row_offers_to_play_with_them(self, items):
+        types = [a["type"] for a in items[0]["actions"]]
+        assert "playwithsubs" in types
+
+    def test_a_torrent_without_subtitles_offers_no_action(self, monkeypatch):
+        from lib.api import torrent as torrent_api
+
+        monkeypatch.setattr(
+            torrent_api, "torrent_files", lambda link: [("Film.mkv", "1.2GB")]
+        )
+        items = torrent_api.showmore("magnet:?xt=urn:btih:" + HASH).to_dict()
+        assert "subs" not in items[0]
+        assert "playwithsubs" not in [a["type"] for a in items[0]["actions"]]
+
+    def test_an_unmatched_subtitle_is_still_offered(self, monkeypatch):
+        """
+        A pack can keep its subtitles in a folder with language names, where
+        nothing pairs with the episode. Offering all of them beats offering
+        none: the names say which is which.
+        """
+        from lib.api import torrent as torrent_api
+
+        monkeypatch.setattr(
+            torrent_api,
+            "torrent_files",
+            lambda link: [
+                ("Show.S01E01.mkv", "1GB"),
+                ("Subs/English.srt", "50KB"),
+                ("Subs/Spanish.srt", "50KB"),
+            ],
+        )
+        items = torrent_api.showmore("magnet:?xt=urn:btih:" + HASH).to_dict()
+        names = [f["name"] for f in items[0]["subs"]["torrent"]["files"]]
+        assert names == ["Subs/English.srt", "Subs/Spanish.srt"]
+
+
 class TestTorrent2Magnet:
     def test_leaves_magnet_untouched(self):
         magnet = "magnet:?xt=urn:btih:" + HASH

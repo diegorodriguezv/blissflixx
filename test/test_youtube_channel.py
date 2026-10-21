@@ -8,9 +8,8 @@ subreddit it says it is, and that it does not promise a ranking the subreddit
 cannot supply.
 """
 
-import pytest
-
 import bfch_youtube
+import pytest
 
 
 class TestTheFeeds:

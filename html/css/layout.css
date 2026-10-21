@@ -341,6 +341,13 @@ ul.navitems-left>li {
  * browser where uBlock Origin was installed and visible in one where it was
  * not -- same page, same CSS, display: none from a rule we cannot see.
  */
+/* The subtitles a torrent carries, one per line: they are file names, and two
+   of them side by side read as one. */
+.subs-choice {
+  display: block;
+  margin: 4px 0;
+}
+
 .bf-top {
   position: fixed;
   right: 20px;

@@ -78,6 +78,7 @@ def test_each_case_is_actually_checked(case):
     _, output = _run()
     assert case in output, output
 
+
 def test_the_riot_tags_compile():
     """
     The bar is a riot tag, and a riot tag that will not work fails silently --
@@ -165,6 +166,6 @@ class TestARebootDoesNotBlameTheServer:
         # nothing.
         assert run("Rebooting...") == [], "showError still navigated during a reboot"
         # And still everything when there is not, or real errors would be silent.
-        assert run(None) == ["error/offline/offline"], (
-            "showError stopped reporting faults that are real"
-        )
+        assert run(None) == [
+            "error/offline/offline"
+        ], "showError stopped reporting faults that are real"

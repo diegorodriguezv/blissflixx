@@ -70,7 +70,7 @@ class TestTheDocumentCarriesTheBuild:
         assert "window.BF_BUILD = '%s';" % build in served
 
     def test_and_the_page_uses_it_on_the_requests_it_makes(self):
-        source = (locations.HTML_PATH + "/app.html")
+        source = locations.HTML_PATH + "/app.html"
         with open(source) as handle:
             app = handle.read()
         assert "window.BF_BUILD" in app, (
@@ -89,8 +89,7 @@ class TestEveryAssetCarriesTheBuild:
         missed = [
             url
             for url in assets(served)
-            if not url.startswith(("//", "http://", "https://"))
-            and "?v=" not in url
+            if not url.startswith(("//", "http://", "https://")) and "?v=" not in url
         ]
         assert missed == [], "local assets with no build on them: %s" % missed
 
@@ -122,8 +121,10 @@ class TestEveryAssetCarriesTheBuild:
         "?cachebust=x" is left exactly as written rather than gaining a second.
         """
         pattern = blissflixx.HtmlDocument._local_asset
-        out = pattern.sub(lambda m: m.group(1) + m.group(2) + "?v=BUILD" + m.group(3),
-                          '<script src="js/a.js?cachebust=1"></script>')
+        out = pattern.sub(
+            lambda m: m.group(1) + m.group(2) + "?v=BUILD" + m.group(3),
+            '<script src="js/a.js?cachebust=1"></script>',
+        )
         assert out == '<script src="js/a.js?cachebust=1"></script>'
 
 
@@ -134,4 +135,6 @@ class TestItStillWorksWithoutGit:
 
         monkeypatch.setattr(blissflixx.subprocess, "run", boom)
         assert blissflixx.HtmlDocument._server_build() == "unknown"
-        assert '<meta name="build" content="unknown">' in blissflixx.HtmlDocument().index()
+        assert (
+            '<meta name="build" content="unknown">' in blissflixx.HtmlDocument().index()
+        )

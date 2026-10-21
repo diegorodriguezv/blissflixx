@@ -26,7 +26,6 @@ round and is why _TIMEOUT is generous rather than eager.
 import re
 import time
 import urllib.parse
-
 from datetime import datetime, timedelta, timezone
 
 import cherrypy

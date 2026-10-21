@@ -114,8 +114,10 @@ class TestTheWebsiteIsReadOutOfTheDescription:
         second is a claim about somewhere else.
         """
         assert (
-            _describe("<a href='https://the-channel.example'>a</a> and "
-                      "<a href='https://somewhere-else.example'>b</a>")
+            _describe(
+                "<a href='https://the-channel.example'>a</a> and "
+                "<a href='https://somewhere-else.example'>b</a>"
+            )
             == "https://the-channel.example"
         )
 
@@ -175,7 +177,9 @@ class TestTheSourceButton:
         without = [
             c.getId()
             for c in InstalledChannels().getAll()
-            if not any(a["type"] == "sourcechannel" for a in self._info(c.getId())["actions"])
+            if not any(
+                a["type"] == "sourcechannel" for a in self._info(c.getId())["actions"]
+            )
         ]
         assert without == [], "channels with no Source button: %s" % without
 
@@ -390,9 +394,9 @@ class TestTheInterfaceUsesIt:
         function at all.
         """
         source = _read(_tag("itemlist.html"))
-        assert "window.open(action.dest, '_blank'" in source, (
-            "the source button navigates in place rather than opening a tab"
-        )
+        assert (
+            "window.open(action.dest, '_blank'" in source
+        ), "the source button navigates in place rather than opening a tab"
 
 
 class TestTheHoverText:

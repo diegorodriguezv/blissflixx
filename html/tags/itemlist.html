@@ -149,12 +149,35 @@
       }
     }
 
+    playTorrentSubs(item, file) {
+      // The server pulls the file out of the torrent while the film starts;
+      // see PeerflixProcess._fetch_subtitle.
+      playerStore.playWithSubs(item.url, item.title, {
+        torrent: {idx: file.idx, name: file.name}
+      }, function(err) {
+        if (err) return Utils.showError(err)
+      })
+    }
+
     doAction(e) {
       var action = e.item
       var item = self.getItemForAction(action)
       switch (action.type) {
       case 'playwithsubs':
         var subs = item.subs
+        if (subs && subs.torrent) {
+          // The subtitle files this torrent carries. One of them means there is
+          // nothing to choose, so it plays straight away; more means a list.
+          var choices = subs.torrent.files || []
+          if (choices.length === 1) {
+            self.playTorrentSubs(item, choices[0])
+          } else {
+            Popovers.torrentSubs(e, choices, function(choice) {
+              self.playTorrentSubs(item, choice)
+            })
+          }
+          break
+        }
         if (item.subs.series) {
           Utils.goRoute('episubs', item.url, subs.series,
                          subs.lang, subs.season, subs.episode)

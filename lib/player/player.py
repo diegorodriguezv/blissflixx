@@ -272,7 +272,9 @@ class _Player:
         the loop is waiting to hand to itself.
         """
         pipe = ProcessPipe(title)
-        if subs is not None:
+        # A torrent's own subtitle file is not searched for: it comes out of
+        # the torrent itself, in the stage that has it open. See buildTorrent.
+        if subs is not None and "torrent" not in subs:
             pipe.add_process(SubtitlesProcess(subs))
         pipe.add_process(src)
         if not http and dlsrv:
@@ -351,7 +353,16 @@ class _Player:
         self.playPipe(self.buildTorrent(url, idx, title, subs), playlist, index)
 
     def buildTorrent(self, url, idx, title, subs):
-        return self.build(title, PeerflixProcess(url, idx), subs, True)
+        # subs names a file inside this torrent when it carries one: the
+        # torrent stage pulls it out once peerflix is serving. See
+        # PeerflixProcess._fetch_subtitle.
+        wanted = (subs or {}).get("torrent") or {}
+        return self.build(
+            title,
+            PeerflixProcess(url, idx, wanted.get("idx"), wanted.get("name")),
+            subs,
+            True,
+        )
 
     # Dead: LivestreamerProcess is only reachable from here, and livestreamer is
     # no longer supported upstream and is not installed by configure.sh.

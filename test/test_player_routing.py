@@ -328,6 +328,44 @@ class TestErrorBelongsToTheAttemptThatCausedIt:
         assert pl.status()["Error"] is True
 
 
+class TestTorrentSubtitles:
+    """
+    A subtitle that is a file inside the torrent.
+
+    It is not searched for -- it is fetched from the peerflix that is already
+    serving this film -- so the pipeline must not gain the online subtitle
+    stage, and the index must reach the torrent stage.
+    """
+
+    def test_the_online_stage_is_not_added(self):
+        pipe = player_module._Player().buildTorrent(
+            "magnet:?xt=urn:btih:" + "A" * 40,
+            0,
+            "Film",
+            {"torrent": {"idx": 3, "name": "Film.eng.srt"}},
+        )
+        names = [p.name() for p in pipe.procs]
+        assert "subtitles" not in names
+
+    def test_the_index_and_the_name_reach_the_torrent_stage(self):
+        pipe = player_module._Player().buildTorrent(
+            "magnet:?xt=urn:btih:" + "A" * 40,
+            2,
+            "Film",
+            {"torrent": {"idx": 3, "name": "Film.eng.srt"}},
+        )
+        stage = [p for p in pipe.procs if p.name() == "peerflix"][0]
+        assert stage.subs_idx == 3
+        assert stage.subs_name == "Film.eng.srt"
+
+    def test_an_ordinary_subtitle_still_uses_the_online_stage(self):
+        pipe = player_module._Player().buildTorrent(
+            "magnet:?xt=urn:btih:" + "A" * 40, 0, "Film", {"title": "Film"}
+        )
+        names = [p.name() for p in pipe.procs]
+        assert "subtitles" in names
+
+
 class TestStatus:
     def test_status_shape(self):
         """The frontend polls this continuously, so the keys must stay stable."""

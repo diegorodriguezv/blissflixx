@@ -1,6 +1,6 @@
-import re
 import glob
 import os
+import re
 import shutil
 import sys
 import traceback
@@ -8,16 +8,15 @@ from os import path
 from queue import Queue
 from threading import Lock, Thread
 
-from ..locations import CHAN_PATH, PLUGIN_PATH, ROOT_PATH
-from ..settings import load, save
-from .common import ApiError
-
 #: The one channel backend that reads from a third party, imported for the
 #: failure it raises when that third party cannot answer. A dependency being
 #: unavailable is not a bug in this server and must not be reported as one, so it
 #: is translated here into an ApiError that says what happened in words the
 #: interface can put on screen.
 from ..chanutils.reddit import ArchiveBusy
+from ..locations import CHAN_PATH, PLUGIN_PATH, ROOT_PATH
+from ..settings import load, save
+from .common import ApiError
 
 CHANID_GLOB = "bfch_*"
 
@@ -344,17 +343,21 @@ def info(chid=None):
     # name but resolves inside itemlist's each={ actions } to the row's own
     # title first -- so every Disable button would have said "EZTV".
     if installed.isEnabled(chid):
-        info["actions"] = [{
-            "label": "Disable",
-            "type": "disablechannel",
-            "hint": "hide",
-        }]
+        info["actions"] = [
+            {
+                "label": "Disable",
+                "type": "disablechannel",
+                "hint": "hide",
+            }
+        ]
     else:
-        info["actions"] = [{
-            "label": "Enable",
-            "type": "enablechannel",
-            "hint": "show",
-        }]
+        info["actions"] = [
+            {
+                "label": "Enable",
+                "type": "enablechannel",
+                "hint": "show",
+            }
+        ]
     # Where the posts come from, beside the button that turns it off rather
     # than in the description, which nothing renders. Added last so it sits
     # after Disable, and only when there is a link to go to.

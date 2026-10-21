@@ -73,6 +73,10 @@ def no_network(request):
     bug through.
     """
     if request.node.get_closest_marker("network"):
+        # This fixture yields, so a bare return here reads as "ready" and pytest
+        # fails the test with "did not yield a value" -- which meant no test
+        # could ever opt into the network, the very thing the marker is for.
+        yield
         return
 
     real_connect = socket.socket.connect
