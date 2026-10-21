@@ -23,14 +23,6 @@ class AddPlaylistAction(Action):
         return {"type": "addplaylist", "label": "Add To Playlist"}
 
 
-class PlayWithSubsAction(Action):
-    def __init__(self):
-        pass
-
-    def to_dict(self):
-        return {"type": "playwithsubs", "label": "Play With Subtitles"}
-
-
 class RemoveFromPlaylistAction(Action):
     def __init__(self):
         pass
@@ -221,8 +213,11 @@ class PlayItem:
         return subs
 
     def add_default_actions(self):
-        if self.subs is not None:
-            self.add_action(PlayWithSubsAction())
+        # Every row can be given subtitles, and the person chooses them from a
+        # search rather than having one picked for them. A row that carries its
+        # own -- a torrent with subtitle files, a film with a track inside --
+        # gets those on a plain play; see html/tags/itemlist.html.
+        self.add_action(AddSubtitlesAction())
         self.add_action(AddPlaylistAction())
         if is_main(self.url):
             self.add_action(TorrentFilesAction(self.url, self.title))

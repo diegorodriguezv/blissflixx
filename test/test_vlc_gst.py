@@ -3040,8 +3040,7 @@ class TestTheSubtitleInsideTheTorrent:
         proc.build_command(
             {
                 "outfile": "/x",
-                "subtitles_url": self.URL,
-                "subtitles_name": "Subs/Film.eng.srt",
+                "subtitles_wanted": [{"url": self.URL, "name": "Subs/Film.eng.srt"}],
             }
         )
         proc._media_seen = True  # the film is up; do not wait for it
@@ -3054,13 +3053,42 @@ class TestTheSubtitleInsideTheTorrent:
 
     def test_it_saves_the_file_and_adds_it_mid_play(self, monkeypatch, tmp_path):
         proc, tmp = self._proc(monkeypatch, tmp_path)
-        proc._add_torrent_subtitle()
+        proc._add_torrent_subtitle({"url": self.URL, "name": "Subs/Film.eng.srt"}, True)
         path = str(tmp / "Film.eng.srt")
         assert (tmp / "Film.eng.srt").read_bytes().startswith(b"1\n00:00:01")
-        # Added through the http interface -- the cli has no verb for it -- and
-        # then selected through the cli, which does.
         assert proc.added == [path]
         assert proc.sent == ["strack 2"]
+
+    def test_the_ones_after_the_first_are_not_selected(self, monkeypatch, tmp_path):
+        """
+        All of them are attached, and the first is the one shown: the list
+        arrives most probable first and the rest are a button away.
+        """
+        proc, tmp = self._proc(monkeypatch, tmp_path)
+        proc._add_torrent_subtitle({"url": self.URL, "name": "Film.other.srt"}, False)
+        assert proc.added == [str(tmp / "Film.other.srt")]
+        assert proc.sent == []
+
+    def test_a_failure_says_so_and_adds_nothing(self, monkeypatch, tmp_path):
+        from lib.player import vlcproc
+
+        monkeypatch.setattr(vlcproc, "TMP_DIR", str(tmp_path))
+        monkeypatch.setattr(
+            vlcproc.requests, "get", lambda url, timeout=None: m.Mock(status_code=404)
+        )
+        proc = VlcProcess({"osd_overlay": "0"})
+        proc.build_command(
+            {"outfile": "/x", "subtitles_wanted": [{"url": self.URL, "name": "a.srt"}]}
+        )
+        proc._media_seen = True
+        proc.sent = []
+        proc.added = []
+        proc._send_command = lambda command: proc.sent.append(command) or True
+        proc._add_subtitle_over_http = lambda path: proc.added.append(path) or True
+        proc._add_torrent_subtitle({"url": self.URL, "name": "a.srt"}, True)
+        assert proc.sent == []
+        assert proc.added == []
+        assert [p for p in tmp_path.iterdir() if p.suffix == ".srt"] == []
 
     def test_the_http_interface_is_asked_for_only_when_a_subtitle_is_due(
         self, monkeypatch, tmp_path
@@ -3073,38 +3101,13 @@ class TestTheSubtitleInsideTheTorrent:
 
         monkeypatch.setattr(vlcproc, "TMP_DIR", str(tmp_path))
         with_sub = VlcProcess({"osd_overlay": "0"}).build_command(
-            {"outfile": "/x", "subtitles_url": self.URL}
+            {"outfile": "/x", "subtitles_wanted": [{"url": self.URL, "name": "a.srt"}]}
         )
         without = VlcProcess({"osd_overlay": "0"}).build_command({"outfile": "/x"})
         assert "--extraintf=http" in with_sub
         assert "--http-host=127.0.0.1" in with_sub
         assert not [a for a in without if a.startswith("--http-")]
         assert not [a for a in without if a.startswith("--extraintf")]
-
-    def test_a_failure_says_so_and_adds_nothing(self, monkeypatch, tmp_path):
-        from lib.player import vlcproc
-
-        monkeypatch.setattr(vlcproc, "TMP_DIR", str(tmp_path))
-        monkeypatch.setattr(
-            vlcproc.requests, "get", lambda url, timeout=None: m.Mock(status_code=404)
-        )
-        proc = VlcProcess({"osd_overlay": "0"})
-        proc.build_command(
-            {
-                "outfile": "/x",
-                "subtitles_url": self.URL,
-                "subtitles_name": "Film.eng.srt",
-            }
-        )
-        proc._media_seen = True
-        proc.sent = []
-        proc.added = []
-        proc._send_command = lambda command: proc.sent.append(command) or True
-        proc._add_subtitle_over_http = lambda path: proc.added.append(path) or True
-        proc._add_torrent_subtitle()
-        assert proc.sent == []
-        assert proc.added == []
-        assert [p for p in tmp_path.iterdir() if p.suffix == ".srt"] == []
 
 
 class TestSeveralChosenSubtitles:

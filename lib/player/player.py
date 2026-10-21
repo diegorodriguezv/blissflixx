@@ -356,16 +356,15 @@ class _Player:
         self.playPipe(self.buildTorrent(url, idx, title, subs), playlist, index)
 
     def buildTorrent(self, url, idx, title, subs):
-        # subs names a file inside this torrent when it carries one: the
-        # torrent stage pulls it out once peerflix is serving. See
-        # PeerflixProcess._fetch_subtitle.
+        # subs names the files inside this torrent when it carries any: the
+        # torrent stage fetches them from the swarm while the film starts, and
+        # the player adds them mid-play. Both shapes are accepted -- a list from
+        # a row ("the subtitles it has") and a single index from an older play.
         wanted = (subs or {}).get("torrent") or {}
-        return self.build(
-            title,
-            PeerflixProcess(url, idx, wanted.get("idx"), wanted.get("name")),
-            subs,
-            True,
-        )
+        files = wanted.get("files")
+        if files is None and wanted.get("idx") is not None:
+            files = [{"idx": wanted["idx"], "name": wanted.get("name")}]
+        return self.build(title, PeerflixProcess(url, idx, files or []), subs, True)
 
     # Dead: LivestreamerProcess is only reachable from here, and livestreamer is
     # no longer supported upstream and is not installed by configure.sh.

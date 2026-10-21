@@ -106,7 +106,33 @@ def _subs_for(name, subs):
         ):
             continue
         chosen.append((idx, sub_name))
+    # Most probable first: the player takes the first as the one to show.
+    chosen.sort(key=lambda s: -_subs_score(s[1], name))
     return chosen
+
+
+#: Markers in a subtitle's name that mean it was made for people who want the
+#: sound described as well. Worth having, rarely what someone means by "the
+#: subtitles".
+_DESCRIBED_RE = re.compile(r"\b(SDH|HI|CC|HOH)\b", re.IGNORECASE)
+
+
+def _subs_score(sub_name, video_name):
+    """
+    How likely this subtitle is the one somebody means.
+
+    The release's own file first -- it was made for this encode, timing and
+    all. Then a plain subtitle over a described one, because "English.srt" is
+    what most people want and "English (SDH).srt" is what some do. Nothing is
+    hidden: all of them are attached, and the player shows this order, so the
+    first is the one on screen and the rest are a button away.
+    """
+    score = 0
+    if _stem(sub_name).startswith(_stem(video_name)):
+        score += 100
+    if not _DESCRIBED_RE.search(_stem(sub_name)):
+        score += 10
+    return score
 
 
 def _subs_arg(name, subs):

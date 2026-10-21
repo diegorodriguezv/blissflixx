@@ -123,26 +123,6 @@ var Popovers = new function() {
     })
   }
 
-  this._torrentSubsHtml = function(files) {
-    var html = '<div>Which subtitles?</div>'
-    for (var i = 0; i < files.length; i++) {
-      html += '<a href="" data-idx="' + i + '" class="item-action subs-choice">' +
-              files[i].name + '</a>'
-    }
-    return html
-  }
-
-  this.torrentSubs = function(e, files, cb) {
-    popover = new _Popover(e, function() { return self._torrentSubsHtml(files) }, function() {
-      $(".subs-choice").click(function(ev) {
-        ev.preventDefault()
-        var i = parseInt($(this).attr("data-idx"), 10)
-        popover.hide()
-        cb(files[i])
-      })
-    })
-  }
-
   this.subsType = function(e, cb) {
     popover = new _Popover(e, self._subsTypeHtml, function() {
       $("#movie-button").click(function(e) {

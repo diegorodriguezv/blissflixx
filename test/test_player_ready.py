@@ -113,38 +113,46 @@ class TestPeerflixListeningAddress:
 
 class TestPeerflixSubtitleFile:
     """
-    The subtitle that lives inside the torrent.
+    The subtitles that live inside the torrent.
 
     peerflix serves the whole torrent on one port -- "/" is the file that was
-    selected, "/3" the fourth -- so the address of the subtitle is known as soon
-    as peerflix is up. Fetching it is not done here: a request for a file whose
-    pieces have not arrived waits on the swarm, and waiting here delays the
-    film. The address is passed on and the player fetches it mid-play.
+    selected, "/3" the fourth -- so their addresses are known as soon as
+    peerflix is up. Fetching is not done here: a request for a file whose pieces
+    have not arrived waits on the swarm, and waiting here delays the film. The
+    addresses are passed on and the player fetches them mid-play.
     """
 
-    def _ready(self, subs_idx, name):
+    def _ready(self, subs):
         proc = feed(
-            PeerflixProcess("http://x/y.torrent", 0, subs_idx, name),
+            PeerflixProcess("http://x/y.torrent", 0, subs),
             "server is listening on http://192.168.1.119:9696/",
         )
         proc.args = {}
         return proc._ready()
 
-    def test_the_address_of_the_subtitle_is_passed_on(self):
-        args = self._ready(3, "Film.eng.srt")
-        assert args["subtitles_url"] == "http://192.168.1.119:9696/3"
-        assert args["subtitles_name"] == "Film.eng.srt"
+    def test_every_address_is_passed_on_in_order(self):
+        args = self._ready(
+            [
+                {"idx": 3, "name": "Film.eng.srt"},
+                {"idx": 4, "name": "Film.spa.srt"},
+            ]
+        )
+        assert args["subtitles_wanted"] == [
+            {"url": "http://192.168.1.119:9696/3", "name": "Film.eng.srt"},
+            {"url": "http://192.168.1.119:9696/4", "name": "Film.spa.srt"},
+        ]
 
     def test_no_subtitle_was_asked_for(self):
-        args = self._ready(None, None)
-        assert "subtitles_url" not in args
+        args = self._ready([])
+        assert "subtitles_wanted" not in args
 
-    def test_it_is_not_handed_on_as_a_local_file(self):
+    def test_they_are_not_handed_on_as_local_files(self):
         """
-        "subtitles" in the args means a path VLC is given at start. This is an
-        address that may not answer for minutes, so it must not travel as one.
+        "subtitles" in the args means paths VLC is given at start. These are
+        addresses that may not answer for minutes, so they must not travel as
+        if they were files.
         """
-        args = self._ready(3, "Film.eng.srt")
+        args = self._ready([{"idx": 3, "name": "Film.eng.srt"}])
         assert "subtitles" not in args
 
 

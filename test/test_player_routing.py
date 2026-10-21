@@ -355,8 +355,7 @@ class TestTorrentSubtitles:
             {"torrent": {"idx": 3, "name": "Film.eng.srt"}},
         )
         stage = [p for p in pipe.procs if p.name() == "peerflix"][0]
-        assert stage.subs_idx == 3
-        assert stage.subs_name == "Film.eng.srt"
+        assert stage.subs == [{"idx": 3, "name": "Film.eng.srt"}]
 
     def test_an_ordinary_subtitle_still_uses_the_online_stage(self):
         pipe = player_module._Player().buildTorrent(

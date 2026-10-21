@@ -177,7 +177,9 @@ class TestFileList:
         )
         items = torrent_api.showmore("magnet:?xt=urn:btih:" + HASH).to_dict()
         names = [f["name"] for f in items[0]["subs"]["torrent"]["files"]]
-        assert names == ["Film.2026.1080p.srt", "British (SDH).eng.srt", "English.srt"]
+        # Most probable first: the release's own, then a plain track, then the
+        # one made for people who want the sound described. All three are there.
+        assert names == ["Film.2026.1080p.srt", "English.srt", "British (SDH).eng.srt"]
 
     def test_another_episodes_subtitles_are_left_out(self, monkeypatch):
         """
@@ -200,9 +202,9 @@ class TestFileList:
         names = [f["name"] for f in items[0]["subs"]["torrent"]["files"]]
         assert names == ["Show.S01E01.eng.srt"]
 
-    def test_the_row_offers_to_play_with_them(self, items):
+    def test_the_row_offers_the_subtitle_search(self, items):
         types = [a["type"] for a in items[0]["actions"]]
-        assert "playwithsubs" in types
+        assert "addsubtitles" in types
 
     def test_a_torrent_without_subtitles_offers_no_action(self, monkeypatch):
         from lib.api import torrent as torrent_api
@@ -212,7 +214,7 @@ class TestFileList:
         )
         items = torrent_api.showmore("magnet:?xt=urn:btih:" + HASH).to_dict()
         assert "subs" not in items[0]
-        assert "playwithsubs" not in [a["type"] for a in items[0]["actions"]]
+        assert "addsubtitles" in [a["type"] for a in items[0]["actions"]]
 
     def test_an_unmatched_subtitle_is_still_offered(self, monkeypatch):
         """

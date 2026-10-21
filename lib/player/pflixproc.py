@@ -34,12 +34,12 @@ _LISTENING_RE = re.compile(r"(http://\S+?)/?\s*$")
 
 
 class PeerflixProcess(ExternalProcess):
-    def __init__(self, torrent, idx, subs_idx=None, subs_name=None):
+    def __init__(self, torrent, idx, subs=None):
         super().__init__()
-        #: The file inside this torrent to pull out as subtitles, and what to
-        #: call it here. None when this play asked for none.
-        self.subs_idx = subs_idx
-        self.subs_name = subs_name
+        #: The files inside this torrent to pull out as subtitles, most
+        #: probable first: [{"idx": n, "name": ".."}]. Empty when this play
+        #: asked for none.
+        self.subs = subs or []
         cmd = [node_binary(), "--max-old-space-size=128", "/usr/local/bin/peerflix"]
         # Avoid problems with downloading torrent files
         torrent = torrent2magnet(torrent)
@@ -80,17 +80,19 @@ class PeerflixProcess(ExternalProcess):
                 raise ProcessException("Unable to retrieve torrent")
             elif line.startswith("server is listening"):
                 self.args["outfile"] = self._advertised_url(line)
-                if self.subs_idx is not None:
-                    # Where the subtitle lives, not the subtitle: fetching it
+                if self.subs:
+                    # Where the subtitles live, not the subtitles: fetching one
                     # waits on pieces that may not be here yet, and waiting here
-                    # delays the film. The player fetches it in the background
-                    # and adds it mid-play. See VlcProcess._add_torrent_subtitle.
-                    self.args["subtitles_url"] = (
-                        self.args["outfile"].rstrip("/") + "/" + str(self.subs_idx)
-                    )
-                    self.args["subtitles_name"] = self.subs_name or (
-                        "subtitle-" + str(self.subs_idx)
-                    )
+                    # delays the film. The player fetches them in the background
+                    # and adds them mid-play. See VlcProcess._add_torrent_subtitles.
+                    base = self.args["outfile"].rstrip("/")
+                    self.args["subtitles_wanted"] = [
+                        {
+                            "url": base + "/" + str(s["idx"]),
+                            "name": s.get("name") or "subtitle-" + str(s["idx"]),
+                        }
+                        for s in self.subs
+                    ]
                 return self.args
 
     def _advertised_url(self, line):

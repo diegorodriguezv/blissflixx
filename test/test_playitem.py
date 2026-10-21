@@ -12,6 +12,7 @@ import pytest
 from lib.api.torrent import TorrentPlayItem
 from lib.playitem import (
     ActionList,
+    AddSubtitlesAction,
     AddPlaylistAction,
     EditPlaylistItemAction,
     ImdbSearchAction,
@@ -20,7 +21,6 @@ from lib.playitem import (
     PlayItem,
     PlayItemList,
     PlaylistItem,
-    PlayWithSubsAction,
     RemoveFromPlaylistAction,
     SearchItem,
     ShowmoreAction,
@@ -37,7 +37,7 @@ class TestActionDicts:
         "action,expected_type,expected_label",
         [
             (AddPlaylistAction(), "addplaylist", "Add To Playlist"),
-            (PlayWithSubsAction(), "playwithsubs", "Play With Subtitles"),
+            (AddSubtitlesAction(), "addsubtitles", "Add Subtitles"),
             (
                 RemoveFromPlaylistAction(),
                 "delplaylistitem",
@@ -169,7 +169,7 @@ class TestPlayItem:
     def test_subs_get_default_language(self):
         d = PlayItem("T", "/i", "http://x", subs={"title": "m"}).to_dict()
         assert d["subs"]["lang"] == "eng"
-        assert "playwithsubs" in [a["type"] for a in d["actions"]]
+        assert "addsubtitles" in [a["type"] for a in d["actions"]]
 
     def test_subs_language_follows_setting(self, settings):
         settings.save("subtitles", {"lang": "spa"})

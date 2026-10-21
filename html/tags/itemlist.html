@@ -109,9 +109,12 @@
           // A playlist row is played from where it sits, so that what follows
           // it follows it. Both fields are on the row already for that; a row
           // from anywhere else has neither and plays by itself.
+          // The row's own subtitles travel with the play: a torrent's
+          // subtitle files and a film's embedded track then arrive with the
+          // film rather than behind a button.
           playerStore.play(item.url, item.title, function(err) {
             if (err) return Utils.showError(err)
-          }, item.playlist, item.itemnum)
+          }, item.playlist, item.itemnum, item.subs)
         }
       }
     }
@@ -149,53 +152,10 @@
       }
     }
 
-    playTorrentSubs(item, file) {
-      // The server pulls the file out of the torrent while the film starts;
-      // see PeerflixProcess._fetch_subtitle.
-      playerStore.playWithSubs(item.url, item.title, {
-        torrent: {idx: file.idx, name: file.name}
-      }, function(err) {
-        if (err) return Utils.showError(err)
-      })
-    }
-
     doAction(e) {
       var action = e.item
       var item = self.getItemForAction(action)
       switch (action.type) {
-      case 'playwithsubs':
-        var subs = item.subs
-        if (subs && subs.torrent) {
-          // The subtitle files this torrent carries. One of them means there is
-          // nothing to choose, so it plays straight away; more means a list.
-          var choices = subs.torrent.files || []
-          if (choices.length === 1) {
-            self.playTorrentSubs(item, choices[0])
-          } else {
-            Popovers.torrentSubs(e, choices, function(choice) {
-              self.playTorrentSubs(item, choice)
-            })
-          }
-          break
-        }
-        if (item.subs.series) {
-          Utils.goRoute('episubs', item.url, subs.series,
-                         subs.lang, subs.season, subs.episode)
-        } else if (item.subs.title) {
-          Utils.goRoute('moviesubs', item.url, subs.title,
-                         subs.lang, subs.year, subs.imdb)
-        } else {
-          Popovers.subsType(e, function(type) {
-            if (type === 'movie') {
-              Utils.goRoute('moviesubs', item.url, subs.title,
-                            subs.lang, subs.year, subs.imdb)
-            } else if (type === 'tv') {
-              Utils.goRoute('episubs', item.url, subs.series,
-                            subs.lang, subs.season, subs.episode)
-            }
-          })
-        }
-        break
       case 'addplaylist':
         Popovers.addToPlaylist(e, function(create, value) {
           if (create) {

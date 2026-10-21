@@ -39,11 +39,16 @@ function PlayerStore() {
   // They are what lets the server keep going with the next item once this film
   // ends, or when the playbar's item buttons are pressed. A row from a channel
   // or a search has neither, and plays on its own as it always did.
-  self.play = function(url, title, cb, plid, itemnum) {
+  self.play = function(url, title, cb, plid, itemnum, subs) {
     var args = {url: url, title: title}
     if (plid !== undefined && itemnum !== undefined) {
       args.plid = plid
       args.itemnum = itemnum
+    }
+    // What the row already carries: a torrent's subtitle files, or a subtitle
+    // picked in a previous session. The server decides what each shape means.
+    if (subs) {
+      args.subs = subs
     }
     Utils.rpc('playr', 'play', args, cb)
   }
