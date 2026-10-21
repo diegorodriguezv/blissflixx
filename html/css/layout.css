@@ -201,15 +201,20 @@ ul.navitems-left>li {
 /*
  * The count beside a film that has not started yet.
  *
- * "Loading Stream 12s". Dimmer and smaller than the title so it reads as an
- * aside rather than as part of the name, and it only ever appears while the
- * spinner is there beside it.
+ * "Loading Stream 12s". A chip rather than plain text: the title on this bar is
+ * a long file name, and the count set against the end of it read as part of the
+ * name -- dim, jammed against the "mkv", and invisible at a glance. The chip
+ * gives it an edge and a colour of its own, so it is the one thing on the bar
+ * that is doing something other than naming the film.
  */
 .starting-time {
   flex: 0 0 auto;
+  margin-left: 12px;
+  padding: 2px 10px;
+  border-radius: 12px;
   font-size: 20px;
-  margin-left: 8px;
-  color: #6d90b0;
+  background-color: #dbe7f2;
+  color: #2A435A;
 }
 
 /*
