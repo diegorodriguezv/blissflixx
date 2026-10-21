@@ -126,6 +126,30 @@ ul.navitems-left>li {
 }
 
 /*
+ * Phones.
+ *
+ * The name on the left is thirty pixels of word and is not going to change: it
+ * is the site's mark. The four icons beside it have to fit in what is left, and
+ * at the default padding they do not -- on a 360 pixel screen the right-hand
+ * list was wrapping under the fixed bar and landing on top of the page.
+ *
+ * So the icons give up the room instead: a little padding, a little size, and
+ * the container's own margins. Measured at 360 wide, the bar needs about 331
+ * pixels of its 352 with this applied, and 421 of 488 without it.
+ */
+@media only screen and (max-width: 480px) {
+  .topnav .container {
+    padding-left: 4px;
+    padding-right: 4px;
+  }
+
+  .topnav .navitems>li>a>i {
+    padding: 0px 4px;
+    font-size: 26px;
+  }
+}
+
+/*
  * Player navigation bar
  */
 .playnav {
