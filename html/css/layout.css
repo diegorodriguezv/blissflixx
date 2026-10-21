@@ -238,12 +238,12 @@ ul.navitems-left>li {
   right: 20px;
   bottom: 70px;
   z-index: 900;
-  width: 56px;
-  height: 56px;
-  line-height: 56px;
+  width: 64px;
+  height: 48px;
+  line-height: 48px;
   text-align: center;
-  border-radius: 50%;
-  font-size: 24px;
+  border-radius: 6px;
+  font-size: 22px;
   background-color: rgb(52, 152, 219);
   color: #FFFFFF;
   opacity: 0.85;
