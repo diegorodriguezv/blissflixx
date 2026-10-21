@@ -1042,12 +1042,20 @@ class VlcProcess(PlayerBackend):
             cmd.append("--http-password=" + self._http_password)
         if "subtitles" in args:
             # A list when the person picked several from a search, a single path
-            # when one was fetched for them. VLC takes them all as tracks.
+            # when one was fetched for them.
+            #
+            # Only the first goes in as --sub-file: that option holds one path
+            # and a second one replaces it, which is what "two sub-files, one
+            # track" was. The rest go in as slave inputs, which VLC adds to the
+            # same film as further subtitle tracks -- measured on the Pi, two
+            # sub-files gave one track, a sub-file with a slave gave two.
             chosen = args["subtitles"]
             if isinstance(chosen, str):
                 chosen = [chosen]
-            for one in chosen:
-                cmd.append("--sub-file=" + one)
+            if chosen:
+                cmd.append("--sub-file=" + chosen[0])
+                for one in chosen[1:]:
+                    cmd.append("--input-slave=" + one)
         if args.get("slave"):
             # The sound, when the source serves it separately from the picture.
             #

@@ -3107,6 +3107,32 @@ class TestTheSubtitleInsideTheTorrent:
         assert [p for p in tmp_path.iterdir() if p.suffix == ".srt"] == []
 
 
+class TestSeveralChosenSubtitles:
+    """
+    More than one subtitle on the same film.
+
+    --sub-file holds one path: a second replaces it rather than adding a track,
+    which is what "two subtitles, one track" was. Measured on the Pi, the rest
+    have to arrive as slave inputs.
+    """
+
+    def _cmd(self, subtitles):
+        return VlcProcess({"osd_overlay": "0"}).build_command(
+            {"outfile": "/x", "subtitles": subtitles}
+        )
+
+    def test_the_first_is_a_sub_file_and_the_rest_are_slaves(self):
+        cmd = self._cmd(["/a.srt", "/b.srt", "/c.srt"])
+        assert "--sub-file=/a.srt" in cmd
+        assert "--input-slave=/b.srt" in cmd
+        assert "--input-slave=/c.srt" in cmd
+        assert "--sub-file=/b.srt" not in cmd
+
+    def test_one_subtitle_is_unchanged(self):
+        assert self._cmd("/a.srt").count("--sub-file=/a.srt") == 1
+        assert not [a for a in self._cmd("/a.srt") if a.startswith("--input-slave")]
+
+
 class TestAStreamThatWillNotOpen:
     """
     VLC exits when it cannot open its input, and --play-and-exit makes that
