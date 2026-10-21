@@ -208,10 +208,14 @@ ul.navitems-left>li {
 .now-playing .truncate {
   flex: 1 1 auto;
   min-width: 0;
-  /* The base .truncate scrolls its overflow, which cut the name mid-word with
-     nothing to say it had. An ellipsis says so. */
-  overflow: hidden;
-  text-overflow: ellipsis;
+  /*
+   * Scrolls rather than clips: a name that does not fit can be dragged
+   * sideways to read the rest, which is what this did before and what a name
+   * of eight dot-separated fields needs. An ellipsis was tried and taken out
+   * again -- it says the name is cut but does not let you see it.
+   */
+  overflow-x: auto;
+  overflow-y: hidden;
 }
 
 .now-playing i {

@@ -9,7 +9,7 @@
             <i show={ starting } class="fa fa-circle-o-notch fa-spin"></i>
             <i show={ !starting } class="fa fa-play"></i>
             <span class="truncate">{ status.Title }</span>
-            <span show={ starting } class="starting-time">{ startingFor }</span>
+            <span show={ pill } class="starting-time">{ pill }</span>
           </span>
         </li>
       </ul>
@@ -101,15 +101,26 @@
     //: still closes the panel, which is what the rule is for.
     var SILENT_POLLS = 6
 
+    //: How long the count stays after the picture starts.
+    //:
+    //: It is the answer to "how long did that take", and it used to vanish at
+    //: the moment it became answerable: the film starts, the wait is over, the
+    //: number goes. Five seconds is long enough to read it and short enough not
+    //: to sit on the bar while the film plays.
+    var PILL_LINGER = 5000
+
     this.on('mount', function() {
       self.powerMsg = powerStore.getMsg()
       self.silentPolls = 0
+      self.lastCount = ''
+      self.lingering = false
       self.updateStatus()
       RiotControl.on('se_status_changed', self.updateStatus)
       RiotControl.on('se_power_changed', self.updatePower)
     })
 
     this.on('unmount', function() {
+      if (self.lingerTimer) clearTimeout(self.lingerTimer)
       RiotControl.off('se_status_changed')
       RiotControl.off('se_power_changed')
     })
@@ -123,10 +134,24 @@
       // seconds of yt-dlp), or the player is up and the source has sent nothing
       // (status.Waiting, which is a torrent with no peers). The second used to
       // look exactly like playing, because the pipe is running either way.
+      var wasStarting = self.starting
       self.starting = !!self.status.State &&
                       (self.status.State < 3 || !!self.status.Waiting)
-      self.startingFor = self.starting && self.status.Elapsed
-                        ? self.status.Elapsed + 's' : ''
+      if (self.starting && self.status.Elapsed) {
+        self.lastCount = self.status.Elapsed + 's'
+      }
+      if (wasStarting && !self.starting && self.lastCount) {
+        // The picture started. Hold the number that said how long it took.
+        self.lingering = true
+        if (self.lingerTimer) clearTimeout(self.lingerTimer)
+        self.lingerTimer = setTimeout(function() {
+          self.lingering = false
+          self.lastCount = ''
+          self.update()
+        }, PILL_LINGER)
+      }
+      if (!self.starting && !self.lingering) self.lastCount = ''
+      self.pill = self.starting || self.lingering ? self.lastCount : ''
       // The bar stays closed once closed until there is nothing to say, so a
       // notice about a film that has since been dealt with does not come back
       // on the next poll. Both kinds count, not just errors.
