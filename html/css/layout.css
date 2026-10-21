@@ -208,6 +208,10 @@ ul.navitems-left>li {
 .now-playing .truncate {
   flex: 1 1 auto;
   min-width: 0;
+  /* The base .truncate scrolls its overflow, which cut the name mid-word with
+     nothing to say it had. An ellipsis says so. */
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .now-playing i {
