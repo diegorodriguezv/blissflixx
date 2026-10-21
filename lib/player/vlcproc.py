@@ -1921,6 +1921,11 @@ class VlcProcess(PlayerBackend):
         args = getattr(self, "args", None) or {}
         if "subtitles" in args:
             return
+        if getattr(self, "_subtitles_wanted", None):
+            # A subtitle is coming out of the torrent, and that one decides what
+            # is shown. This waiter picks the first track it sees, which raced
+            # the torrent's own selection and sometimes won.
+            return
         _start_thread(self._wait_for_subtitles, args)
 
     def _show_opening_title(self):

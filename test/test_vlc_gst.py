@@ -3117,6 +3117,24 @@ class TestTheSubtitleInsideTheTorrent:
         assert not [a for a in without if a.startswith("--http-")]
         assert not [a for a in without if a.startswith("--extraintf")]
 
+    def test_the_embedded_subtitle_waiter_stands_down_for_a_torrent_one(
+        self, monkeypatch, tmp_path
+    ):
+        """
+        Both select a track, and the one that happens to answer first wins. The
+        torrent's list is the considered answer, so it is left to decide.
+        """
+        import threading
+
+        from lib.player import vlcproc
+
+        started = []
+        monkeypatch.setattr(vlcproc, "_start_thread", lambda *a, **k: started.append(a))
+        proc = VlcProcess({"osd_overlay": "0"})
+        proc._subtitles_wanted = [{"url": "http://x/1", "name": "a.srt"}]
+        proc._enable_embedded_subtitles()
+        assert started == []
+
 
 class TestSeveralChosenSubtitles:
     """
