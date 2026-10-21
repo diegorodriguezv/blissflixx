@@ -74,19 +74,39 @@ def _stem(name):
     return os.path.splitext(os.path.basename(name))[0].lower()
 
 
+#: Which episode a name belongs to, if it says: S01E02, s1e2.
+_EPISODE_RE = re.compile(r"[sS](\d{1,2})[eE](\d{1,2})")
+
+
 def _subs_for(name, subs):
     """
-    The subtitles that belong to one file, or all of them if none say so.
+    The subtitles that could belong to one file.
 
-    A season pack carries one subtitle per episode, all with the episode's name
-    and a language after it -- "Below.S01E01.1080p.eng.srt" for
-    "Below.S01E01.1080p.mkv" -- so the name is what pairs them. When nothing
-    pairs, every subtitle in the torrent is offered rather than none: the list
-    is short and the person can tell which is which from the names.
+    A season pack carries one subtitle per episode, named after the episode and
+    then the language -- "Below.S01E01.1080p.eng.srt" for
+    "Below.S01E01.1080p.mkv" -- so a name that matches is the episode's own.
+
+    Everything else is offered too unless it names a *different* episode. That
+    is what makes a film work: a release like Spider-Man's has four subtitle
+    files called things like "English.srt" and "British (SDH).eng.srt", not one
+    named after the film, and matching on the name alone left three of them out
+    of a list that should have offered all four. A pack is unaffected, because
+    its other episodes' subtitles are named after those episodes.
     """
     stem = _stem(name)
-    matched = [s for s in subs if _stem(s[1]).startswith(stem)]
-    return matched or subs
+    video_episode = _EPISODE_RE.search(name)
+    chosen = []
+    for idx, sub_name in subs:
+        if _stem(sub_name).startswith(stem):
+            chosen.append((idx, sub_name))
+            continue
+        sub_episode = _EPISODE_RE.search(sub_name)
+        if sub_episode and (
+            video_episode is None or sub_episode.groups() != video_episode.groups()
+        ):
+            continue
+        chosen.append((idx, sub_name))
+    return chosen
 
 
 def _subs_arg(name, subs):

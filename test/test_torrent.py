@@ -138,15 +138,67 @@ class TestFileList:
         assert videos[1]["url"].endswith("bf_torr_idx=2")
 
     def test_a_file_gets_the_subtitles_that_name_it(self, items):
+        """
+        Its own first, and the ones that name no episode at all -- "Subs/
+        English.srt" is one subtitle for everything, and dropping it because it
+        does not carry this episode's name would hide the only English one.
+        """
         first = items[0]["subs"]["torrent"]["files"]
-        assert [f["name"] for f in first] == ["Below.S01E01.1080p.eng.srt"]
+        assert [f["name"] for f in first] == [
+            "Below.S01E01.1080p.eng.srt",
+            "Subs/English.srt",
+        ]
         assert first[0]["idx"] == 1
 
     def test_each_episode_gets_its_own(self, items):
         second = [i for i in items if i["title"] == "Below.S01E02.1080p.mkv"][0]
-        assert [f["name"] for f in second["subs"]["torrent"]["files"]] == [
-            "Below.S01E02.1080p.eng.srt"
-        ]
+        names = [f["name"] for f in second["subs"]["torrent"]["files"]]
+        assert names == ["Below.S01E02.1080p.eng.srt", "Subs/English.srt"]
+
+    def test_a_films_language_subtitles_are_not_hidden_by_the_one_that_matches(
+        self, monkeypatch
+    ):
+        """
+        A release names one subtitle after the film and the rest by language.
+        Matching on the name alone offered one of four, which is how a film with
+        four subtitle files appeared to have one.
+        """
+        from lib.api import torrent as torrent_api
+
+        monkeypatch.setattr(
+            torrent_api,
+            "torrent_files",
+            lambda link: [
+                ("Film.2026.1080p.mp4", "2.9GB"),
+                ("Film.2026.1080p.srt", "123KB"),
+                ("British (SDH).eng.srt", "170KB"),
+                ("English.srt", "129KB"),
+            ],
+        )
+        items = torrent_api.showmore("magnet:?xt=urn:btih:" + HASH).to_dict()
+        names = [f["name"] for f in items[0]["subs"]["torrent"]["files"]]
+        assert names == ["Film.2026.1080p.srt", "British (SDH).eng.srt", "English.srt"]
+
+    def test_another_episodes_subtitles_are_left_out(self, monkeypatch):
+        """
+        The same generosity must not turn a season pack into sixty choices.
+        """
+        from lib.api import torrent as torrent_api
+
+        monkeypatch.setattr(
+            torrent_api,
+            "torrent_files",
+            lambda link: [
+                ("Show.S01E01.mkv", "1GB"),
+                ("Show.S01E01.eng.srt", "50KB"),
+                ("Show.S01E02.mkv", "1GB"),
+                ("Show.S01E02.eng.srt", "50KB"),
+                ("Show.S01E02.spa.srt", "50KB"),
+            ],
+        )
+        items = torrent_api.showmore("magnet:?xt=urn:btih:" + HASH).to_dict()
+        names = [f["name"] for f in items[0]["subs"]["torrent"]["files"]]
+        assert names == ["Show.S01E01.eng.srt"]
 
     def test_the_row_offers_to_play_with_them(self, items):
         types = [a["type"] for a in items[0]["actions"]]
