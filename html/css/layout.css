@@ -219,6 +219,38 @@ ul.navitems-left>li {
 }
 
 /*
+ * Back to the top.
+ *
+ * An imported playlist is a thousand rows, and scrolling back to the top of it
+ * -- to the search box, or to the playlist's own buttons -- is minutes of
+ * dragging. This sits clear of the playbar, which is the same fifty-pixel strip
+ * along the bottom, and below the modals so it never floats over one.
+ */
+.scroll-top {
+  position: fixed;
+  right: 20px;
+  bottom: 70px;
+  z-index: 900;
+  width: 56px;
+  height: 56px;
+  line-height: 56px;
+  text-align: center;
+  border-radius: 50%;
+  font-size: 24px;
+  background-color: rgb(52, 152, 219);
+  color: #FFFFFF;
+  opacity: 0.85;
+  text-decoration: none;
+}
+
+.scroll-top:hover,
+.scroll-top:visited {
+  color: #FFFFFF;
+  opacity: 1;
+  text-decoration: none;
+}
+
+/*
  * The row under a playlist's title.
  *
  * .item-list-title pulls the next thing up by 10px, which is right for the pages
