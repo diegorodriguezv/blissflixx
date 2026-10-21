@@ -26,6 +26,8 @@ command equivalent, so they are declared absent rather than silently dropped.
 
 import os
 import re
+import secrets
+import socket
 import subprocess
 import threading
 import time
@@ -234,6 +236,19 @@ _DECODED_FRAMES = re.compile(
 _DECODED_AUDIO = re.compile(
     r"^(?:\s*>\s*)*\|?\s*audio decoded\s*:\s*([\d,]+)", re.IGNORECASE
 )
+
+
+def _free_port():
+    """
+    A port nothing is listening on, for the player's http interface.
+
+    Bound and released rather than guessed: the interface has to be told a
+    number before it starts, and two plays in a row cannot be told the same one.
+    """
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+        probe.bind(("127.0.0.1", 0))
+        return probe.getsockname()[1]
+
 
 #: How long the subtitle inside a torrent is given to arrive. It is a few KB,
 #: but it is behind the same peers as the film, and a film that is barely
@@ -806,7 +821,7 @@ class VlcProcess(PlayerBackend):
                 return
             time.sleep(0.5)
 
-        if not self._send_command("sub-add " + path):
+        if not self._add_subtitle_over_http(path):
             cherrypy.log("player would not take the subtitle: " + path)
             return
         tracks = [t for t in self._track_ids("strack") if t != _TRACK_DISABLED]
@@ -817,6 +832,34 @@ class VlcProcess(PlayerBackend):
             self._remember_track("strack", tracks[-1])
             self._send_command("strack " + str(tracks[-1]))
         cherrypy.log("subtitle added: " + path)
+
+    def _add_subtitle_over_http(self, path):
+        """
+        Add a subtitle to the film that is playing.
+
+        VLC 3's cli has no verb for it: "sub-add" is answered with
+
+            libvlc's "sub-add" is not a command
+
+        and --sub-file only exists at start, which is the whole problem -- the
+        file may not be readable until long after the film is. The lua http
+        interface does have addsubtitle, so it is started alongside the cli on
+        a loopback port and used exactly once, for this. See build_command.
+        """
+        port = getattr(self, "_http_port", None)
+        if port is None:
+            return False
+        try:
+            r = requests.get(
+                "http://127.0.0.1:%d/requests/status.json" % port,
+                params={"command": "addsubtitle", "val": path},
+                auth=("", self._http_password),
+                timeout=10,
+            )
+        except Exception as exc:
+            cherrypy.log("could not add the subtitle over http: %s" % exc)
+            return False
+        return r.status_code < 300
 
     def _wait_for_media(self):
         """
@@ -920,6 +963,14 @@ class VlcProcess(PlayerBackend):
         # reason the title is: this is where the args arrive.
         self._subtitles_url = args.get("subtitles_url")
         self._subtitles_name = args.get("subtitles_name")
+        # A subtitle that arrives while the film is playing needs the http
+        # interface: the cli has no verb for adding one (VLC 3 answers that
+        # "sub-add" is not a command), and --sub-file only exists at start.
+        self._http_port = None
+        self._http_password = None
+        if self._subtitles_url:
+            self._http_port = _free_port()
+            self._http_password = secrets.token_urlsafe(16)
         # Taken from yt-dlp rather than worked out here, because there is no way
         # to work it out here. VLC's get_length answers for a live stream too,
         # and what it answers is the size of the sliding window -- it was 11 on
@@ -982,6 +1033,13 @@ class VlcProcess(PlayerBackend):
         # measured working invocation.
         if str(self.opt("fast_seek")).lower() not in ("0", "false", "", "none"):
             cmd.append("--input-fast-seek")
+        if self._http_port is not None:
+            # Only when a subtitle is due to arrive after the film starts: it is
+            # the one thing that can add one to a film already playing.
+            cmd.append("--extraintf=http")
+            cmd.append("--http-host=127.0.0.1")
+            cmd.append("--http-port=" + str(self._http_port))
+            cmd.append("--http-password=" + self._http_password)
         if "subtitles" in args:
             cmd.append("--sub-file=" + args["subtitles"])
         if args.get("slave"):

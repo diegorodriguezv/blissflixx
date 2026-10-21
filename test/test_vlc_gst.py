@@ -3046,8 +3046,10 @@ class TestTheSubtitleInsideTheTorrent:
         )
         proc._media_seen = True  # the film is up; do not wait for it
         proc.sent = []
+        proc.added = []
         proc._send_command = lambda command: proc.sent.append(command) or True
         proc._track_ids = lambda verb: [2]
+        proc._add_subtitle_over_http = lambda path: proc.added.append(path) or True
         return proc, tmp_path
 
     def test_it_saves_the_file_and_adds_it_mid_play(self, monkeypatch, tmp_path):
@@ -3055,8 +3057,29 @@ class TestTheSubtitleInsideTheTorrent:
         proc._add_torrent_subtitle()
         path = str(tmp / "Film.eng.srt")
         assert (tmp / "Film.eng.srt").read_bytes().startswith(b"1\n00:00:01")
-        assert proc.sent[0] == "sub-add " + path
-        assert proc.sent[1] == "strack 2"
+        # Added through the http interface -- the cli has no verb for it -- and
+        # then selected through the cli, which does.
+        assert proc.added == [path]
+        assert proc.sent == ["strack 2"]
+
+    def test_the_http_interface_is_asked_for_only_when_a_subtitle_is_due(
+        self, monkeypatch, tmp_path
+    ):
+        """
+        It is one more listening socket, so a film that is not waiting for a
+        subtitle does not get one.
+        """
+        from lib.player import vlcproc
+
+        monkeypatch.setattr(vlcproc, "TMP_DIR", str(tmp_path))
+        with_sub = VlcProcess({"osd_overlay": "0"}).build_command(
+            {"outfile": "/x", "subtitles_url": self.URL}
+        )
+        without = VlcProcess({"osd_overlay": "0"}).build_command({"outfile": "/x"})
+        assert "--extraintf=http" in with_sub
+        assert "--http-host=127.0.0.1" in with_sub
+        assert not [a for a in without if a.startswith("--http-")]
+        assert not [a for a in without if a.startswith("--extraintf")]
 
     def test_a_failure_says_so_and_adds_nothing(self, monkeypatch, tmp_path):
         from lib.player import vlcproc
@@ -3075,9 +3098,12 @@ class TestTheSubtitleInsideTheTorrent:
         )
         proc._media_seen = True
         proc.sent = []
+        proc.added = []
         proc._send_command = lambda command: proc.sent.append(command) or True
+        proc._add_subtitle_over_http = lambda path: proc.added.append(path) or True
         proc._add_torrent_subtitle()
         assert proc.sent == []
+        assert proc.added == []
         assert [p for p in tmp_path.iterdir() if p.suffix == ".srt"] == []
 
 
