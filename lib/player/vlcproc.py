@@ -775,26 +775,59 @@ class VlcProcess(PlayerBackend):
         """
         return self._ready_seen and not self._media_seen
 
-    def _add_torrent_subtitle(self, wanted, select):
+    def _add_torrent_subtitles(self):
         """
-        Fetch one subtitle that lives inside the torrent, when it can be had,
-        and hand it to the player.
+        Fetch the subtitles that live inside the torrent, when they can be had,
+        and hand them to the player.
 
         Not before the film starts. peerflix answers a request for a file whose
-        pieces are not here yet by waiting, so fetching this before the film
-        meant waiting on the swarm twice: the subtitle timed out after twenty
-        seconds and the film played without it, which is what "Play With
-        Subtitles just plays the video" was on a torrent that was still
-        gathering peers.
+        pieces are not here yet by waiting, so fetching these before the film
+        meant waiting on the swarm twice: the fetch timed out after twenty
+        seconds and the film played without them, which is what "Play With
+        Subtitles just plays the video" was on a torrent still finding peers.
 
-        So the film starts and this arrives whenever the pieces do -- through
+        So the film starts and these arrive whenever the pieces do -- through
         VLC's own addsubtitle, mid-play, which is the one way a subtitle can
-        join a film already running. Only the first of a set is selected: the
-        set arrives most probable first, and the rest are tracks beside it.
+        join a film already running. All of them are added; the first is the one
+        selected, because the list arrives most probable first and the rest are
+        tracks beside it for NEXT SUBS.
+
+        One at a time, in order: which one is selected depends on which arrives
+        first, and three threads racing would decide that by luck.
         """
+        chosen = None
+        for wanted in getattr(self, "_subtitles_wanted", []):
+            if self.killing:
+                return
+            path = self._fetch_subtitle_file(wanted)
+            if path is None:
+                continue
+            # The media has to be the one playing: addsubtitle applies to the
+            # current input, and a command that arrives before the first frame
+            # is lost.
+            deadline = time.time() + 30
+            while not self._media_seen and time.time() < deadline:
+                if self.killing:
+                    return
+                time.sleep(0.5)
+            if not self._add_subtitle_over_http(path):
+                cherrypy.log("player would not take the subtitle: " + path)
+                continue
+            cherrypy.log("subtitle added: " + path)
+            if chosen is None:
+                tracks = [t for t in self._track_ids("strack") if t != _TRACK_DISABLED]
+                if tracks:
+                    chosen = tracks[-1]
+        if chosen is not None:
+            self._track_choice["strack"] = chosen
+            self._remember_track("strack", chosen)
+            self._send_command("strack " + str(chosen))
+
+    def _fetch_subtitle_file(self, wanted):
+        """One subtitle file out of the swarm, saved, or None if it will not come."""
         url = wanted.get("url")
         if not url:
-            return
+            return None
         try:
             r = requests.get(url, timeout=_SUBS_FETCH_TIMEOUT)
             if r.status_code >= 300:
@@ -803,7 +836,7 @@ class VlcProcess(PlayerBackend):
                 raise ValueError("empty reply")
         except Exception as exc:
             cherrypy.log("could not fetch the subtitle %s: %s" % (url, exc))
-            return
+            return None
         name = os.path.basename(wanted.get("name") or "subtitle")
         path = os.path.join(TMP_DIR, re.sub(r"[^\w.\-]", "_", name))
         try:
@@ -811,29 +844,9 @@ class VlcProcess(PlayerBackend):
                 handle.write(r.content)
         except OSError as exc:
             cherrypy.log("could not save the subtitle: %s" % exc)
-            return
+            return None
         cherrypy.log("subtitle fetched: " + path)
-
-        # The media has to be the one playing: addsubtitle applies to the
-        # current input, and a command that arrives before the first frame is
-        # lost.
-        deadline = time.time() + 30
-        while not self._media_seen and time.time() < deadline:
-            if self.killing:
-                return
-            time.sleep(0.5)
-
-        if not self._add_subtitle_over_http(path):
-            cherrypy.log("player would not take the subtitle: " + path)
-            return
-        if not select:
-            return
-        tracks = [t for t in self._track_ids("strack") if t != _TRACK_DISABLED]
-        if tracks:
-            self._track_choice["strack"] = tracks[-1]
-            self._remember_track("strack", tracks[-1])
-            self._send_command("strack " + str(tracks[-1]))
-        cherrypy.log("subtitle added: " + path)
+        return path
 
     def _add_subtitle_over_http(self, path):
         """
@@ -1131,12 +1144,8 @@ class VlcProcess(PlayerBackend):
                 self._enable_embedded_subtitles()
                 _start_thread(self._wait_for_media)
                 _start_thread(self._show_opening_title)
-                for n, wanted in enumerate(getattr(self, "_subtitles_wanted", [])):
-                    # One thread each: a subtitle whose pieces are slow must not
-                    # hold up the ones behind it. Only the first is selected --
-                    # the list arrives most probable first, and the rest are
-                    # there for NEXT SUBS.
-                    _start_thread(self._add_torrent_subtitle, wanted, n == 0)
+                if getattr(self, "_subtitles_wanted", None):
+                    _start_thread(self._add_torrent_subtitles)
                 return
             if any(marker in line for marker in _ERROR_MARKERS):
                 # Defer this one. The interface reads its next command from
