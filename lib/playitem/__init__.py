@@ -226,7 +226,6 @@ class PlayItem:
             # there and a search can be made of it. A channel item's title is
             # already the thing itself, and the page it came from is what the
             # row links to.
-            self.add_action(AddSubtitlesAction())
             self.add_action(ImdbSearchAction(self.title))
 
     def add_action(self, action):
