@@ -150,6 +150,21 @@ ul.navitems-left>li {
 }
 
 /*
+ * The narrowest phones, 320 CSS pixels wide.
+ *
+ * There the name is two thirds of the screen on its own, and even the smaller
+ * icons do not fit beside it: they need another twenty pixels of room, which
+ * only the icons can give. Twenty-two pixels is small, but the links are still
+ * fifty pixels tall because the bar is, so they are no harder to hit.
+ */
+@media only screen and (max-width: 340px) {
+  .topnav .navitems>li>a>i {
+    padding: 0px 2px;
+    font-size: 22px;
+  }
+}
+
+/*
  * Player navigation bar
  */
 .playnav {
