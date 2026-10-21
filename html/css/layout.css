@@ -176,6 +176,29 @@ ul.navitems-left>li {
 }
 
 /*
+ * What is playing, in the player's bar.
+ *
+ * Laid out as a row so that the name is the part that gives way: a long release
+ * name truncated the count off the end of it, which is the one thing on the bar
+ * that is always short and always worth reading. The name ellipses, the count
+ * never does, and the icon keeps its size.
+ */
+.now-playing {
+  display: flex;
+  align-items: center;
+  height: 50px;
+}
+
+.now-playing .truncate {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.now-playing i {
+  flex: 0 0 auto;
+}
+
+/*
  * The count beside a film that has not started yet.
  *
  * "Loading Stream 12s". Dimmer and smaller than the title so it reads as an
@@ -183,8 +206,9 @@ ul.navitems-left>li {
  * spinner is there beside it.
  */
 .starting-time {
+  flex: 0 0 auto;
   font-size: 20px;
-  margin-left: 6px;
+  margin-left: 8px;
   color: #6d90b0;
 }
 

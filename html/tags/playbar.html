@@ -5,10 +5,10 @@
     <div class="container">
       <ul class="navitems navitems-left">
         <li>
-          <span class="truncate">
+          <span class="now-playing">
             <i show={ starting } class="fa fa-circle-o-notch fa-spin"></i>
             <i show={ !starting } class="fa fa-play"></i>
-            { status.Title }
+            <span class="truncate">{ status.Title }</span>
             <span show={ starting } class="starting-time">{ startingFor }</span>
           </span>
         </li>
