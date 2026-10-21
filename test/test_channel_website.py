@@ -433,21 +433,20 @@ class TestTheHoverText:
     def test_the_source_button_still_names_where_it_goes(self):
         """
         The other half of the same rule, and the reason the two differ. Source
-        goes somewhere else entirely -- off this machine, to a site that may not
-        have a name worth reading -- so there the address is the useful thing to
-        say, and the name would say nothing at all.
+        has no hint of its own -- the address is the only thing it can say --
+        so the destination is what a plain action falls back to.
         """
         markup = _markup()
         action = re.search(r"<a [^>]*class=\"item-action\"[^>]*>", markup)
         assert action is not None, "no action button anchor"
-        assert "title={ dest || hint || label }" in action.group(0), action.group(0)
+        assert "title={ hint || dest || label }" in action.group(0), action.group(0)
 
     def test_the_action_buttons_carry_it(self):
         markup = _markup()
         action = re.search(r"<a [^>]*class=\"item-action\"[^>]*>", markup)
         assert action is not None, "no action button anchor"
         anchor = action.group(0)
-        assert "title={ dest || hint || label }" in anchor, anchor
+        assert "title={ hint || dest || label }" in anchor, anchor
         assert "href={ dest || '' }" in anchor, anchor
 
     def test_no_hover_text_can_render_the_word_undefined(self):

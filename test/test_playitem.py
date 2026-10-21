@@ -14,6 +14,7 @@ from lib.playitem import (
     ActionList,
     AddPlaylistAction,
     EditPlaylistItemAction,
+    ImdbSearchAction,
     LiveStreamPlayItem,
     MoreEpisodesAction,
     PlayItem,
@@ -25,6 +26,7 @@ from lib.playitem import (
     ShowmoreAction,
     ShowMoreItem,
     TorrentFilesAction,
+    imdb_query,
 )
 
 TORRENT_URL = "http://example.com/movie.torrent?bf_torr_idx=-1"
@@ -184,6 +186,74 @@ class TestTorrentPlayItem:
     def test_includes_view_files_action(self):
         d = TorrentPlayItem("M", "/i.png", "http://x/movie.torrent").to_dict()
         assert "torrfiles" in [a["type"] for a in d["actions"]]
+
+
+class TestImdbSearch:
+    """
+    The looking glass on a torrent row.
+
+    The name on the row is a release file name -- quality, source, codec and
+    group all in it -- so searching for it finds nothing. The query is built
+    from what the name is, not from how it is written.
+    """
+
+    @pytest.mark.parametrize(
+        "release,query",
+        [
+            (
+                "Spider-Man.Brand.New.Day.2026.1080p.WEBRip.10Bit.DDP5.1.x265-NeoNoir",
+                "Spider-Man Brand New Day (2026)",
+            ),
+            ("Backrooms (2026) [1080p] [WEBRip] [5.1]", "Backrooms (2026)"),
+            # An episode has no page of its own: the series is the thing to find.
+            ("Some.Show.S01E02.1080p.WEB.H264-GROUP", "Some Show"),
+            # With the year, because it tells an original from a remake.
+            ("The.Bear.2022.S01E02.1080p.WEB.H264-GROUP", "The Bear (2022)"),
+        ],
+    )
+    def test_the_query_is_the_title_and_not_the_file_name(self, release, query):
+        assert imdb_query(release) == query
+
+    def test_a_torrent_row_carries_the_button(self):
+        actions = {
+            a["type"]: a
+            for a in PlayItem(
+                "Spider-Man.Brand.New.Day.2026.1080p.WEBRip.x265-NeoNoir",
+                "/i",
+                "magnet:?xt=urn:btih:" + "A" * 40,
+            ).to_dict()["actions"]
+        }
+        action = actions["imdbsearch"]
+        assert action["dest"] == (
+            "https://www.imdb.com/find/?q=Spider-Man%20Brand%20New%20Day%20%282026%29"
+        )
+        # A looking glass rather than another word, and the hover text says what
+        # it does because there is no label to read.
+        assert action["icon"] == "fa-search"
+        assert action["label"] == ""
+        assert action["hint"] == "Search IMDb"
+
+    def test_everything_else_does_not(self):
+        """
+        A channel row's title is already the thing itself; searching IMDb for
+        it would be searching for a title that was written to be read.
+        """
+        d = PlayItem(
+            "Some video", "/i", "https://www.youtube.com/watch?v=aaaaaaaaaaa"
+        ).to_dict()
+        assert all(a["type"] != "imdbsearch" for a in d["actions"])
+
+    def test_frontend_opens_it_in_a_new_tab(self):
+        import pathlib
+
+        itemlist = (
+            pathlib.Path(__file__).resolve().parents[1]
+            / "html"
+            / "tags"
+            / "itemlist.html"
+        ).read_text()
+        assert "case 'imdbsearch':" in itemlist
+        assert "window.open(action.dest, '_blank'" in itemlist
 
 
 class TestItemSubclasses:

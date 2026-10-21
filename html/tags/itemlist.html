@@ -54,20 +54,24 @@
              own -- which is every action but this one, and would have put a
              video's address on its Disable button.
 
-             The hover text is the destination, then the hint, then the label.
-             All three because all three are different questions: Source answers
-             "where does this go", Disable and Enable answer "what will this do
-             to my channels page", and the rest have nothing to say beyond their
-             own name.
+             The hover text is the hint, then the destination, then the label.
+             All three because all three are different questions: a hint answers
+             "what will this do", Source answers "where does this go", and the
+             rest have nothing to say beyond their own name. The hint comes
+             first because it is written for the person reading it -- "Search
+             IMDb" rather than a sixty-character search address -- and a
+             destination is only worth showing when there is no such sentence.
+             On a television the browser's own line is never seen, so the
+             tooltip is the only one there is.
 
              Every one of them falls back, because an action with a hint is two
              out of three here and an action with a destination is one, and
              title="undefined" on every button would be worse than nothing said.
              -->
              <a href={ dest || '' }
-                title={ dest || hint || label }
+                title={ hint || dest || label }
                 onclick={ parent.parent.doAction }
-                class="item-action">{ label }</a>
+                class="item-action"><i show={ icon } class="fa { icon }"></i>{ label }</a>
           </span>
         </div>
       </div>
@@ -220,8 +224,10 @@
         })
         break
       case 'sourcechannel':
-        // Where the channel's posts come from, in a new tab so the manager is
-        // still there afterwards. The href carries the same address, so
+      case 'imdbsearch':
+        // Where the channel's posts come from, and what this torrent is, in a
+        // new tab so the page is still there afterwards -- which is the point
+        // of looking either of them up. The href carries the same address, so
         // middle-click and right-click already do this without the function.
         window.open(action.dest, '_blank', 'noopener')
         break
