@@ -62,7 +62,7 @@ import lib.updater as updater
 # lib.api is a plain namespace, so its submodules are imported explicitly here
 # rather than eagerly from lib/api/__init__.py. Importing them also attaches
 # them as attributes of the package, so the getattr dispatch below works.
-from lib.api import channels, playlink, playlists, playr, torrent
+from lib.api import channels, playlink, playlists, playr, subtitles, torrent
 from lib.api.common import ApiError
 from lib.player import processpipe
 from lib.player.pflixproc import BUFFER_DIR
@@ -72,6 +72,7 @@ api_modules = {
     "playlink": playlink,
     "playr": playr,
     "playlists": playlists,
+    "subtitles": subtitles,
     "torrent": torrent,
 }
 

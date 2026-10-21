@@ -211,6 +211,11 @@
       case 'showmore':
         Utils.goRoute('showmore', action.chid, action.title, action.link)
         break
+      case 'addsubtitles':
+        // The search page needs the release name, because that is what says
+        // which film it is; it searches by what the name means.
+        Utils.goRoute('subsearch', item.url, item.title)
+        break
       case 'torrfiles':
         Utils.goRoute('torrfiles', action.title, action.link)
         break

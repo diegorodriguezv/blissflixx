@@ -116,6 +116,21 @@ def imdb_query(title):
     return _with_year(title)
 
 
+class AddSubtitlesAction(Action):
+    """
+    Search OpenSubtitles for this film, choose from what it finds, and play.
+
+    The other subtitle action is the one for a film whose subtitles are known
+    to the release itself. This one is for when they are not: the person picks
+    one or more from a list and the film plays with them.
+    """
+
+    def to_dict(self):
+        # "addsubtitles" is handled by html/tags/itemlist.html, which opens the
+        # search page with this row's url and name.
+        return {"type": "addsubtitles", "label": "Add Subtitles"}
+
+
 class ImdbSearchAction(Action):
     """
     A looking glass on a torrent: what this is, on IMDb.
@@ -216,6 +231,7 @@ class PlayItem:
             # there and a search can be made of it. A channel item's title is
             # already the thing itself, and the page it came from is what the
             # row links to.
+            self.add_action(AddSubtitlesAction())
             self.add_action(ImdbSearchAction(self.title))
 
     def add_action(self, action):

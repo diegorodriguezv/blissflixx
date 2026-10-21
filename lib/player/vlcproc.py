@@ -1041,7 +1041,13 @@ class VlcProcess(PlayerBackend):
             cmd.append("--http-port=" + str(self._http_port))
             cmd.append("--http-password=" + self._http_password)
         if "subtitles" in args:
-            cmd.append("--sub-file=" + args["subtitles"])
+            # A list when the person picked several from a search, a single path
+            # when one was fetched for them. VLC takes them all as tracks.
+            chosen = args["subtitles"]
+            if isinstance(chosen, str):
+                chosen = [chosen]
+            for one in chosen:
+                cmd.append("--sub-file=" + one)
         if args.get("slave"):
             # The sound, when the source serves it separately from the picture.
             #

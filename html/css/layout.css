@@ -446,3 +446,26 @@ a.item-action {
 .btn-lg {
   margin-bottom: 20px;
 }
+/*
+ * The subtitle search results.
+ *
+ * A row per candidate with a tick box: a release can offer a plain track, a
+ * hearing-impaired one and a third someone prefers, and the tick is how more
+ * than one is asked for.
+ */
+.subs-result {
+  display: block;
+  padding: 6px 0;
+  font-weight: normal;
+  cursor: pointer;
+}
+
+.subs-result input {
+  margin-right: 8px;
+}
+
+.search-note {
+  margin-left: 12px;
+  font-size: 16px;
+  color: #6d90b0;
+}

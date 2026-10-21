@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import io
+import json
 import socket
 import sys
 import zipfile
@@ -121,6 +122,84 @@ class OpensubSession(object):
             error("Opensubtitles returned: " + str(status_code))
 
 
+def candidates(args):
+    """
+    What OpenSubtitles has for this film, as a list to choose from.
+
+    The single-subtitle path below picks for the person -- YIFY first, then the
+    best rating -- which is right when nobody is looking and wrong when they
+    are: a release can have a normal subtitle, a hearing-impaired one and a
+    third someone prefers, and all three are one press apart.
+    """
+    sess = OpensubSession()
+    if args.imdb:
+        imdb = args.imdb[2:] if args.imdb[0:2] == "tt" else args.imdb
+        params = [{"imdbid": imdb, "sublanguageid": args.lang}]
+    elif args.season and args.episode:
+        params = [
+            {
+                "query": args.title,
+                "season": args.season,
+                "episode": args.episode,
+                "sublanguageid": args.lang,
+            }
+        ]
+    else:
+        query = args.title
+        if args.year:
+            query = query + " (" + str(args.year) + ")"
+        params = [{"query": query, "sublanguageid": args.lang}]
+    results = sess.search(params) or []
+    found = []
+    for r in results:
+        if r.get("SubFormat") != "srt":
+            continue
+        if (
+            args.year
+            and _searched_as_movie(args)
+            and int(r.get("MovieYear") or 0) != args.year
+        ):
+            continue
+        found.append(
+            {
+                "id": r["IDSubtitleFile"],
+                "name": r["SubFileName"],
+                "lang": r.get("SubLanguageID", args.lang),
+                "rating": r.get("SubRating"),
+                "downloads": r.get("SubDownloadsCnt"),
+            }
+        )
+    found.sort(key=lambda c: float(c["rating"] or 0), reverse=True)
+    return found[:25]
+
+
+def _searched_as_movie(args):
+    """Whether this search was for a film. A series search has season and episode."""
+    return not (args.season and args.episode)
+
+
+def chosen_subs(args):
+    """
+    The subtitles picked from a list, saved under names the caller can find.
+
+    More than one is normal: a release often has a plain subtitle and a
+    hearing-impaired one, and both being on the film is the point of being
+    allowed to pick two.
+    """
+    wanted = json.loads(args.choosens)
+    lang = wanted.get("lang") or args.lang
+    sess = OpensubSession()
+    paths = []
+    for f in wanted.get("files") or []:
+        name = path.basename(f.get("name") or ("subtitle-" + str(f["id"]) + ".srt"))
+        try:
+            paths.append(sess.download(lang, f["id"], name))
+        except SystemExit:
+            # One missing subtitle must not lose the others.
+            continue
+    print(json.dumps({"filenames": paths}))
+
+
 def opensub_movie_subs(lang, title, year, imdb):
     sess = OpensubSession()
     results = None
@@ -185,6 +264,15 @@ def series_subs(args):
 
 parser = ArgumentParser(description="Get subtitles for movies and TV series")
 parser.add_argument("lang", help="Subtitle language")
+parser.add_argument(
+    "--list",
+    action="store_true",
+    help="List the candidates instead of choosing one",
+)
+parser.add_argument(
+    "--choosens",
+    help='The subtitles picked from a --list, as JSON: {"lang": .., "files": [..]}',
+)
 parser.add_argument("-t", "--title", help="Movie title")
 parser.add_argument("-y", "--year", type=int, help="Movie year")
 parser.add_argument("-i", "--imdb", help="IMDB code")
@@ -197,8 +285,16 @@ if args.season or args.episode:
     if not (args.title and args.season and args.episode):
         error("Must specify title, season and episode for series")
     is_movie = False
-elif not (args.title or args.imdb):
+elif not (args.title or args.imdb) and not args.choosens:
     error("Must specify title or imdb code for movie")
+
+if args.list:
+    print(json.dumps(candidates(args)))
+    sys.exit(0)
+
+if args.choosens:
+    chosen_subs(args)
+    sys.exit(0)
 
 filename = None
 for i in range(3):

@@ -54,3 +54,44 @@ class SubtitlesProcess(ExternalProcess):
         # tiny, over a connection that may well be the reason someone is
         # watching something at all.
         super().stop()
+
+
+class ChosenSubtitlesProcess(ExternalProcess):
+    """
+    The subtitles picked from a search, rather than one chosen for the person.
+
+    Fetched in one go, by id, and all of them handed to the player: a release
+    often has a plain track and a hearing-impaired one, and having both on the
+    film is the reason for being allowed to pick more than one.
+    """
+
+    def __init__(self, subs):
+        super().__init__()
+        self.subs = subs
+
+    def status_msg(self):
+        return "FETCHING SUBTITLES"
+
+    def name(self):
+        return "subtitles"
+
+    def _get_cmd(self, args):
+        wanted = {
+            "lang": self.subs.get("lang") or "eng",
+            "files": self.subs.get("chosen") or [],
+        }
+        return [GETSUBS_PATH, wanted["lang"], "--choosens", json.dumps(wanted)]
+
+    def _ready(self):
+        while True:
+            line = self._readline()
+            if not line.startswith("{"):
+                raise ProcessException("Subtitles died")
+            found = json.loads(line)
+            if "filenames" in found:
+                if not found["filenames"]:
+                    raise ProcessException("No subtitles could be downloaded")
+                return {"subtitles": found["filenames"]}
+            if "error" in found:
+                raise ProcessException(found["error"])
+            raise ProcessException("No subtitles found")

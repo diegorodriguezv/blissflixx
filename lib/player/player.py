@@ -11,7 +11,7 @@ from .dlsrvproc import DlsrvProcess
 from .localproc import LocalFileProcess
 from .pflixproc import PeerflixProcess
 from .processpipe import MSG_PLAYER_PIPE_STOPPED, ProcessPipe, _start_thread
-from .subsproc import SubtitlesProcess
+from .subsproc import ChosenSubtitlesProcess, SubtitlesProcess
 from .ytdlproc import YoutubeDlProcess
 
 # playRtmpdump() and playLivestream() were the only users of RtmpProcess and
@@ -275,7 +275,10 @@ class _Player:
         # A torrent's own subtitle file is not searched for: it comes out of
         # the torrent itself, in the stage that has it open. See buildTorrent.
         if subs is not None and "torrent" not in subs:
-            pipe.add_process(SubtitlesProcess(subs))
+            if subs.get("chosen"):
+                pipe.add_process(ChosenSubtitlesProcess(subs))
+            else:
+                pipe.add_process(SubtitlesProcess(subs))
         pipe.add_process(src)
         if not http and dlsrv:
             # The file is still growing, so it is served over http rather than

@@ -1,0 +1,144 @@
+<subsearch>
+  <div class="row break-long-word">
+    <span class="col-xs-12 item-list-title">
+      <backbtn></backbtn> <span>Add Subtitles</span>
+    </span>
+  </div>
+  <hr />
+
+  <form onsubmit={ search }>
+    <div class="row">
+      <div class="col-md-8 col-sm-9 col-xs-12">
+        <div class="form-group">
+          <label>Title:</label>
+          <input type="text" class="form-control" name="f_title" required autofocus>
+        </div>
+      </div>
+      <div class="col-md-2 col-sm-3 col-xs-6">
+        <div class="form-group">
+          <label>Year:</label>
+          <input type="text" class="form-control" name="f_year">
+        </div>
+      </div>
+      <div class="col-md-2 col-sm-3 col-xs-6">
+        <div class="form-group">
+          <label>Language:</label>
+          <select name="f_lang" class="form-control">
+            <option each={ langlist } value={ code } selected={ code == parent.lang }>{ name }</option>
+          </select>
+        </div>
+      </div>
+    </div>
+    <div class="row">
+      <div class="col-md-8 col-sm-9 col-xs-12">
+        <button type="submit" class="btn btn-primary">Search</button>
+        <span show={ searching } class="search-note">Searching OpenSubtitles...</span>
+      </div>
+    </div>
+  </form>
+
+  <div show={ results }>
+    <hr />
+    <div class="row">
+      <div class="col-xs-12 item-subtitle">
+        Tick the ones you want on the film, then press Play.
+      </div>
+    </div>
+    <div class="row" each={ sub, i in results }>
+      <div class="col-xs-12">
+        <label class="subs-result">
+          <input type="checkbox" checked={ sub.checked } onclick={ parent.toggle } data-idx={ i }>
+          <span class="item-title">{ sub.name }</span>
+          <span class="item-subtitle"> { sub.lang } · { sub.downloads } downloads</span>
+        </label>
+      </div>
+    </div>
+    <div class="row">
+      <div class="col-xs-12">
+        <button onclick={ play } type="button" class="btn btn-primary" show={ chosen }>
+          Play With These Subtitles
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <div show={ searched && !results }>
+    <hr />
+    <div class="row">
+      <div class="col-xs-12 item-list-msg">Nothing found. Try a shorter title, or another year.</div>
+    </div>
+  </div>
+
+  <script>
+    var self = this
+
+    this.langlist = [
+      {code:"eng", name:"English"},
+      {code:"spa", name:"Spanish"},
+      {code:"fre", name:"French"},
+      {code:"ger", name:"German"},
+      {code:"ita", name:"Italian"},
+      {code:"por", name:"Portuguese"},
+      {code:"dut", name:"Dutch"},
+      {code:"pol", name:"Polish"},
+      {code:"rus", name:"Russian"},
+      {code:"ara", name:"Arabic"},
+      {code:"chi", name:"Chinese"},
+      {code:"jpn", name:"Japanese"},
+    ]
+
+    this.on('mount', function() {
+      self.chosen = []
+      self.searching = false
+      self.searched = false
+      riot.route.exec(function(page, url, name) {
+        self.url = decodeURIComponent(url)
+        self.name = decodeURIComponent(name)
+        // The release name is what the search starts from: it carries the
+        // title and the year, and it is editable because releases abbreviate.
+        self.f_title.value = self.name
+        self.search()
+      })
+    })
+
+    search() {
+      self.results = null
+      self.searched = false
+      self.searching = true
+      self.chosen = []
+      self.update()
+      var title = self.f_title.value
+      var year = self.f_year.value
+      Utils.rpc('subtitles', 'search', {name: title, year: year || null, lang: self.f_lang.value}, function(err, data) {
+        self.searching = false
+        if (err) return Utils.showError(err)
+        // The server reads the title and year out of the release name when it
+        // is not given them; showing what it understood is how the person sees
+        // that it understood.
+        self.results = (data.results || []).map(function(r) {
+          return {id: r.id, name: r.name, lang: r.lang, downloads: r.downloads, checked: false}
+        })
+        self.searched = true
+        if (data.title && !self.f_title.value.trim()) self.f_title.value = data.title
+        self.update()
+      })
+    }
+
+    toggle(e) {
+      var i = parseInt(e.target.getAttribute('data-idx'), 10)
+      self.results[i].checked = e.target.checked
+      self.chosen = self.results.filter(function(r) { return r.checked })
+      self.update()
+    }
+
+    play() {
+      var subs = {lang: self.f_lang.value, chosen: self.chosen.map(function(r) {
+        return {id: r.id, name: r.name}
+      })}
+      playerStore.playWithSubs(self.url, self.name, subs, function(err) {
+        if (err) return Utils.showError(err)
+        window.history.back()
+      })
+    }
+  </script>
+</subsearch>
