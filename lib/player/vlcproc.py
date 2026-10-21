@@ -776,8 +776,7 @@ class VlcProcess(PlayerBackend):
         VLC's own sub-add, mid-play, which is the one way a subtitle can join a
         film already running. The new track is selected once it is there.
         """
-        args = getattr(self, "args", None) or {}
-        url = args.get("subtitles_url")
+        url = getattr(self, "_subtitles_url", None)
         if not url:
             return
         try:
@@ -789,7 +788,7 @@ class VlcProcess(PlayerBackend):
         except Exception as exc:
             cherrypy.log("could not fetch the subtitle %s: %s" % (url, exc))
             return
-        name = os.path.basename(args.get("subtitles_name") or "subtitle")
+        name = os.path.basename(self._subtitles_name or "subtitle")
         path = os.path.join(TMP_DIR, re.sub(r"[^\w.\-]", "_", name))
         try:
             with open(path, "wb") as handle:
@@ -916,6 +915,11 @@ class VlcProcess(PlayerBackend):
         # stays pure -- a stage that read it later could pick up the last film's
         # name if the same instance were reused.
         self._title = args.get("title") or ""
+        # The subtitle inside the torrent is an address to be fetched once the
+        # film is playing, not a file to hand VLC now. Taken here for the same
+        # reason the title is: this is where the args arrive.
+        self._subtitles_url = args.get("subtitles_url")
+        self._subtitles_name = args.get("subtitles_name")
         # Taken from yt-dlp rather than worked out here, because there is no way
         # to work it out here. VLC's get_length answers for a live stream too,
         # and what it answers is the size of the sliding window -- it was 11 on
@@ -1054,7 +1058,7 @@ class VlcProcess(PlayerBackend):
                 self._enable_embedded_subtitles()
                 _start_thread(self._wait_for_media)
                 _start_thread(self._show_opening_title)
-                if (getattr(self, "args", None) or {}).get("subtitles_url"):
+                if getattr(self, "_subtitles_url", None):
                     _start_thread(self._add_torrent_subtitle)
                 return
             if any(marker in line for marker in _ERROR_MARKERS):

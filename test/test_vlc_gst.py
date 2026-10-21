@@ -3035,7 +3035,15 @@ class TestTheSubtitleInsideTheTorrent:
             lambda url, timeout=None: m.Mock(content=body, status_code=200),
         )
         proc = VlcProcess({"osd_overlay": "0"})
-        proc.args = {"subtitles_url": self.URL, "subtitles_name": "Subs/Film.eng.srt"}
+        # The command is built here, because that is where the args arrive and
+        # where the stage keeps the ones it needs after starting.
+        proc.build_command(
+            {
+                "outfile": "/x",
+                "subtitles_url": self.URL,
+                "subtitles_name": "Subs/Film.eng.srt",
+            }
+        )
         proc._media_seen = True  # the film is up; do not wait for it
         proc.sent = []
         proc._send_command = lambda command: proc.sent.append(command) or True
@@ -3058,7 +3066,13 @@ class TestTheSubtitleInsideTheTorrent:
             vlcproc.requests, "get", lambda url, timeout=None: m.Mock(status_code=404)
         )
         proc = VlcProcess({"osd_overlay": "0"})
-        proc.args = {"subtitles_url": self.URL, "subtitles_name": "Film.eng.srt"}
+        proc.build_command(
+            {
+                "outfile": "/x",
+                "subtitles_url": self.URL,
+                "subtitles_name": "Film.eng.srt",
+            }
+        )
         proc._media_seen = True
         proc.sent = []
         proc._send_command = lambda command: proc.sent.append(command) or True
