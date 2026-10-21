@@ -225,8 +225,15 @@ ul.navitems-left>li {
  * -- to the search box, or to the playlist's own buttons -- is minutes of
  * dragging. This sits clear of the playbar, which is the same fifty-pixel strip
  * along the bottom, and below the modals so it never floats over one.
+ *
+ * Named for the app rather than for what it does, which is why it is not called
+ * .scroll-top: the general "back to top" widget is in the ad-blocking filter
+ * lists as an annoyance, and a class with that name is hidden by an extension
+ * with the stylesheet untouched. That is what made this button invisible in a
+ * browser where uBlock Origin was installed and visible in one where it was
+ * not -- same page, same CSS, display: none from a rule we cannot see.
  */
-.scroll-top {
+.bf-top {
   position: fixed;
   right: 20px;
   bottom: 70px;
@@ -243,8 +250,8 @@ ul.navitems-left>li {
   text-decoration: none;
 }
 
-.scroll-top:hover,
-.scroll-top:visited {
+.bf-top:hover,
+.bf-top:visited {
   color: #FFFFFF;
   opacity: 1;
   text-decoration: none;
