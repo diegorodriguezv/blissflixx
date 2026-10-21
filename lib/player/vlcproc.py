@@ -225,8 +225,22 @@ _NUMBER_ALONE = re.compile(r"^(?:\s*>\s*)*\(?\s*(\d+(?:\.\d+)?)\s*\)?\s*$")
 #: The pipe is optional because the interface writes the block with a prompt in
 #: front of it about as often as not.
 _DECODED_FRAMES = re.compile(
-    r"^(?:\s*>\s*)*\|?\s*video decoded\s*:\s*(\d+)", re.IGNORECASE
+    r"^(?:\s*>\s*)*\|?\s*video decoded\s*:\s*([\d,]+)", re.IGNORECASE
 )
+
+#: The same counter for sound, which is what a stream with no picture has. A
+#: radio channel decodes audio and never a frame of video.
+_DECODED_AUDIO = re.compile(
+    r"^(?:\s*>\s*)*\|?\s*audio decoded\s*:\s*([\d,]+)", re.IGNORECASE
+)
+
+#: How often to ask whether anything has been decoded, while waiting for it.
+_FRAME_POLL = 1.5
+
+#: How long to keep asking. Long enough for a slow torrent to find peers, short
+#: enough that a dead one stops costing commands. The bar keeps counting after
+#: this; it just stops asking the player.
+_FRAME_WAIT_TIMEOUT = 15 * 60
 
 
 def _format_seconds(value):
@@ -695,17 +709,6 @@ class VlcProcess(PlayerBackend):
     #: _ERROR_MARKERS, which are about the interface itself failing to come up.
     _CANNOT_OPEN = "unable to open the MRL"
 
-    #: What VLC writes once it has an input it can actually read: a demuxer for
-    #: the container, a decoder for the picture, a packetizer for the sound.
-    #:
-    #: This is what tells "opening the film" from "waiting for it". A torrent
-    #: with no peers and a feed that has accepted a connection and gone quiet
-    #: both produce nothing at all -- not an error, not a frame -- and the
-    #: interface was calling that playing. Measured on the Pi: a film writes
-    #: these within a second or two of opening, and a stalled source writes none
-    #: of them for minutes.
-    _MEDIA_OPENED = re.compile(r"\b(demux|decoder|packetizer)\b", re.IGNORECASE)
-
     def _observe_output(self, line):
         """
         Every line the player writes, and the two that mean something.
@@ -729,28 +732,69 @@ class VlcProcess(PlayerBackend):
         says the same thing about a slave stream, and the second half of a
         two-stream source failing is not the film failing.
         """
-        if self._ready_seen:
-            if self._MEDIA_OPENED.search(line):
-                self._media_seen = True
-            elif (
-                self._CANNOT_OPEN in line
-                and self._input_url
-                and self._input_url in line
-                and not self.has_error()
-            ):
-                self._set_error("Could not open the stream")
-                self._failure_reported = True
+        if (
+            self._ready_seen
+            and self._CANNOT_OPEN in line
+            and self._input_url
+            and self._input_url in line
+            and not self.has_error()
+        ):
+            self._set_error("Could not open the stream")
+            self._failure_reported = True
         self._replies.put(line)
 
     def waiting(self):
         """
-        Whether the interface is up and the media has not arrived.
+        Whether the interface is up and the picture has not started.
 
-        True from the moment the cli is ready until VLC says it has something to
-        decode, which for a film is about a second and for a torrent with no
-        peers is never. See _MEDIA_OPENED.
+        True from the moment the cli is ready until the decoder has produced a
+        frame, which for a film is a second or two and for a torrent with no
+        peers is never. See _wait_for_media.
         """
         return self._ready_seen and not self._media_seen
+
+    def _wait_for_media(self):
+        """
+        Wait until the player has actually decoded something.
+
+        The interface being up is not the film playing, and neither is the
+        container being open: a torrent that sends its header and then stalls
+        leaves VLC with a demuxer, a video output and nothing to show, so the
+        count disappeared and the screen stayed black. Frames decoded is the
+        only reading that means the picture rather than the plumbing, and it is
+        the same counter the seek machinery trusts.
+
+        Asked for on a timer, which this player avoids -- but there is no event
+        to hang this on, and the wait is the whole point. Bounded, and it stops
+        asking the moment a frame arrives.
+        """
+        deadline = time.time() + _FRAME_WAIT_TIMEOUT
+        while time.time() < deadline:
+            if self.killing or self._media_seen:
+                return
+            proc = getattr(self, "proc", None)
+            if proc is None or proc.poll() is not None:
+                return
+            if self._frames_seen():
+                self._media_seen = True
+                cherrypy.log("media decoded: the picture has started")
+                return
+            time.sleep(_FRAME_POLL)
+
+    def _frames_seen(self):
+        """Whether VLC has decoded any frame at all, sound or picture."""
+        for line in self._send_and_collect("stats") or []:
+            line = line.strip()
+            for pattern in (_DECODED_FRAMES, _DECODED_AUDIO):
+                found = pattern.match(line)
+                if not found:
+                    continue
+                try:
+                    if int(found.group(1).replace(",", "")) > 0:
+                        return True
+                except ValueError:
+                    pass
+        return False
 
     def _add_output_to_error(self, tail):
         """
@@ -942,6 +986,7 @@ class VlcProcess(PlayerBackend):
                 self._reset_replies()
                 self._apply_start_volume()
                 self._enable_embedded_subtitles()
+                _start_thread(self._wait_for_media)
                 _start_thread(self._show_opening_title)
                 return
             if any(marker in line for marker in _ERROR_MARKERS):

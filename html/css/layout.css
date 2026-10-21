@@ -91,21 +91,30 @@ ul.navitems {
   margin-bottom: 0px;
 }
 
+/*
+ * The player's bar is one row: the film takes what is left, the controls take
+ * what they need.
+ *
+ * It used to be a percentage for the name and a float for the controls, which
+ * works until the controls are wider than the fraction left over -- and then
+ * the name is drawn underneath them. That started happening on narrower
+ * windows once the name became a file name rather than a title.
+ */
+.playnav .container {
+  display: flex;
+  align-items: center;
+  height: 50px;
+}
+
 .playnav ul.navitems-left {
-  width: 43%;
-  /* Max width for iphone */
+  flex: 1 1 0%;
+  min-width: 0;
+  width: auto;
 }
 
-@media only screen and (min-width: 768px) {
-  .playnav ul.navitems-left {
-    width: 50%;
-  }
-}
-
-@media only screen and (min-width: 992px) {
-  .playnav ul.navitems-left {
-    width: 80%;
-  }
+.playnav ul.navitems-right {
+  flex: 0 0 auto;
+  width: auto;
 }
 
 ul.navitems-left>li {
@@ -196,6 +205,9 @@ ul.navitems-left>li {
 
 .now-playing i {
   flex: 0 0 auto;
+  /* The triangle and the name were written against each other. Whitespace
+     between flex items is not rendered, so this has to be margin. */
+  margin-right: 8px;
 }
 
 /*

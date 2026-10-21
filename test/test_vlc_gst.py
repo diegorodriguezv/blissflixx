@@ -3057,24 +3057,46 @@ class TestAStreamThatWillNotOpen:
         proc._observe_output(self._opened(self.SLAVE))
         assert proc.get_errors() == []
 
-    def test_waiting_until_it_has_something_to_decode(self):
+    def test_opening_the_container_is_not_the_picture(self):
         """
-        The interface being up is not the film being here. A torrent with no
-        peers gives VLC nothing at all, and waiting() is what tells the bar to
-        show a spinner and a count instead of a title over a black screen.
+        The bug this replaced. VLC writes a demuxer line as soon as it has read
+        the header, which for a torrent is minutes before the first frame: the
+        count stopped there and the screen stayed black. Lines are not evidence.
         """
         proc = self._proc()
         assert proc.waiting() is True
         proc._observe_output(
             "[73f054e0] adaptive demux: Changing stream format Unknown -> TS"
         )
+        proc._observe_output("[73f3d3f0] mpeg4audio packetizer: AAC channels: 2")
+        assert proc.waiting() is True
+
+    def test_a_decoded_frame_is_the_picture(self):
+        proc = self._proc()
+        proc._send_and_collect = lambda command: [
+            "+----[ Video Decoding ]",
+            "| video decoded    :      1",
+        ]
+        assert proc._frames_seen() is True
+        proc._media_seen = True
         assert proc.waiting() is False
 
-    def test_a_decoder_line_counts_as_media_too(self):
-        """Audio-only streams never produce a demuxer line, only a packetizer."""
+    def test_a_stalled_player_has_decoded_nothing(self):
         proc = self._proc()
-        proc._observe_output("[73f3d3f0] mpeg4audio packetizer: AAC channels: 2")
-        assert proc.waiting() is False
+        proc._send_and_collect = lambda command: [
+            "| video decoded    :        0",
+            "| audio decoded    :        0",
+        ]
+        assert proc._frames_seen() is False
+
+    def test_sound_counts_for_a_stream_with_no_picture(self):
+        """A radio channel decodes audio and never a frame of video."""
+        proc = self._proc()
+        proc._send_and_collect = lambda command: [
+            "| video decoded    :        0",
+            "| audio decoded    :    4,812",
+        ]
+        assert proc._frames_seen() is True
 
     def test_the_cli_replies_are_not_media(self):
         """
