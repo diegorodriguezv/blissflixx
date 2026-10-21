@@ -176,9 +176,9 @@ class TestPipeHappyPath:
             pipe.add_process(proc)
             start_pipe(pipe)
 
-        assert first.started_with is not second.started_with, (
-            "the second pipeline was handed the first one's arguments dict"
-        )
+        assert (
+            first.started_with is not second.started_with
+        ), "the second pipeline was handed the first one's arguments dict"
 
     def test_the_args_passed_on_are_not_edited_in_place(self):
         """
@@ -372,6 +372,34 @@ class TestPipeState:
         pipe = ProcessPipe("My Movie")
         pipe.add_process(FakeProcess("a"))
         assert pipe.status_msg() == "a status"
+
+    def test_not_waiting_before_the_pipe_starts(self):
+        """
+        Waiting is about the player being up and empty. Before that there is
+        nothing to wait with -- the pipeline is still resolving.
+        """
+        pipe = ProcessPipe("My Movie")
+        pipe.add_process(FakeProcess("a"))
+        assert pipe.waiting() is False
+
+    def test_waiting_comes_from_the_player_stage(self):
+        class WaitingPlayer(FakeProcess):
+            def waiting(self):
+                return True
+
+        pipe = ProcessPipe("My Movie")
+        pipe.add_process(FakeProcess("source"))
+        pipe.add_process(WaitingPlayer("player", outcome="ready_then_wait"))
+        start_pipe(pipe)
+        assert pipe.waiting() is True
+        pipe.stop()
+
+    def test_a_player_with_media_is_not_waiting(self):
+        pipe = ProcessPipe("My Movie")
+        pipe.add_process(FakeProcess("player", outcome="ready_then_wait"))
+        start_pipe(pipe)
+        assert pipe.waiting() is False
+        pipe.stop()
 
     def test_control_before_start_is_ignored(self):
         """

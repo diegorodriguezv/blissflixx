@@ -597,6 +597,9 @@ class VlcProcess(PlayerBackend):
         # interface shuts down the moment it starts.
         self.stdin_pipe = True
         self._ready_seen = False
+        #: Whether VLC has said it has something to decode. False while the
+        #: source is connected and silent; see waiting().
+        self._media_seen = False
         self._startup_errors = []
         # Last track id chosen per interface verb, so stepping does not have to
         # re-read the listing every time. See _step_track.
@@ -692,9 +695,20 @@ class VlcProcess(PlayerBackend):
     #: _ERROR_MARKERS, which are about the interface itself failing to come up.
     _CANNOT_OPEN = "unable to open the MRL"
 
+    #: What VLC writes once it has an input it can actually read: a demuxer for
+    #: the container, a decoder for the picture, a packetizer for the sound.
+    #:
+    #: This is what tells "opening the film" from "waiting for it". A torrent
+    #: with no peers and a feed that has accepted a connection and gone quiet
+    #: both produce nothing at all -- not an error, not a frame -- and the
+    #: interface was calling that playing. Measured on the Pi: a film writes
+    #: these within a second or two of opening, and a stalled source writes none
+    #: of them for minutes.
+    _MEDIA_OPENED = re.compile(r"\b(demux|decoder|packetizer)\b", re.IGNORECASE)
+
     def _observe_output(self, line):
         """
-        Every line the player writes, and the one that means it failed.
+        Every line the player writes, and the two that mean something.
 
         VLC exits when it cannot open its input, and --play-and-exit makes that
         read exactly like the film ending: a playlist moved on to the next item
@@ -703,23 +717,40 @@ class VlcProcess(PlayerBackend):
         the pipe reports -- "Skipped <title>: Could not open the stream" in a
         run, and the message on its own otherwise.
 
+        The other is the opposite failure, the one with no line of its own: the
+        source is connected and nothing is arriving. That is recorded here as
+        media having opened when VLC says it has a demuxer or a decoder, which
+        is what waiting() reports the absence of.
+
         Only once the interface is up: before that _ready() is reading these
         same lines and has a better message of its own, VLC's reason included.
 
-        And only for the input this stage was asked to play. VLC says the same
-        thing about a slave stream, and the second half of a two-stream source
-        failing is not the film failing.
+        And the failure is only for the input this stage was asked to play. VLC
+        says the same thing about a slave stream, and the second half of a
+        two-stream source failing is not the film failing.
         """
-        if (
-            self._ready_seen
-            and self._CANNOT_OPEN in line
-            and self._input_url
-            and self._input_url in line
-            and not self.has_error()
-        ):
-            self._set_error("Could not open the stream")
-            self._failure_reported = True
+        if self._ready_seen:
+            if self._MEDIA_OPENED.search(line):
+                self._media_seen = True
+            elif (
+                self._CANNOT_OPEN in line
+                and self._input_url
+                and self._input_url in line
+                and not self.has_error()
+            ):
+                self._set_error("Could not open the stream")
+                self._failure_reported = True
         self._replies.put(line)
+
+    def waiting(self):
+        """
+        Whether the interface is up and the media has not arrived.
+
+        True from the moment the cli is ready until VLC says it has something to
+        decode, which for a film is about a second and for a torrent with no
+        peers is never. See _MEDIA_OPENED.
+        """
+        return self._ready_seen and not self._media_seen
 
     def _add_output_to_error(self, tail):
         """

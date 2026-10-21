@@ -332,7 +332,16 @@ class TestStatus:
     def test_status_shape(self):
         """The frontend polls this continuously, so the keys must stay stable."""
         status = playr.status()
-        assert set(status) == {"State", "Msg", "Title", "Paused", "Error", "Notice"}
+        assert set(status) == {
+            "State",
+            "Msg",
+            "Title",
+            "Paused",
+            "Error",
+            "Notice",
+            "Waiting",
+            "Elapsed",
+        }
 
     def test_idle_player_is_not_running(self):
         """
@@ -342,6 +351,41 @@ class TestStatus:
         assert player_module._Player().status()["State"] == (
             player_module.ST_NOT_RUNNING
         )
+
+    def test_an_idle_player_is_not_waiting_and_has_no_count(self):
+        status = player_module._Player().status()
+        assert status["Waiting"] is False
+        assert status["Elapsed"] == 0
+
+    def test_the_count_runs_from_when_the_film_was_asked_for(self):
+        """
+        What the bar shows as "12s" beside the spinner. It is wall clock from
+        the request, because the loop that would tick is busy with the pipeline.
+        """
+
+        class _Pipe:
+            def status_msg(self):
+                return "My Movie"
+
+            def waiting(self):
+                return True
+
+            def is_started(self):
+                return True
+
+            def is_stopping(self):
+                return False
+
+        pl = player_module._Player()
+        pl.play_pipe = _Pipe()
+        pl.play_requested_at = time.time() - 12
+
+        status = pl.status()
+        assert status["Waiting"] is True
+        assert status["Elapsed"] >= 11
+        # Still running: waiting is not a state of its own, it is a thing the
+        # running player is doing.
+        assert status["State"] == player_module.ST_RUNNING
 
     def test_status_does_not_need_a_pipe(self):
         """
@@ -474,6 +518,11 @@ class _FakePipe:
 
     def status_msg(self):
         return self.title
+
+    def waiting(self):
+        # This fake is always a film that arrived; waiting is the player stage
+        # saying it has nothing to decode yet. See ProcessPipe.waiting().
+        return False
 
 
 def _builder(title):

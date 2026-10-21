@@ -233,6 +233,20 @@ class ProcessPipe:
                 idx = 0
             return self.procs[idx].status_msg()
 
+    def waiting(self):
+        """
+        Whether the player is up but nothing has come through it yet.
+
+        A source that has connected and gone quiet -- a torrent with no peers,
+        a feed that accepted the connection and stalled -- looks exactly like a
+        film from here: the last stage reported ready and the pipe is running.
+        The player stage knows the difference, and the interface shows it as a
+        count rather than as a title over a black screen.
+        """
+        if not self.started:
+            return False
+        return self.procs[-1].waiting()
+
     def add_process(self, proc):
         self.procs.append(proc)
 
@@ -433,6 +447,10 @@ class Process(ABC):
 
     def status_msg(self):
         return "LOADING STREAM"
+
+    def waiting(self):
+        """Whether this stage is up but has nothing to play yet."""
+        return False
 
     @abstractmethod
     def name(self):

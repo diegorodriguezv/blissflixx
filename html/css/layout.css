@@ -176,6 +176,19 @@ ul.navitems-left>li {
 }
 
 /*
+ * The count beside a film that has not started yet.
+ *
+ * "Loading Stream 12s". Dimmer and smaller than the title so it reads as an
+ * aside rather than as part of the name, and it only ever appears while the
+ * spinner is there beside it.
+ */
+.starting-time {
+  font-size: 20px;
+  margin-left: 6px;
+  color: #6d90b0;
+}
+
+/*
  * Channels
  */
 .channel {

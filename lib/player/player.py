@@ -1,3 +1,4 @@
+import time
 from collections import namedtuple
 from queue import Full, Queue
 
@@ -80,6 +81,9 @@ class _Player:
         #: item skipped, or the end of a playlist reached. Kept apart from
         #: self.error because that one means nothing is playing -- see status().
         self.notice = None
+        #: When the film playing was asked for. The interface counts from here
+        #: while it is loading; see status().
+        self.play_requested_at = None
 
     def _stop(self):
         if self.play_pipe:
@@ -91,6 +95,10 @@ class _Player:
         self.play_pipe = play.pipe
         self.playlist = play.playlist
         self.index = play.index
+        # When this film was asked for, for the count the interface shows while
+        # it is loading. Wall clock rather than a tick, because the loop is not
+        # the thing being timed.
+        self.play_requested_at = time.time()
         self.play_thread = _start_thread(play.pipe.start, self.msgq)
 
     def _clear_place(self):
@@ -369,6 +377,12 @@ class _Player:
             # skipped, or the end of a playlist reached. Apart from Msg, which
             # along with Error means nothing is playing at all.
             "Notice": "",
+            # Whether the player is up but nothing has come through it yet, and
+            # how long since the film was asked for. See ProcessPipe.waiting():
+            # the interface shows these as "starting 12s" rather than a title
+            # that sits there looking like a film with a black screen.
+            "Waiting": False,
+            "Elapsed": 0,
         }
 
         if self.error is not None:
@@ -381,7 +395,11 @@ class _Player:
         if play_pipe is None or self.error is not None:
             return status
 
+        if self.play_requested_at is not None:
+            status["Elapsed"] = int(time.time() - self.play_requested_at)
+
         status["Title"] = play_pipe.status_msg()
+        status["Waiting"] = play_pipe.waiting()
         if self._is_playing():
             status["State"] = ST_RUNNING
         elif not self._is_stopping():

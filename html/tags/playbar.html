@@ -6,9 +6,10 @@
       <ul class="navitems navitems-left">
         <li>
           <span class="truncate">
-            <i show={ status.State < 3 } class="fa fa-circle-o-notch fa-spin"></i>
-            <i show={ status.State == 3 } class="fa fa-play"></i> 
+            <i show={ starting } class="fa fa-circle-o-notch fa-spin"></i>
+            <i show={ !starting } class="fa fa-play"></i>
             { status.Title }
+            <span show={ starting } class="starting-time">{ startingFor }</span>
           </span>
         </li>
       </ul>
@@ -101,9 +102,9 @@
     var SILENT_POLLS = 6
 
     this.on('mount', function() {
-      self.status = playerStore.getStatus()
       self.powerMsg = powerStore.getMsg()
       self.silentPolls = 0
+      self.updateStatus()
       RiotControl.on('se_status_changed', self.updateStatus)
       RiotControl.on('se_power_changed', self.updatePower)
     })
@@ -115,6 +116,17 @@
 
     updateStatus() {
       self.status = playerStore.getStatus()
+      // Loading, for the count beside the title.
+      //
+      // Starting covers both of the ways a film can be not-on-screen: the
+      // pipeline is still resolving it (State 1, which includes eight to twenty
+      // seconds of yt-dlp), or the player is up and the source has sent nothing
+      // (status.Waiting, which is a torrent with no peers). The second used to
+      // look exactly like playing, because the pipe is running either way.
+      self.starting = !!self.status.State &&
+                      (self.status.State < 3 || !!self.status.Waiting)
+      self.startingFor = self.starting && self.status.Elapsed
+                        ? self.status.Elapsed + 's' : ''
       // The bar stays closed once closed until there is nothing to say, so a
       // notice about a film that has since been dealt with does not come back
       // on the next poll. Both kinds count, not just errors.

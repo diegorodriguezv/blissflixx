@@ -3057,6 +3057,35 @@ class TestAStreamThatWillNotOpen:
         proc._observe_output(self._opened(self.SLAVE))
         assert proc.get_errors() == []
 
+    def test_waiting_until_it_has_something_to_decode(self):
+        """
+        The interface being up is not the film being here. A torrent with no
+        peers gives VLC nothing at all, and waiting() is what tells the bar to
+        show a spinner and a count instead of a title over a black screen.
+        """
+        proc = self._proc()
+        assert proc.waiting() is True
+        proc._observe_output(
+            "[73f054e0] adaptive demux: Changing stream format Unknown -> TS"
+        )
+        assert proc.waiting() is False
+
+    def test_a_decoder_line_counts_as_media_too(self):
+        """Audio-only streams never produce a demuxer line, only a packetizer."""
+        proc = self._proc()
+        proc._observe_output("[73f3d3f0] mpeg4audio packetizer: AAC channels: 2")
+        assert proc.waiting() is False
+
+    def test_the_cli_replies_are_not_media(self):
+        """
+        VLC answers track queries before it has anything to play, so the reply
+        that polls a film with no subtitles must not read as a film arriving.
+        """
+        proc = self._proc()
+        proc._observe_output("> -1")
+        proc._observe_output("+----[ end of spu-es ]")
+        assert proc.waiting() is True
+
     def test_the_shutdown_noise_is_not_appended_to_it(self):
         """
         Everything else folds the player's last lines into its error. Here the
