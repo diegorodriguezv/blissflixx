@@ -3011,6 +3011,62 @@ class TestWaitingForARealAnswer:
         assert _is_echo(">") is False
 
 
+class TestTheSubtitleInsideTheTorrent:
+    """
+    A subtitle that is a file in the torrent joins the film after it started.
+
+    peerflix will not answer for a file whose pieces are not here yet, and on a
+    film that is still gathering peers that can be minutes. Waiting for it
+    before the film meant the fetch timed out and the film played without
+    subtitles -- which is what "Play With Subtitles just plays the video" was.
+    """
+
+    URL = "http://192.168.1.119:9696/1"
+
+    def _proc(
+        self, monkeypatch, tmp_path, body=b"1\n00:00:01,000 --> 00:00:02,000\nhi\n"
+    ):
+        from lib.player import vlcproc
+
+        monkeypatch.setattr(vlcproc, "TMP_DIR", str(tmp_path))
+        monkeypatch.setattr(
+            vlcproc.requests,
+            "get",
+            lambda url, timeout=None: m.Mock(content=body, status_code=200),
+        )
+        proc = VlcProcess({"osd_overlay": "0"})
+        proc.args = {"subtitles_url": self.URL, "subtitles_name": "Subs/Film.eng.srt"}
+        proc._media_seen = True  # the film is up; do not wait for it
+        proc.sent = []
+        proc._send_command = lambda command: proc.sent.append(command) or True
+        proc._track_ids = lambda verb: [2]
+        return proc, tmp_path
+
+    def test_it_saves_the_file_and_adds_it_mid_play(self, monkeypatch, tmp_path):
+        proc, tmp = self._proc(monkeypatch, tmp_path)
+        proc._add_torrent_subtitle()
+        path = str(tmp / "Film.eng.srt")
+        assert (tmp / "Film.eng.srt").read_bytes().startswith(b"1\n00:00:01")
+        assert proc.sent[0] == "sub-add " + path
+        assert proc.sent[1] == "strack 2"
+
+    def test_a_failure_says_so_and_adds_nothing(self, monkeypatch, tmp_path):
+        from lib.player import vlcproc
+
+        monkeypatch.setattr(vlcproc, "TMP_DIR", str(tmp_path))
+        monkeypatch.setattr(
+            vlcproc.requests, "get", lambda url, timeout=None: m.Mock(status_code=404)
+        )
+        proc = VlcProcess({"osd_overlay": "0"})
+        proc.args = {"subtitles_url": self.URL, "subtitles_name": "Film.eng.srt"}
+        proc._media_seen = True
+        proc.sent = []
+        proc._send_command = lambda command: proc.sent.append(command) or True
+        proc._add_torrent_subtitle()
+        assert proc.sent == []
+        assert [p for p in tmp_path.iterdir() if p.suffix == ".srt"] == []
+
+
 class TestAStreamThatWillNotOpen:
     """
     VLC exits when it cannot open its input, and --play-and-exit makes that

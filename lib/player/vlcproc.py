@@ -32,6 +32,7 @@ import time
 from queue import Empty, Queue
 
 import cherrypy
+import requests
 
 from .backend import (
     CAP_AUDIO_TRACK,
@@ -233,6 +234,12 @@ _DECODED_FRAMES = re.compile(
 _DECODED_AUDIO = re.compile(
     r"^(?:\s*>\s*)*\|?\s*audio decoded\s*:\s*([\d,]+)", re.IGNORECASE
 )
+
+#: How long the subtitle inside a torrent is given to arrive. It is a few KB,
+#: but it is behind the same peers as the film, and a film that is barely
+#: arriving has a subtitle that is barely arriving. Nothing waits on this: the
+#: film is playing while it is asked for.
+_SUBS_FETCH_TIMEOUT = 300
 
 #: How often to ask whether anything has been decoded, while waiting for it.
 _FRAME_POLL = 1.5
@@ -753,6 +760,65 @@ class VlcProcess(PlayerBackend):
         """
         return self._ready_seen and not self._media_seen
 
+    def _add_torrent_subtitle(self):
+        """
+        Fetch the subtitle that lives inside the torrent, when it can be had,
+        and hand it to the player.
+
+        Not before the film starts. peerflix answers a request for a file whose
+        pieces are not here yet by waiting, so fetching this before the film
+        meant waiting on the swarm twice: the subtitle timed out after twenty
+        seconds and the film played without it, which is what "Play With
+        Subtitles just plays the video" was on a torrent that was still
+        gathering peers.
+
+        So the film starts and this arrives whenever the pieces do -- through
+        VLC's own sub-add, mid-play, which is the one way a subtitle can join a
+        film already running. The new track is selected once it is there.
+        """
+        args = getattr(self, "args", None) or {}
+        url = args.get("subtitles_url")
+        if not url:
+            return
+        try:
+            r = requests.get(url, timeout=_SUBS_FETCH_TIMEOUT)
+            if r.status_code >= 300:
+                raise ValueError("HTTP " + str(r.status_code))
+            if not r.content:
+                raise ValueError("empty reply")
+        except Exception as exc:
+            cherrypy.log("could not fetch the subtitle %s: %s" % (url, exc))
+            return
+        name = os.path.basename(args.get("subtitles_name") or "subtitle")
+        path = os.path.join(TMP_DIR, re.sub(r"[^\w.\-]", "_", name))
+        try:
+            with open(path, "wb") as handle:
+                handle.write(r.content)
+        except OSError as exc:
+            cherrypy.log("could not save the subtitle: %s" % exc)
+            return
+        cherrypy.log("subtitle fetched: " + path)
+
+        # The media has to be the one playing: sub-add applies to the current
+        # input, and a command that arrives before the first frame is lost.
+        deadline = time.time() + 30
+        while not self._media_seen and time.time() < deadline:
+            if self.killing:
+                return
+            time.sleep(0.5)
+
+        if not self._send_command("sub-add " + path):
+            cherrypy.log("player would not take the subtitle: " + path)
+            return
+        tracks = [t for t in self._track_ids("strack") if t != _TRACK_DISABLED]
+        if tracks:
+            # The last one: the subtitle just added, rather than an embedded
+            # track that was already there.
+            self._track_choice["strack"] = tracks[-1]
+            self._remember_track("strack", tracks[-1])
+            self._send_command("strack " + str(tracks[-1]))
+        cherrypy.log("subtitle added: " + path)
+
     def _wait_for_media(self):
         """
         Wait until the player has actually decoded something.
@@ -988,6 +1054,8 @@ class VlcProcess(PlayerBackend):
                 self._enable_embedded_subtitles()
                 _start_thread(self._wait_for_media)
                 _start_thread(self._show_opening_title)
+                if (getattr(self, "args", None) or {}).get("subtitles_url"):
+                    _start_thread(self._add_torrent_subtitle)
                 return
             if any(marker in line for marker in _ERROR_MARKERS):
                 # Defer this one. The interface reads its next command from

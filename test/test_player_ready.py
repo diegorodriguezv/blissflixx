@@ -111,58 +111,41 @@ class TestPeerflixListeningAddress:
         assert proc._ready()["outfile"] == "http://127.0.0.1:" + YTDL_PORT
 
 
-@pytest.mark.network
 class TestPeerflixSubtitleFile:
     """
-    A subtitle that is a file in the torrent.
+    The subtitle that lives inside the torrent.
 
-    peerflix serves the whole torrent on one port: "/" is the file that was
-    selected, "/3" is the fourth. So the subtitle is fetched from the swarm
-    already running rather than by starting a second one, and a failure has to
-    mean "no subtitles" rather than "no film".
+    peerflix serves the whole torrent on one port -- "/" is the file that was
+    selected, "/3" the fourth -- so the address of the subtitle is known as soon
+    as peerflix is up. Fetching it is not done here: a request for a file whose
+    pieces have not arrived waits on the swarm, and waiting here delays the
+    film. The address is passed on and the player fetches it mid-play.
     """
 
-    @pytest.fixture
-    def served(self, tmp_path, monkeypatch):
-        import http.server
-        import threading
+    def _ready(self, subs_idx, name):
+        proc = feed(
+            PeerflixProcess("http://x/y.torrent", 0, subs_idx, name),
+            "server is listening on http://192.168.1.119:9696/",
+        )
+        proc.args = {}
+        return proc._ready()
 
-        from lib.player import pflixproc
+    def test_the_address_of_the_subtitle_is_passed_on(self):
+        args = self._ready(3, "Film.eng.srt")
+        assert args["subtitles_url"] == "http://192.168.1.119:9696/3"
+        assert args["subtitles_name"] == "Film.eng.srt"
 
-        monkeypatch.setattr(pflixproc, "TMP_DIR", str(tmp_path))
-        body = b"1\n00:00:01,000 --> 00:00:02,000\nhello\n"
+    def test_no_subtitle_was_asked_for(self):
+        args = self._ready(None, None)
+        assert "subtitles_url" not in args
 
-        class Handler(http.server.BaseHTTPRequestHandler):
-            def log_message(self, *args):
-                pass
-
-            def do_GET(self):
-                if self.path != "/3":
-                    self.send_error(404)
-                    return
-                self.send_response(200)
-                self.send_header("Content-Length", str(len(body)))
-                self.end_headers()
-                self.wfile.write(body)
-
-        server = http.server.HTTPServer(("127.0.0.1", 0), Handler)
-        threading.Thread(target=server.serve_forever, daemon=True).start()
-        yield "http://127.0.0.1:%d" % server.server_address[1]
-        server.shutdown()
-
-    def test_the_file_is_saved_under_its_own_name(self, served, tmp_path):
-        proc = PeerflixProcess("http://x/y.torrent", 0, 3, "Film.eng.srt")
-        path = proc._fetch_subtitle(served)
-        assert path == str(tmp_path / "Film.eng.srt")
-        assert open(path, "rb").read().startswith(b"1\n00:00:01")
-
-    def test_a_missing_file_is_not_an_error(self, served):
-        proc = PeerflixProcess("http://x/y.torrent", 0, 9, "Film.eng.srt")
-        assert proc._fetch_subtitle(served) is None
-
-    def test_a_name_with_a_path_in_it_is_flattened(self, served, tmp_path):
-        proc = PeerflixProcess("http://x/y.torrent", 0, 3, "Subs/English.srt")
-        assert proc._fetch_subtitle(served) == str(tmp_path / "English.srt")
+    def test_it_is_not_handed_on_as_a_local_file(self):
+        """
+        "subtitles" in the args means a path VLC is given at start. This is an
+        address that may not answer for minutes, so it must not travel as one.
+        """
+        args = self._ready(3, "Film.eng.srt")
+        assert "subtitles" not in args
 
 
 class TestPeerflixReady:

@@ -294,6 +294,23 @@ class ShowMoreItem(PlayItem):
         pass
 
 
+class FileItem(PlayItem):
+    """
+    A file in a torrent that is not something to watch.
+
+    A subtitle is shown on the files page so the list says what the torrent
+    contains, but it is not a link and it has no buttons: there is nothing to
+    watch in it. No url is what makes the row inert -- itemlist's openItem
+    returns early for a row without one.
+    """
+
+    def __init__(self, title, img, subtitle=None):
+        PlayItem.__init__(self, title, img, "", subtitle)
+
+    def add_default_actions(self):
+        pass
+
+
 class PlayItemList:
     def __init__(self):
         self.itemlist = []

@@ -2,7 +2,6 @@ import os
 import re
 
 import cherrypy
-import requests
 
 from ..api.torrent import torrent2magnet
 from ..locations import DATA_PATH
@@ -32,11 +31,6 @@ BUFFER_DIR = os.path.join(DATA_PATH, "downloads", "torrent-stream")
 #: is not listening on, and the player fails with "cannot connect to
 #: 127.0.0.1:9696" after sitting there for a minute.
 _LISTENING_RE = re.compile(r"(http://\S+?)/?\s*$")
-
-#: How long to wait for a subtitle file out of the torrent. It is a few KB and
-#: the swarm is already running, so this is generous; past it the film plays
-#: without subtitles rather than not at all.
-_SUBS_FETCH_TIMEOUT = 20
 
 
 class PeerflixProcess(ExternalProcess):
@@ -87,41 +81,17 @@ class PeerflixProcess(ExternalProcess):
             elif line.startswith("server is listening"):
                 self.args["outfile"] = self._advertised_url(line)
                 if self.subs_idx is not None:
-                    path = self._fetch_subtitle(self.args["outfile"])
-                    if path is not None:
-                        self.args["subtitles"] = path
+                    # Where the subtitle lives, not the subtitle: fetching it
+                    # waits on pieces that may not be here yet, and waiting here
+                    # delays the film. The player fetches it in the background
+                    # and adds it mid-play. See VlcProcess._add_torrent_subtitle.
+                    self.args["subtitles_url"] = (
+                        self.args["outfile"].rstrip("/") + "/" + str(self.subs_idx)
+                    )
+                    self.args["subtitles_name"] = self.subs_name or (
+                        "subtitle-" + str(self.subs_idx)
+                    )
                 return self.args
-
-    def _fetch_subtitle(self, base_url):
-        """
-        Take the subtitle file out of the torrent being played.
-
-        peerflix serves the whole torrent over one port: "/" is the file that
-        was selected and "/12" is the twelfth, so a subtitle comes from the
-        swarm that is already running for a few KB, instead of a second
-        instance announcing all over again for a file that is a hundredth of
-        the size.
-
-        Never fatal. A film without subtitles is still a film, and a torre... a
-        source whose subtitle pieces are slow to arrive is still worth playing.
-        """
-        url = base_url.rstrip("/") + "/" + str(self.subs_idx)
-        name = os.path.basename(self.subs_name or "subtitle-" + str(self.subs_idx))
-        name = re.sub(r"[^\w.\-]", "_", name)
-        path = os.path.join(TMP_DIR, name)
-        try:
-            r = requests.get(url, timeout=_SUBS_FETCH_TIMEOUT)
-            if r.status_code >= 300:
-                raise ValueError("HTTP " + str(r.status_code))
-            if not r.content:
-                raise ValueError("empty reply")
-            with open(path, "wb") as handle:
-                handle.write(r.content)
-        except Exception as exc:
-            cherrypy.log("could not fetch the subtitle %s: %s" % (url, exc))
-            return None
-        cherrypy.log("subtitle saved: " + path)
-        return path
 
     def _advertised_url(self, line):
         """

@@ -113,16 +113,29 @@ class TestFileList:
         monkeypatch.setattr(torrent_api, "torrent_files", lambda link: self.FILES)
         return torrent_api.showmore("magnet:?xt=urn:btih:" + HASH).to_dict()
 
-    def test_only_video_files_are_listed(self, items):
+    def test_videos_and_their_subtitles_are_listed(self, items):
+        """
+        The subtitles are shown so the page says what the torrent carries, and
+        nothing else is: the .nfo and the artwork are not what this page is for.
+        """
         assert [i["title"] for i in items] == [
             "Below.S01E01.1080p.mkv",
+            "Below.S01E01.1080p.eng.srt",
             "Below.S01E02.1080p.mkv",
+            "Below.S01E02.1080p.eng.srt",
+            "Subs/English.srt",
         ]
 
+    def test_a_subtitle_row_has_no_link_and_no_buttons(self, items):
+        row = [i for i in items if i["title"].endswith(".srt")][0]
+        assert row["url"] == ""
+        assert "actions" not in row
+
     def test_the_torrents_own_index_is_kept(self, items):
-        """Filtering what is shown must not renumber what is played."""
-        assert items[0]["url"].endswith("bf_torr_idx=0")
-        assert items[1]["url"].endswith("bf_torr_idx=2")
+        """Showing fewer rows must not renumber what is played."""
+        videos = [i for i in items if i["url"]]
+        assert videos[0]["url"].endswith("bf_torr_idx=0")
+        assert videos[1]["url"].endswith("bf_torr_idx=2")
 
     def test_a_file_gets_the_subtitles_that_name_it(self, items):
         first = items[0]["subs"]["torrent"]["files"]
@@ -130,8 +143,10 @@ class TestFileList:
         assert first[0]["idx"] == 1
 
     def test_each_episode_gets_its_own(self, items):
-        second = items[1]["subs"]["torrent"]["files"]
-        assert [f["name"] for f in second] == ["Below.S01E02.1080p.eng.srt"]
+        second = [i for i in items if i["title"] == "Below.S01E02.1080p.mkv"][0]
+        assert [f["name"] for f in second["subs"]["torrent"]["files"]] == [
+            "Below.S01E02.1080p.eng.srt"
+        ]
 
     def test_the_row_offers_to_play_with_them(self, items):
         types = [a["type"] for a in items[0]["actions"]]

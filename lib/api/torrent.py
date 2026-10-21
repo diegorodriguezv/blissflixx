@@ -5,7 +5,7 @@ import subprocess
 from ..chanutils import byte_size
 
 # from chanutils.torrent import showmore
-from ..playitem import PlayItem, PlayItemList
+from ..playitem import FileItem, PlayItem, PlayItemList
 from .common import ApiError
 
 TRACKERS = (
@@ -103,16 +103,19 @@ def showmore(link):
     subs = [(i, f[0]) for i, f in enumerate(files) if _has_ext(f[0], SUBS_EXTS)]
     results = PlayItemList()
     for idx, f in enumerate(files):
-        if not _has_ext(f[0], VIDEO_EXTS):
-            continue
         if isinstance(f[1], str):
             subtitle = "Size: " + f[1]
         else:
             subtitle = "Size: " + byte_size(f[1])
-        url = set_torridx(link, idx)
         img = "/img/icons/file-o.svg"
-        item = PlayItem(f[0], img, url, subtitle, subs=_subs_arg(f[0], subs))
-        results.add(item)
+        if _has_ext(f[0], SUBS_EXTS):
+            # Shown so the list says the torrent carries subtitles, and inert:
+            # a subtitle is not something to watch.
+            results.add(FileItem(f[0], img, subtitle))
+        elif _has_ext(f[0], VIDEO_EXTS):
+            url = set_torridx(link, idx)
+            item = PlayItem(f[0], img, url, subtitle, subs=_subs_arg(f[0], subs))
+            results.add(item)
     return results
 
 
