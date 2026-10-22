@@ -549,7 +549,12 @@ class ExternalProcess(Process):
         if isinstance(cmd, str):
             cherrypy.log("RUN: " + cmd)
         else:
-            cherrypy.log("RUN: " + " ".join(cmd))
+            # str() every part: a stage that hands an int in its argv -- a year,
+            # a file index -- is a bug, but it is not one that should kill the
+            # stage while reporting the command. It did: the join raised out of
+            # the thread, the pipeline never started, and the interface sat at
+            # LOADING STREAM with nothing in the log but a traceback.
+            cherrypy.log("RUN: " + " ".join(str(part) for part in cmd))
         self.proc = subprocess.Popen(
             cmd,
             stderr=subprocess.STDOUT,

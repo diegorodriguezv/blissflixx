@@ -84,6 +84,8 @@ class _Player:
         #: When the film playing was asked for. The interface counts from here
         #: while it is loading; see status().
         self.play_requested_at = None
+        #: Whether the start has been timed into the log yet.
+        self.start_logged = False
 
     def _stop(self):
         if self.play_pipe:
@@ -99,6 +101,7 @@ class _Player:
         # it is loading. Wall clock rather than a tick, because the loop is not
         # the thing being timed.
         self.play_requested_at = time.time()
+        self.start_logged = False
         self.play_thread = _start_thread(play.pipe.start, self.msgq)
 
     def _clear_place(self):
@@ -413,6 +416,21 @@ class _Player:
 
         status["Title"] = play_pipe.status_msg()
         status["Waiting"] = play_pipe.waiting()
+        # How long it took, once, for the question that keeps coming back:
+        # "was that slower than it used to be". Everything a play waits on is
+        # already logged with a timestamp -- peerflix verifying its buffer,
+        # yt-dlp resolving, the player opening -- and this is the total.
+        if (
+            not self.start_logged
+            and self.play_requested_at is not None
+            and play_pipe.is_started()
+            and not status["Waiting"]
+        ):
+            self.start_logged = True
+            cherrypy.log(
+                "PLAY STARTED after %.1fs: %s"
+                % (time.time() - self.play_requested_at, status["Title"])
+            )
         if self._is_playing():
             status["State"] = ST_RUNNING
         elif not self._is_stopping():

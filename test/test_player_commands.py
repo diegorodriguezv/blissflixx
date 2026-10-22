@@ -311,7 +311,18 @@ class TestSubtitles:
         assert cmd[0].endswith("getsubs.py")
         assert cmd[1] == "eng"
         assert "-t" in cmd and "The Matrix" in cmd
-        assert "-y" in cmd and 1999 in cmd
+        assert "-y" in cmd and "1999" in cmd
+
+    def test_a_year_stored_as_a_number_still_builds_a_command(self):
+        """
+        A saved playlist holds the year as a number, and the command is a list
+        of strings: an int in it used to reach argv, where nothing noticed until
+        the log line that joins the command -- and that raised out of the stage's
+        thread, so the film never started.
+        """
+        proc = SubtitlesProcess({"lang": "eng", "title": "M", "year": 2026})
+        cmd = proc._get_cmd({})
+        assert all(isinstance(part, str) for part in cmd)
 
     def test_movie_without_year_or_imdb_omits_them(self):
         proc = SubtitlesProcess({"lang": "eng", "title": "The Matrix"})
@@ -335,8 +346,8 @@ class TestSubtitles:
         )
         cmd = proc._get_cmd({})
         assert "-t" in cmd and "Some Show" in cmd
-        assert "-s" in cmd and 2 in cmd
-        assert "-e" in cmd and 5 in cmd
+        assert "-s" in cmd and "2" in cmd
+        assert "-e" in cmd and "5" in cmd
 
     def test_series_takes_precedence_over_title(self):
         proc = SubtitlesProcess(

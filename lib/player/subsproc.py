@@ -20,17 +20,24 @@ class SubtitlesProcess(ExternalProcess):
         return "subtitles"
 
     def _get_cmd(self, args):
-        cmd = [GETSUBS_PATH, self.subs["lang"]]
+        # Every argument is a string. A year stored as a number -- which is what
+        # a saved playlist holds, and what the old subtitle page could send --
+        # used to reach the argv as an int, and the only place it was noticed was
+        # the log line that joins the command: "sequence item 5: expected str
+        # instance, int found", out of the reporting, which killed the stage's
+        # thread. The film never started and the interface sat at LOADING STREAM
+        # for as long as somebody was willing to wait.
+        cmd = [GETSUBS_PATH, str(self.subs["lang"])]
         if "series" in self.subs:
-            cmd = cmd + ["-t", self.subs["series"]]
-            cmd = cmd + ["-s", self.subs["season"]]
-            cmd = cmd + ["-e", self.subs["episode"]]
+            cmd = cmd + ["-t", str(self.subs["series"])]
+            cmd = cmd + ["-s", str(self.subs["season"])]
+            cmd = cmd + ["-e", str(self.subs["episode"])]
         else:
-            cmd = cmd + ["-t", self.subs["title"]]
+            cmd = cmd + ["-t", str(self.subs["title"])]
             if "year" in self.subs and self.subs["year"]:
-                cmd = cmd + ["-y", self.subs["year"]]
+                cmd = cmd + ["-y", str(self.subs["year"])]
             if "imdb" in self.subs and self.subs["imdb"]:
-                cmd = cmd + ["-i", self.subs["imdb"]]
+                cmd = cmd + ["-i", str(self.subs["imdb"])]
         return cmd
 
     def _ready(self):
