@@ -106,43 +106,58 @@ def _is_noise(line):
 _TRACK_NAME = re.compile(r"^\|?\s*(-?\d+)\s+-\s*(.*?)\s*(?:-|$)")
 
 
-def _track_language(line):
+def _track_parts(line):
     """
-    Pull the language out of one line of a track listing.
+    The two halves of a listing line: what VLC calls the track, and its language.
 
-        | 2 - English (CC) - [English] *
+        |  4 - Dubtitle - [English]
+        |  3 - Track 1 - [English]
+        | 40 - Simplified - [Chinese]
 
-    The bracketed part is the track's own language and is preferred, since the
-    plain part can be anything -- a forced-narration marker, a title. Where the
-    two are the same, which is what happens when VLC knows nothing more than the
-    language, the brackets are empty of new information and the plain part is
-    used, so a duplicate is not put on the screen.
-
-    Returns None when there is nothing to show, which is what makes the caller
-    fall back to the plain word rather than to an empty "[on] ".
-
-    A listing marks the track that is playing with a trailing asterisk:
-
-        | -1 - Disable *
-        |  2 - English (CC) - [English] *
-
-    That is a marker and not part of the name. It has to come off before the
-    bracketed-language patterns below are tried, because those only remove an
-    asterisk that follows a language -- given a track whose name is all VLC has,
-    "| 1 - Track 1 *" was read as the name "Track 1 *" and the overlay said it.
+    Both matter and neither is enough. The name carries what the track *is* --
+    SDH, Dubtitle, Simplified, a forced narration -- and the language is the
+    only thing that tells thirty generically named tracks apart. A release with
+    four English subtitles is unreadable with one of the two.
     """
-    found = _TRACK_NAME.match(line.strip())
+    # The whole line after the id, not _TRACK_NAME's first segment: that regex
+    # stops at the first " - ", which is exactly where the language starts, so
+    # every track with a name came back as "Track 1" with no language at all.
+    found = _TRACK_LINE.match(line.strip())
     if not found:
-        return None
-    rest = re.sub(r"\s*\*\s*$", "", found.group(2).strip())
-    bracketed = re.search(r"\[([^\]]+)\]\s*\*?\s*$", rest)
-    plain = re.sub(r"\s*\[[^\]]*\]\s*\*?\s*$", "", rest).strip()
-    if bracketed:
-        language = bracketed.group(1).strip()
-        if language and language != plain:
-            return language
-    return plain or None
+        return None, None
+    rest = re.sub(r"\s*\*\s*$", "", found.group(2)).strip()
+    bracketed = re.search(r"\[([^\]]+)\]\s*$", rest)
+    plain = re.sub(r"\s*-?\s*\[[^\]]*\]\s*$", "", rest).strip()
+    language = bracketed.group(1).strip() if bracketed else None
+    return plain or None, language or None
 
+
+#: VLC's own name for a track it has no title for: "Track 4".
+_GENERIC_TRACK = re.compile(r"^Track \d+$")
+
+
+def _track_display(name, language):
+    """
+    One line that says what a track is: "SDH · English", "Japanese", "Track 4".
+
+    The generic "Track N" is dropped when a language is known, because it is
+    VLC counting rather than naming; without a language it is all there is.
+    """
+    if name and language and _GENERIC_TRACK.match(name):
+        # "Track 4" is VLC counting; with a language it adds nothing.
+        name = None
+    if name and language and language.lower() not in name.lower():
+        # Not "English (CC) \u00b7 English": a name that already says the
+        # language does not need it repeating.
+        return name + " \u00b7 " + language
+    return name or language or ""
+
+
+#: A whole line of a track listing: "| 4 - Dubtitle - [English] *".
+#:
+#: _TRACK_NAME stops at the first " - " because it was written for the part
+#: before the language; this keeps the rest so the language can be read too.
+_TRACK_LINE = re.compile(r"^\|?\s*(-?\d+)\s+-\s*(.*?)\s*(\*)?$")
 
 _TRACK_ID = re.compile(r"^\|?\s*(-?\d+)\s+-")
 #: How long to keep asking for a subtitle track once the player is up. The
@@ -1709,16 +1724,16 @@ class VlcProcess(PlayerBackend):
             # could not turn subtitles on at all. The track to come back to is
             # remembered separately, in _track_showing; see _show_track.
             self._track_choice["strack"] = _TRACK_DISABLED
-            self._show_overlay(self._subtitle_label(), hold=_CONFIRM_HOLD)
+            self._show_overlay(self._subtitle_overlay(), hold=_CONFIRM_HOLD)
         elif action == "show_subtitle":
             self._show_track("strack")
-            self._show_overlay(self._subtitle_label(), hold=_CONFIRM_HOLD)
+            self._show_overlay(self._subtitle_overlay(), hold=_CONFIRM_HOLD)
         elif action == "next_subtitle":
             self._step_track("strack", +1)
-            self._show_overlay(self._subtitle_label(), hold=_CONFIRM_HOLD)
+            self._show_overlay(self._subtitle_overlay(), hold=_CONFIRM_HOLD)
         elif action == "prev_subtitle":
             self._step_track("strack", -1)
-            self._show_overlay(self._subtitle_label(), hold=_CONFIRM_HOLD)
+            self._show_overlay(self._subtitle_overlay(), hold=_CONFIRM_HOLD)
         elif action == "next_audio":
             self._step_track("atrack", +1)
             self._show_overlay(self._audio_label(), hold=_CONFIRM_HOLD)
@@ -1771,7 +1786,11 @@ class VlcProcess(PlayerBackend):
             return _track_label(
                 "subtitle", _TRACK_DISABLED, self._showing_track_name("strack")
             )
-        return _track_label("subtitle", chosen, self._track_language("strack"))
+        return _track_label(
+            "subtitle",
+            chosen,
+            self._track_name("strack", chosen or self._track_showing.get("strack")),
+        )
 
     def _audio_label(self):
         """
@@ -1787,7 +1806,11 @@ class VlcProcess(PlayerBackend):
             return _track_label(
                 "audio", _TRACK_DISABLED, self._showing_track_name("atrack")
             )
-        return _track_label("audio", chosen, self._track_language("atrack"))
+        return _track_label(
+            "audio",
+            chosen,
+            self._track_name("atrack", chosen or self._track_showing.get("atrack")),
+        )
 
     def _subtitle_delay_label(self, direction):
         """
@@ -2120,7 +2143,8 @@ class VlcProcess(PlayerBackend):
                 ids.append(track_id)
                 # "Disable" is VLC's name for the -1 entry, not a language.
                 if track_id >= 0:
-                    names[track_id] = _track_language(line)
+                    title, language = _track_parts(line)
+                    names[track_id] = _track_display(title, language)
         if ids:
             self._track_listing[command] = ids
             self._track_names[command] = names
@@ -2144,12 +2168,6 @@ class VlcProcess(PlayerBackend):
             return None
         return self._track_names.get(command, {}).get(track_id)
 
-    def _track_language(self, command):
-        """
-        The language of the chosen track, or None when VLC did not name it.
-        """
-        return self._track_name(command, self._track_choice.get(command))
-
     def _showing_track_name(self, command):
         """
         The name of the last real track that was showing, or None.
@@ -2169,6 +2187,45 @@ class VlcProcess(PlayerBackend):
         """
         if track_id is not None and track_id >= 0:
             self._track_showing[command] = track_id
+
+    def _subtitle_overlay(self):
+        """
+        What the subtitle buttons say.
+
+        One track is not a list, and "off" is a state rather than a position, so
+        both keep the one-line form: "[on] English (CC)". Two or more get the
+        list around the current track, which is the only way to tell four
+        English subtitles apart or to know how many there are to step through.
+        """
+        if self._no_tracks("strack"):
+            return "no subtitles"
+        chosen = self._track_choice.get("strack")
+        ids = [i for i in (self._track_listing.get("strack") or []) if i >= 0]
+        if chosen is None or chosen < 0 or len(ids) < 2:
+            return self._subtitle_label()
+        return self._track_window(ids, chosen)
+
+    def _track_window(self, ids, current):
+        """
+        The track list around the chosen one, and where in it the film is.
+
+            > SDH \u00b7 English
+              Track 4 \u00b7 Japanese
+              Track 5 \u00b7 Arabic
+            (3 of 39)
+
+        Two either side of the current track. Stepping through thirty-nine
+        subtitles blind is hopeless, and "which of the four English ones is
+        this" is the question a list answers and a single label cannot.
+        """
+        position = ids.index(current)
+        names = self._track_names.get("strack") or {}
+        lines = []
+        for one in ids[max(0, position - 2) : position + 3]:
+            mark = ">" if one == current else " "
+            lines.append("%s %s" % (mark, names.get(one) or ("Track %d" % one)))
+        lines.append("(%d of %d)" % (position + 1, len(ids)))
+        return "\n".join(lines)
 
     def _no_tracks(self, command):
         """

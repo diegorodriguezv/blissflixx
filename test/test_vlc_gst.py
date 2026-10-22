@@ -1902,31 +1902,6 @@ class TestWhatTheOverlaySays:
     know.
     """
 
-    @pytest.mark.parametrize(
-        "line,expected",
-        [
-            ("| 2 - English (CC) - [English] *", "English (CC)"),
-            ("| 1 - English - [English] *", "English"),
-            ("| 3 - Commentary", "Commentary"),
-            # A track VLC describes only by its own language, with no plain
-            # name in front: "[Spaeth]" and not "[English]".
-            ("| 4 - [Spaeth]", "Spaeth"),
-            # Trailing bits that are not part of the name.
-            ("| 5 - Spanish - [Spanish]", "Spanish"),
-            # The asterisk VLC puts on the track that is playing. It is a marker
-            # and not part of the name, and the pattern that strips one off after
-            # a bracketed language leaves it in place when there is no language,
-            # so a track named only by the file read as "Track 1 *" -- which is
-            # what the overlay said.
-            ("| 1 - Track 1 *", "Track 1"),
-            ("| 0 - Commentary *", "Commentary"),
-        ],
-    )
-    def test_the_language_is_taken_from_the_listing(self, line, expected):
-        from lib.player.vlcproc import _track_language
-
-        assert _track_language(line) == expected
-
     def test_the_label_says_on_and_off_with_the_language(self):
         """
         "[on] English" rather than "Subtitle English": the state first, then
@@ -2025,7 +2000,9 @@ class TestWhatTheOverlaySays:
         # -- and it is Commentary that gets named, not the one it came from.
         proc.control("next_subtitle")
 
-        assert shown == ["[on] Commentary"], shown
+        # A list now, not a label: two tracks, the current one marked, and where
+        # in the list it is.
+        assert shown == ["  English (CC)\n> Commentary\n(2 of 2)"], shown
 
     @pytest.mark.parametrize(
         "action",
@@ -2080,7 +2057,10 @@ class TestWhatTheOverlaySays:
         proc.control("next_subtitle")  # onto Commentary
         proc.control("next_subtitle")  # and on to the Disable entry
 
-        assert shown == ["[on] Commentary", "[off] Commentary"], shown
+        assert shown == [
+            "  English (CC)\n> Commentary\n(2 of 2)",
+            "[off] Commentary",
+        ], shown
 
     def test_hiding_names_the_track_it_switched_off(self):
         """
@@ -2168,9 +2148,9 @@ class TestWhatTheOverlaySays:
         proc.control("show_subtitle")
 
         assert shown == [
-            "[on] Commentary",
+            "  English (CC)\n> Commentary\n(2 of 2)",
             "[off] Commentary",
-            "[on] Commentary",
+            "  English (CC)\n> Commentary\n(2 of 2)",
         ], shown
         assert sent[-1] == "strack 5", sent
 
@@ -3166,6 +3146,59 @@ class TestASeekSaysNothing:
         with with_patch:
             assert proc._stalled(30) is True
         assert proc.overlay and "Stalled" in proc.overlay[0]
+
+
+class TestWhatATrackIsCalled:
+    """
+    A subtitle's name and its language, together.
+
+    VLC's listing carries both and the app used to keep one of them: "Track 1,
+    Track 2, Track 3" for a release with thirty generically named tracks, or
+    "SDH" with no language. Measured on a Netflix release with 39 subtitle
+    tracks: nine named (Dubtitle, SDH, Latin American, European, Brazilian,
+    Simplified) and the rest "Track N", all with a language.
+    """
+
+    @pytest.mark.parametrize(
+        "line,label",
+        [
+            ("|  4 - Dubtitle - [English]", "Dubtitle \u00b7 English"),
+            ("|  3 - Track 1 - [English]", "English"),
+            ("| 40 - Simplified - [Chinese]", "Simplified \u00b7 Chinese"),
+            ("| 31 - Brazilian - [Portuguese]", "Brazilian \u00b7 Portuguese"),
+            ("| 14 - Latin American - [Spanish] *", "Latin American \u00b7 Spanish"),
+            ("|  6 - Track 4 - [Japanese]", "Japanese"),
+            ("|  5 - SDH - [English]", "SDH \u00b7 English"),
+        ],
+    )
+    def test_the_label_is_both_halves(self, line, label):
+        from lib.player.vlcproc import _track_display, _track_parts
+
+        assert _track_display(*_track_parts(line)) == label
+
+    def test_the_window_is_two_either_side_and_the_count(self):
+        proc = VlcProcess()
+        ids = list(range(1, 41))
+        proc._track_names = {"strack": {i: "Lang %d" % i for i in ids}}
+        lines = proc._track_window(ids, 20).splitlines()
+        assert lines == [
+            "  Lang 18",
+            "  Lang 19",
+            "> Lang 20",
+            "  Lang 21",
+            "  Lang 22",
+            "(20 of 40)",
+        ]
+
+    def test_the_window_stops_at_the_ends(self):
+        proc = VlcProcess()
+        proc._track_names = {"strack": {1: "One", 2: "Two", 3: "Three"}}
+        assert proc._track_window([1, 2, 3], 1).splitlines() == [
+            "> One",
+            "  Two",
+            "  Three",
+            "(1 of 3)",
+        ]
 
 
 class TestSeveralChosenSubtitles:
