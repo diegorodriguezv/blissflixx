@@ -8,6 +8,17 @@ GETSUBS_PATH = os.path.join(BIN_PATH, "getsubs.py")
 
 
 class SubtitlesProcess(ExternalProcess):
+    """
+    Retired: the title-and-language search of OpenSubtitles.
+
+    Nothing starts it any more. OpenSubtitles is metered, and a search run
+    because a film was pressed is a call nobody asked for; the only search now
+    is the one made on purpose from the subtitle page, whose result comes back
+    as ids -- see ChosenSubtitlesProcess. Kept rather than deleted because it is
+    the whole of the old contract with getsubs.py, and the script still answers
+    it.
+    """
+
     def __init__(self, subs):
         super().__init__()
         self.subs = subs

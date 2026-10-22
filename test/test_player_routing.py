@@ -108,14 +108,25 @@ class TestPipelineComposition:
         pipe = build_pipe()
         assert stages(pipe)[-1] == "vlc"
 
-    def test_subtitles_stage_precedes_everything(self):
+    def test_chosen_subtitles_are_fetched_before_everything(self):
         """
-        The subtitle file must exist before the player is told to use it, so the
-        fetch stage comes first and passes the path along.
+        The subtitle files must exist before the player is told to use them, so
+        the fetch stage comes first and passes the paths along.
         """
-        pipe = build_pipe(subs={"lang": "eng", "title": "M"})
+        pipe = build_pipe(
+            subs={"lang": "eng", "chosen": [{"id": "1", "name": "a.srt"}]}
+        )
         assert stages(pipe)[0] == "subtitles"
         assert stages(pipe)[1] == "localfile"
+
+    def test_a_title_alone_fetches_nothing(self):
+        """
+        A subs dict from the old subtitle pages, or from a playlist saved when
+        they existed. It used to start a search of OpenSubtitles; the service is
+        metered and a search nobody asked for is not run any more.
+        """
+        pipe = build_pipe(subs={"lang": "eng", "title": "M", "year": 1999})
+        assert "subtitles" not in stages(pipe)
 
     def test_title_is_carried_onto_the_pipe(self):
         assert build_pipe(title="My Movie").title == "My Movie"
@@ -128,7 +139,9 @@ class TestPipelineComposition:
         assert stages(build_pipe(src=LocalFileProcess("/a.mkv")))
 
     def test_source_process_is_second_after_subtitles(self):
-        pipe = build_pipe(subs={"lang": "eng", "title": "M"})
+        pipe = build_pipe(
+            subs={"lang": "eng", "chosen": [{"id": "1", "name": "a.srt"}]}
+        )
         assert isinstance(pipe.procs[1], LocalFileProcess)
 
 
@@ -357,12 +370,17 @@ class TestTorrentSubtitles:
         stage = [p for p in pipe.procs if p.name() == "peerflix"][0]
         assert stage.subs == [{"idx": 3, "name": "Film.eng.srt"}]
 
-    def test_an_ordinary_subtitle_still_uses_the_online_stage(self):
+    def test_an_old_subs_dict_starts_nothing(self):
+        """
+        A playlist item saved by the old subtitle pages carries a title and a
+        language. That used to be a search of OpenSubtitles on the way to the
+        film; it is now nothing, because the search is metered and explicit.
+        """
         pipe = player_module._Player().buildTorrent(
             "magnet:?xt=urn:btih:" + "A" * 40, 0, "Film", {"title": "Film"}
         )
         names = [p.name() for p in pipe.procs]
-        assert "subtitles" in names
+        assert "subtitles" not in names
 
 
 class TestStatus:
