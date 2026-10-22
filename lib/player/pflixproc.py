@@ -50,21 +50,16 @@ class PeerflixProcess(ExternalProcess):
         # the download could not survive being stopped, and someone with poor
         # peers or a poor connection lost the whole of their progress on every
         # attempt. Nothing deletes torrent data here now.
-        # Verification is what makes a replay of a film already watched slow.
+        # Verification stays on. torrent-stream hashes everything already on
+        # disk before it opens the port, and that is what makes it know which
+        # pieces it has: 121 seconds for a 2GB film already in the buffer,
+        # against 4 seconds without. But without it the buffer cannot be used at
+        # all -- measured, the port opens in four seconds and the film then waits
+        # for peers to send what was already on disk. A watched film would stop
+        # playing when its swarm went quiet.
         #
-        # torrent-stream hashes every piece already on disk before it opens the
-        # port. The buffer is never deleted -- that is deliberate, a download
-        # that cannot survive a stop loses all of its progress -- so it grows,
-        # and the cost grows with it. Measured on rpi with a 2GB film already in
-        # the buffer: 121 seconds before the port opened with verification, 4
-        # seconds without. That is the whole of "it used to take twenty seconds
-        # and now takes seventy".
-        #
-        # The cost of leaving it out is that a piece corrupted on the card is
-        # served rather than noticed, which is a glitch in a film rather than a
-        # failure -- against two minutes of waiting, on every play, for every
-        # film already watched.
-        cmd.append("--no-verify")
+        # The real cost is the buffer growing without limit; see the note on
+        # BUFFER_DIR and the cleanup in blissflixx.py.
         cmd.append("-p")
         cmd.append(_PEERFLIX_PORT)
         # Keep peerflix's buffer on the card rather than in /tmp, which on a
