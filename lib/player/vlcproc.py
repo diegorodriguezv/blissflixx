@@ -1533,6 +1533,10 @@ class VlcProcess(PlayerBackend):
         been observed to do it. If it happens again, the film is now saying so
         on screen instead of quietly looking fine.
 
+        A seek that worked says nothing. VLC draws its own position marker for
+        a seek, and this used to draw a second one over it -- the app's marquee
+        repeating what the player had already put on the screen.
+
         None rather than True when the count cannot be read either side of the
         seek. A player that will not answer is not evidence of a stall, and
         reporting one on that basis would be worse than the original lie: it
@@ -1542,18 +1546,15 @@ class VlcProcess(PlayerBackend):
         self._seek(seconds)
         if before is None:
             # Nothing to compare against, so there is nothing to wait for.
-            self._report_progress(label="Seek")
             return None
         time.sleep(_SEEK_SETTLE)
         after = self._decoded_frames()
         if after is None or after > before:
-            self._report_progress(label="Seek")
             return None
         # A paused film decodes nothing and that is correct -- it is meant to be
         # showing a still frame -- so this is only a stall if it was meant to be
         # moving.
         if self._paused:
-            self._report_progress(label="Seek")
             return None
         cherrypy.log(
             "VLC SEEK STALLED: %+d seconds, no frames decoded in %s seconds"

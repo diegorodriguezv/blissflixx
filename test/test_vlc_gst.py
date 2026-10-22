@@ -576,10 +576,14 @@ class TestVlcControl:
         ]
         assert proc._decoded_frames() == 435
 
-    def test_a_seek_that_starts_the_film_again_reports_the_position(self):
+    def test_a_seek_that_works_says_nothing(self):
+        """
+        VLC draws its own position marker for a seek, so the app's marquee used
+        to print a second, larger one over it. The player's own is the feedback.
+        """
         proc, sent = self._seeking([900, 1240])
         proc._stalled(30)
-        assert "1:45 / 21:37" in sent, sent
+        assert [s for s in sent if not s.startswith("seek")] == [], sent
 
     def test_a_seek_that_freezes_the_film_says_so(self):
         """
@@ -601,7 +605,7 @@ class TestVlcControl:
         """
         proc, sent = self._seeking([None, None])
         assert proc._stalled(30) is None
-        assert "1:45 / 21:37" in sent, sent
+        assert [s for s in sent if not s.startswith("seek")] == [], sent
 
     def test_a_seek_while_paused_is_not_a_stall(self):
         """
@@ -2347,30 +2351,22 @@ class TestAConfirmationAlwaysSaysSomething:
     is the one thing this mechanism exists to rule out.
     """
 
-    def test_a_seek_with_no_readable_position_says_the_action(self):
+    def test_a_seek_says_nothing_whatever_the_player_answers(self):
         """
-        The player not saying where it is says nothing about whether the seek
-        was accepted. Showing nothing made it look like the button had done
-        nothing at all.
+        A seek is confirmed by VLC's own marker on the picture. The app used to
+        draw a second one, and when the player would not say where it was, the
+        bare word "Seek" -- which is not feedback, it is a label for feedback
+        that did not arrive.
         """
-        proc = on_screen_proc()
-        shown = []
-        proc._show_overlay = lambda text, hold=None: shown.append(text)
-        proc._read_position = lambda: None
+        for position in (None, (64.0, 1297.0)):
+            proc = on_screen_proc()
+            shown = []
+            proc._show_overlay = lambda text, hold=None: shown.append(text)
+            proc._read_position = lambda pos=position: pos
 
-        proc.control("plus30")
+            proc.control("plus30")
 
-        assert shown == ["Seek"], shown
-
-    def test_it_does_not_say_the_action_when_the_position_is_known(self):
-        proc = on_screen_proc()
-        shown = []
-        proc._show_overlay = lambda text, hold=None: shown.append(text)
-        proc._read_position = lambda: (64.0, 1297.0)
-
-        proc.control("plus30")
-
-        assert shown == ["1:04 / 21:37"], shown
+            assert shown == [], shown
 
 
 class TestHowLongAMessageStays:
@@ -3134,6 +3130,42 @@ class TestTheSubtitleInsideTheTorrent:
         proc._subtitles_wanted = [{"url": "http://x/1", "name": "a.srt"}]
         proc._enable_embedded_subtitles()
         assert started == []
+
+
+class TestASeekSaysNothing:
+    """
+    VLC draws its own position marker when the film is moved, so the app's
+    marquee used to print a second, larger one on top of it.
+    """
+
+    def _proc(self, frames=(100, 140)):
+        proc = VlcProcess({"osd_overlay": "0"})
+        proc.overlay = []
+        proc._show_overlay = lambda text, hold=None: proc.overlay.append(text)
+        proc.seeks = []
+        proc._seek = lambda seconds: proc.seeks.append(seconds)
+        proc._decoded_frames = lambda: next(iter(frames), frames[-1])
+        proc._frames = iter(frames)
+        proc._decoded_frames = lambda: next(proc._frames, frames[-1])
+        proc._paused = False
+        return proc
+
+    def test_a_seek_that_works_writes_nothing(self):
+        proc = self._proc()
+        proc._stalled(-30)
+        assert proc.seeks == [-30]
+        assert proc.overlay == []
+
+    def test_a_stall_still_says_so(self):
+        """A picture that does not come back is worth saying, and is not the marker."""
+        from lib.player import vlcproc
+
+        proc = self._proc()
+        proc._decoded_frames = lambda: 0
+        with_patch = m.patch.object(vlcproc.time, "sleep", lambda s: None)
+        with with_patch:
+            assert proc._stalled(30) is True
+        assert proc.overlay and "Stalled" in proc.overlay[0]
 
 
 class TestSeveralChosenSubtitles:
