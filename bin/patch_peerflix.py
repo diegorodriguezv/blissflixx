@@ -24,6 +24,7 @@ peerflix is installed by configure.sh, so this runs from there. It is safe to
 run by hand on a box that already has it.
 """
 
+import os
 import pathlib
 import sys
 
@@ -38,7 +39,10 @@ MARK = "blissflixx:serve-before-verify"
 #: than waited on.
 SWARM_MARK = "blissflixx:swarm-before-verify"
 
-TREE = pathlib.Path("/usr/local/lib/node_modules/peerflix")
+#: Where npm put it. Overridable so the patch can be tried on a copy first.
+TREE = pathlib.Path(
+    os.environ.get("BF_PEERFLIX_TREE", "/usr/local/lib/node_modules/peerflix")
+)
 
 TSTREAM = TREE / "node_modules" / "torrent-stream" / "index.js"
 PEERFLIX = TREE / "index.js"
