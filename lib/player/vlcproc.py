@@ -2433,4 +2433,15 @@ class VlcProcess(PlayerBackend):
         # empty file is one marq reports as an error on every refresh tick.
         self._write_overlay(" ")
         self._overlay_shown = None
+        # Ask the player to leave before the signal does.
+        #
+        # VLC takes the display when it opens a video output and hands it back
+        # when it exits properly. SIGTERM usually gets that, and the process is
+        # still signalled below if this does not land -- but a quit through the
+        # interface it is already listening on is the exit it knows how to
+        # tidy up after, and the display is the thing that does not recover
+        # when it does not: measured on rpi, about 145MB of the Pi's 256MB of
+        # video memory is still gone after a play, and the second or third film
+        # then decodes to a black screen.
+        self._send_command("quit")
         super().stop()
