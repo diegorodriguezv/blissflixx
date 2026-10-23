@@ -172,9 +172,10 @@ class PeerflixProcess(ExternalProcess):
         # nothing. So it is shown only when this run has downloaded something,
         # and the speed and peers -- which are always true -- carry the line.
         parts = []
-        if self._verifying is not None and self._verifying < 100:
+        if self._verifying:
             # The hashing is still running beside the film, now that the port
-            # opens before it finishes.
+            # opens before it finishes. Nothing is said at 0%: the film is
+            # playing, and "verifying 0%" beside "0%" reads as two failures.
             parts.append("verifying %d%%" % self._verifying)
         if self._progress["downloaded"]:
             parts.append("%d%%" % self._progress["percent"])
