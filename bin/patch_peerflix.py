@@ -29,10 +29,20 @@ import sys
 
 MARK = "blissflixx:serve-before-verify"
 
+#: The second half of the same idea, under its own marker: opening the port at
+#: metadata is not enough on its own. The piece a read asks for first may be the
+#: one being hashed at that moment, and with nothing yet asking the swarm for
+#: it, the read blocks until the hashing is done -- measured, 250 seconds with
+#: the port open and the picture late. So the swarm and the picker start at the
+#: same moment as the port, and a read for an unverified piece is fetched rather
+#: than waited on.
+SWARM_MARK = "blissflixx:swarm-before-verify"
+
 TREE = pathlib.Path("/usr/local/lib/node_modules/peerflix")
 
 TSTREAM = TREE / "node_modules" / "torrent-stream" / "index.js"
 PEERFLIX = TREE / "index.js"
+APP = TREE / "app.js"
 
 #: The end of the file list, which is the first moment either the server or the
 #: player can be told which files exist.
@@ -40,13 +50,16 @@ FILES_END = """      return file
     })
 """
 
-EARLY_EMIT = """      return file
+EARLY_EMIT = (
+    """      return file
     })
 
     // %s -- the file list and the piece hashes are known now, so the player may
     // start serving what is already verified while the rest is still hashed.
     engine.emit('torrent', torrent)
-""" % MARK
+"""
+    % MARK
+)
 
 LATE_EMIT = "        engine.emit('torrent', torrent)\n"
 LATE_EMIT_OFF = "        // (%s) emitted with the file list, not here.\n" % MARK
@@ -59,32 +72,76 @@ LISTEN_ON_READY = """  // Listen when torrent-stream is ready, by default a rand
     engine.server.listen(opts.port || 0, opts.hostname)
   })
 """
-LISTEN_ON_TORRENT = """  // %s -- listen as soon as the torrent is known. Waiting for 'ready' means
+LISTEN_ON_TORRENT = (
+    """  // %s -- listen as soon as the torrent is known. Waiting for 'ready' means
   // waiting for every byte already on disk to be hashed first, which is minutes
   // for a film watched before; the pieces are verified one at a time from the
   // start, so a player reading from the start is never far behind.
   engine.on('torrent', function () {
     engine.server.listen(opts.port || 0, opts.hostname)
   })
-""" % MARK
+"""
+    % MARK
+)
 
 
-def patch(path, pairs):
+def patch(path, pairs, mark=MARK):
     if not path.exists():
         print("  %s: not there" % path)
         return False
     text = path.read_text()
-    if MARK in text:
+    if mark in text:
         print("  %s: already patched" % path.name)
         return False
     for old, new in pairs:
         if text.count(old) != 1:
-            print("  %s: %r appears %d times, not patching" % (path.name, old[:40], text.count(old)))
+            print(
+                "  %s: %r appears %d times, not patching"
+                % (path.name, old[:40], text.count(old))
+            )
             return False
         text = text.replace(old, new, 1)
     path.write_text(text)
     print("  %s: patched" % path.name)
     return True
+
+
+VERIFY_LOOP = """    if (opts.verify === false) return onready()
+
+    engine.emit('verifying')
+
+    var loop = function (i) {
+      if (i >= torrent.pieces.length) return onready()
+"""
+
+VERIFY_LOOP_EARLY = (
+    """    if (opts.verify === false) return onready()
+
+    // %s -- the swarm and the picker start with the file list, not after the
+    // hashing. Without this the port opens and the first read still blocks: the
+    // piece it wants is being verified at that moment, and nothing is asking
+    // the swarm for it yet.
+    onready()
+
+    engine.emit('verifying')
+
+    var loop = function (i) {
+      if (i >= torrent.pieces.length) return
+"""
+    % SWARM_MARK
+)
+
+STOP_VERIFYING = """  engine.on('verifying', startShowVerifying)
+  engine.on('ready', stopShowVerifying)
+"""
+
+KEEP_VERIFYING = (
+    """  // %s -- 'ready' now means the file list is known, which is before the
+  // hashing. The percentage keeps being printed while the film plays.
+  engine.on('verifying', startShowVerifying)
+"""
+    % SWARM_MARK
+)
 
 
 def main():
@@ -93,7 +150,13 @@ def main():
         return 1
     print("patching peerflix to serve before verifying:")
     patch(TSTREAM, [(FILES_END, EARLY_EMIT), (LATE_EMIT, LATE_EMIT_OFF)])
-    patch(PEERFLIX, [(SETUP_ON_READY, SETUP_ON_TORRENT), (LISTEN_ON_READY, LISTEN_ON_TORRENT)])
+    patch(
+        PEERFLIX,
+        [(SETUP_ON_READY, SETUP_ON_TORRENT), (LISTEN_ON_READY, LISTEN_ON_TORRENT)],
+    )
+    print("and to start the swarm with it:")
+    patch(TSTREAM, [(VERIFY_LOOP, VERIFY_LOOP_EARLY)], mark=SWARM_MARK)
+    patch(APP, [(STOP_VERIFYING, KEEP_VERIFYING)], mark=SWARM_MARK)
     return 0
 
 

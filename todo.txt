@@ -1,5 +1,6 @@
 # future
 
+## kernel argument
 Add the console blank kernel argument during install. optional, only useful for lite raspios 
 
 ## Improve peerflix to make it snappier.
@@ -43,5 +44,14 @@ button: retry (basically go-back)
 button: cancel (basically go-back two times, skip the action that throwed the error)
 can we improve the design so that this errors do not stop the flow of actions of the user
 
+## info about the video inside container-torrent needed (also called pack)
 when i click on cyberpunk s02 a video started playing but it wasn't the first one, i couldn't tell which one was playing
 maybe we shouldn't play it but go, directly to view file, also add subtitles makes no sense here. it has to be another kind of torrent file, one with several episodes, or even several seasons, a container-torrent, the add to playlist has to be renamed: create playlist, that creates a flattened, ordered playlist
+the default icon should also be different, it would be nice something that looks like a list, or maybe several movies:w
+
+# current
+
+## timing improvements
+46s already played
+16s new (should add a 5 sec wait to fill the buffer)
+49s replay

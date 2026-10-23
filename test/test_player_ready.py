@@ -204,6 +204,17 @@ class TestWhatTheBarSaysWhileATorrentStarts:
         assert said.startswith("0 B/s · 0 peers")
         assert "nothing arriving for 2" in said
 
+    def test_it_says_the_hashing_is_still_running_beside_the_film(self):
+        """
+        The port opens before the hashing finishes, so the two run together and
+        the bar has to say so rather than implying the film is fully on disk.
+        """
+        proc = PeerflixProcess("http://x/y.torrent", 0)
+        proc._verifying = 40
+        proc._progress = {"downloaded": 0, "percent": 0, "speed": 0, "peers": 4}
+        proc._moved_at = time.time()
+        assert proc.detail() == "verifying 40% · 0 B/s · 4 peers"
+
     def test_nothing_to_say_before_the_first_answer(self):
         assert PeerflixProcess("http://x/y.torrent", 0).detail() == ""
 
