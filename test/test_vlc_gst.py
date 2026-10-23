@@ -3227,6 +3227,55 @@ class TestTheSubtitleInsideTheTorrent:
         assert not [a for a in cmd if a.startswith("--extraintf")]
 
 
+class TestMuting:
+    """
+    Mute is VLC's own hotkey, and hotkeys are named by action id on the cli.
+    """
+
+    def _proc(self):
+        proc = VlcProcess()
+        proc.shown = []
+        proc.sent = []
+        proc._show_overlay = lambda text, hold=None: proc.shown.append(text)
+        proc._send_command = lambda command: proc.sent.append(command) or True
+        return proc
+
+    def test_mute_presses_the_players_own_mute_hotkey(self):
+        """
+        The action id is "key-vol-mute", not "mute". Measured on the box: the
+        press said "Muted" and the sound carried on, because an unknown key name
+        is not an error the cli reports.
+        """
+        proc = self._proc()
+
+        proc.control("mute")
+
+        assert proc.sent == ["key key-vol-mute"], proc.sent
+        assert proc.shown == ["Muted"], proc.shown
+
+        proc.control("mute")
+
+        assert proc.sent == ["key key-vol-mute", "key key-vol-mute"], proc.sent
+        assert proc.shown == ["Muted", "Sound on"], proc.shown
+
+    def test_a_volume_press_puts_the_sound_back_on(self):
+        """
+        VLC's mute sets the level to zero, so setting a level undoes it. The
+        next mute press should mute, not restore a level already in force.
+        """
+        proc = self._proc()
+        proc.control("mute")
+
+        proc.control("volup")
+
+        assert proc._muted is False
+
+        proc.control("mute")
+
+        assert proc.sent[-1] == "key key-vol-mute"
+        assert proc.shown[-1] == "Muted"
+
+
 class TestSeveralChosenSubtitles:
     """
     More than one subtitle on the same film.
