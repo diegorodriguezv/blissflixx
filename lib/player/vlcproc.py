@@ -2216,35 +2216,37 @@ class VlcProcess(PlayerBackend):
 
     def _track_window(self, ids, current):
         """
-        The tracks around the chosen one, and where in the list it is.
+        The tracks either side of the chosen one, and where in the list it is.
 
-            English | Dubtitle\u00b7English < SDH\u00b7English 3/39 > Japanese | SDH\u00b7Japanese
+            Simplified\u00b7Chinese | English < Dubtitle\u00b7English 2/39 > SDH\u00b7English
 
-        Two before, two after, the current one between angle brackets with its
-        position and the total. One line, because the marquee lays out one line
-        -- \n and \r\n are read as the end of the text, and it wraps a long
-        line by itself rather than taking a break. Fewer entries at the ends of
-        the list, where there are not two to show.
+        One before and one after, wrapping around the ends so there is always
+        both -- a list is clearer than a window that shrinks at the ends of the
+        film's subtitle list, and the position already says where you are. The
+        current track sits between angle brackets with its position and the
+        total.
 
-        "Disable" never appears: it is not a subtitle, and the two buttons that
-        need it -- hide, and off -- have their own.
+        One line, because the marquee lays out one line: \n and \r\n are read as
+        the end of the text (MarqueeReadFile in marq.c reads the file with
+        getline), and a long line wraps by itself.
+
+        "Disable" is never in the ring: it is not a track, and the buttons that
+        need it -- hide, and the next press out of it -- have their own way of
+        saying so.
         """
+        count = len(ids)
         position = ids.index(current)
         names = self._track_names.get("strack") or {}
 
         def display(one):
             return names.get(one) or ("Track %d" % one)
 
-        before = [display(i) for i in ids[max(0, position - 2) : position]]
-        here = "< %s %d/%d >" % (display(current), position + 1, len(ids))
-        after = [display(i) for i in ids[position + 1 : position + 3]]
-        parts = []
-        if before:
-            parts.append(" | ".join(before))
-        parts.append(here)
-        if after:
-            parts.append(" | ".join(after))
-        return " ".join(parts)
+        here = "< %s %d/%d >" % (display(current), position + 1, count)
+        if count < 2:
+            return here
+        before = display(ids[(position - 1) % count])
+        after = display(ids[(position + 1) % count])
+        return "%s %s %s" % (before, here, after)
 
     def _no_tracks(self, command):
         """

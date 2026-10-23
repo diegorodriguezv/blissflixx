@@ -2002,7 +2002,7 @@ class TestWhatTheOverlaySays:
         proc.control("next_subtitle")
 
         # The list around the current track, on one line.
-        assert shown == ["English (CC) < Commentary 2/2 >"], shown
+        assert shown == ["English (CC) < Commentary 2/2 > English (CC)"], shown
 
     @pytest.mark.parametrize(
         "action",
@@ -2057,8 +2057,8 @@ class TestWhatTheOverlaySays:
         proc.control("next_subtitle")  # and on to the Disable entry
 
         assert shown == [
-            "English (CC) < Commentary 2/2 >",
-            "< English (CC) 1/2 > Commentary",
+            "English (CC) < Commentary 2/2 > English (CC)",
+            "Commentary < English (CC) 1/2 > Commentary",
         ], shown
 
     def test_hiding_names_the_track_it_switched_off(self):
@@ -2147,9 +2147,9 @@ class TestWhatTheOverlaySays:
         proc.control("show_subtitle")
 
         assert shown == [
-            "English (CC) < Commentary 2/2 >",
+            "English (CC) < Commentary 2/2 > English (CC)",
             "[off] Commentary",
-            "English (CC) < Commentary 2/2 >",
+            "English (CC) < Commentary 2/2 > English (CC)",
         ], shown
         assert sent[-1] == "strack 5", sent
 
@@ -3177,18 +3177,18 @@ class TestWhatATrackIsCalled:
 
         assert _track_display(*_track_parts(line)) == label
 
-    def test_the_window_is_two_either_side_and_the_count(self):
+    def test_the_window_is_one_either_side_and_the_count(self):
         proc = VlcProcess()
         ids = list(range(1, 41))
         proc._track_names = {"strack": {i: "Lang %d" % i for i in ids}}
-        assert proc._track_window(ids, 20) == (
-            "Lang 18 | Lang 19 < Lang 20 20/40 > Lang 21 | Lang 22"
-        )
+        assert proc._track_window(ids, 20) == ("Lang 19 < Lang 20 20/40 > Lang 21")
 
     def test_the_window_stops_at_the_ends(self):
         proc = VlcProcess()
         proc._track_names = {"strack": {1: "One", 2: "Two", 3: "Three"}}
-        assert proc._track_window([1, 2, 3], 1) == "< One 1/3 > Two | Three"
+        # Wrapped, not clipped: the track before the first is the last one.
+        assert proc._track_window([1, 2, 3], 1) == "Three < One 1/3 > Two"
+        assert proc._track_window([1, 2, 3], 3) == "Two < Three 3/3 > One"
 
 
 class TestPercentInAnOverlayMessage:
