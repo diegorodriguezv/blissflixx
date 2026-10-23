@@ -122,7 +122,9 @@ class PeerflixProcess(ExternalProcess):
         #: copier feeds every line here for the whole run (see on_output_line),
         #: so the hashing just finished is visible while the decoder is about
         #: to set up -- the one moment a defragmented region matters most.
-        self._dropped_at_end = False
+        #: Two milestones: the tail (cues live at the file's end, and the
+        #: setup follows the first frame) and the finish.
+        self._drop_marks = set()
         self.on_output_line = self._watch_verify_end
         #: The swarm's last answer: downloaded / total / speed / peers.
         self._progress = None
@@ -321,23 +323,32 @@ class PeerflixProcess(ExternalProcess):
 
     def _watch_verify_end(self, line):
         """
-        Evict the buffer once, when the hashing is nearly done.
+        Evict the buffer as the hashing finishes, not after.
 
         Verification reads gigabytes through the page cache and the decoder
-        sets up on the first frame, which arrives just as the hashing
-        finishes -- measured on rpi, CmaFree at 10MB at that moment and the
-        setup failing with "Atomic commit failed", while the same film starts
-        on the same box with the region cleared. The percentage rounds, so 99
-        fires on the last stretch rather than exactly at the end; nothing
-        re-pollutes afterwards except the swarm's own downloads, which are
-        megabytes, so slightly early is still the cleared region.
+        sets up on the first frame, which arrives with the file's tail -- the
+        cues live at its end. A drop only at the finish comes too late for a
+        setup attempted on the tail: measured on rpi, twelve "Atomic commit
+        failed" six minutes after 99% with the region never cleared in
+        between. So the drop fires at 90, clearing the region before the tail
+        is hashed, and again at 99. The percentage rounds, so both appear for
+        any torrent with more than a few hundred pieces; slightly early is
+        still the cleared region, since nothing re-pollutes afterwards except
+        the swarm's own downloads, which are megabytes.
         """
-        if self._dropped_at_end or self.killing:
+        if self.killing:
             return
         found = _VERIFYING_RE.search(line)
-        if found and int(found.group(1)) >= 99:
-            self._dropped_at_end = True
-            drop_buffer_cache()
+        if not found:
+            return
+        percent = int(found.group(1))
+        for mark in (90, 99):
+            if percent >= mark and mark not in self._drop_marks:
+                self._drop_marks.add(mark)
+                dropped = drop_buffer_cache()
+                cherrypy.log(
+                    "evicted %d buffer files at verifying %d%%" % (dropped, percent)
+                )
 
     def stop(self):
         # Nothing is deleted here. This used to rmtree the download directory on
