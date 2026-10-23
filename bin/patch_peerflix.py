@@ -20,6 +20,10 @@ Two edits, both marked so a second run is a no-op:
   torrent-stream/index.js   emit 'torrent' as soon as the files are built
   peerflix/index.js         set the server up and listen on 'torrent'
 
+A third marker remembers verification across runs: .bf-verified/<infohash>.json
+beside the buffer, taken back instead of re-hashed while the files are still
+there at the same sizes. See CACHE_MARK below.
+
 peerflix is installed by configure.sh, so this runs from there. It is safe to
 run by hand on a box that already has it.
 """
@@ -38,6 +42,22 @@ MARK = "blissflixx:serve-before-verify"
 #: same moment as the port, and a read for an unverified piece is fetched rather
 #: than waited on.
 SWARM_MARK = "blissflixx:swarm-before-verify"
+
+#: The third part: remember the answer. The loop below hashes every piece
+#: already on disk on every start -- measured, 195 seconds for a 2.3GB buffer
+#: that has not changed since the last play -- and keeps the result only in
+#: memory. So the finished bitfield is written to .bf-verified/<infohash>.json
+#: beside the buffer, and the next start with the same files present at the
+#: same sizes takes it back instead of hashing. Trusted, not re-checked: files
+#: here are written once by peerflix and never touched afterwards, so a
+#: bitfield recorded at loop end is still true; the only check is presence, so
+#: a file the user deleted cannot keep its pieces marked have. A hit prints
+#: one line and emits no verifying/verify events, because pflixproc never
+#: clears its VERIFYING state and the bar would be stuck on it all film.
+CACHE_MARK = "blissflixx:verify-cache"
+
+#: Skip the read without reinstalling: BF_VERIFY_CACHE=0 hashes every time.
+CACHE_OFF = "BF_VERIFY_CACHE"
 
 #: Where npm put it. Overridable so the patch can be tried on a copy first.
 TREE = pathlib.Path(
@@ -147,6 +167,104 @@ KEEP_VERIFYING = (
     % SWARM_MARK
 )
 
+#: The verification loop as the swarm patch leaves it: the swarm already
+#: started, the port already listening, pieces hashed one at a time in order.
+VERIFY_CACHED_LOOP = """    engine.emit('verifying')
+
+    var loop = function (i) {
+      if (i >= torrent.pieces.length) return
+      engine.store.get(i, function (_, buf) {
+        if (!buf || sha1(buf) !== torrent.pieces[i] || !pieces[i]) return loop(i + 1)
+        pieces[i] = null
+        engine.bitfield.set(i, true)
+        engine.emit('verify', i)
+        loop(i + 1)
+      })
+    }
+
+    loop(0)
+"""
+
+VERIFY_CACHED_LOOP_NEW = (
+    """    // %s -- a previous run already hashed every piece on disk and wrote
+    // the answer down, so take it back instead of hashing again. Trusted, not
+    // re-checked: files here are written once and never touched afterwards.
+    // The only check is presence, by index and size, so a deleted file cannot
+    // keep its pieces marked have. Restores the picker too, not just the
+    // bitfield: selections advance on pieces[i] going null, so a have piece
+    // left non-null would be fetched from the swarm all over again.
+    var bfVerifyCachePath = function () {
+      return path.join(opts.path, '.bf-verified', infoHash + '.json')
+    }
+
+    var bfVerifyCacheLoad = function () {
+      var cached
+      try {
+        cached = JSON.parse(fs.readFileSync(bfVerifyCachePath()))
+      } catch (e) { return false }
+      if (!cached || cached.infoHash !== infoHash) return false
+      if (cached.pieces !== torrent.pieces.length) return false
+      if (!cached.files || cached.files.length !== torrent.files.length) return false
+      var i
+      for (i = 0; i < torrent.files.length; i++) {
+        var st
+        try {
+          st = fs.statSync(path.join(opts.path, torrent.files[i].path))
+        } catch (e) { return false }
+        if (!st.isFile() || st.size !== cached.files[i].size) return false
+      }
+      var have
+      try {
+        have = bitfield(Buffer.from(cached.bitfield, 'base64'))
+      } catch (e) { return false }
+      if (have.buffer.length !== engine.bitfield.buffer.length) return false
+      for (i = 0; i < torrent.pieces.length; i++) {
+        if (have.get(i)) pieces[i] = null
+      }
+      engine.bitfield = have
+      return true
+    }
+
+    var bfVerifyCacheSave = function () {
+      try {
+        fs.mkdirSync(path.dirname(bfVerifyCachePath()), { recursive: true })
+        fs.writeFileSync(bfVerifyCachePath(), JSON.stringify({
+          infoHash: infoHash,
+          pieces: torrent.pieces.length,
+          bitfield: engine.bitfield.buffer.toString('base64'),
+          files: torrent.files.map(function (f) {
+            return {
+              path: f.path,
+              size: fs.statSync(path.join(opts.path, f.path)).size
+            }
+          })
+        }))
+      } catch (e) { /* best effort: no flag just means hashing again */ }
+    }
+
+    if (process.env.%s !== '0' && bfVerifyCacheLoad()) {
+      console.log('bf-verify-cache: hit ' + infoHash)
+      return
+    }
+
+    engine.emit('verifying')
+
+    var loop = function (i) {
+      if (i >= torrent.pieces.length) return bfVerifyCacheSave()
+      engine.store.get(i, function (_, buf) {
+        if (!buf || sha1(buf) !== torrent.pieces[i] || !pieces[i]) return loop(i + 1)
+        pieces[i] = null
+        engine.bitfield.set(i, true)
+        engine.emit('verify', i)
+        loop(i + 1)
+      })
+    }
+
+    loop(0)
+"""
+    % (CACHE_MARK, CACHE_OFF)
+)
+
 
 def main():
     if not TREE.exists():
@@ -161,6 +279,8 @@ def main():
     print("and to start the swarm with it:")
     patch(TSTREAM, [(VERIFY_LOOP, VERIFY_LOOP_EARLY)], mark=SWARM_MARK)
     patch(APP, [(STOP_VERIFYING, KEEP_VERIFYING)], mark=SWARM_MARK)
+    print("and to remember verified pieces across runs:")
+    patch(TSTREAM, [(VERIFY_CACHED_LOOP, VERIFY_CACHED_LOOP_NEW)], mark=CACHE_MARK)
     return 0
 
 

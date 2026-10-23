@@ -114,6 +114,10 @@ class PeerflixProcess(ExternalProcess):
         super().__init__()
         #: The last "Verifying downloaded: N%" seen, or None.
         self._verifying = None
+        #: Whether this run reused a previous verification instead of hashing.
+        #: A hit emits no verifying/verify lines, so without this the TIMING
+        #: line would read "verified None%".
+        self._cache_hit = False
         #: The swarm's last answer: downloaded / total / speed / peers.
         self._progress = None
         self._progress_at = None
@@ -170,6 +174,8 @@ class PeerflixProcess(ExternalProcess):
             found = _VERIFYING_RE.search(line)
             if found:
                 self._verifying = int(found.group(1))
+            if line.startswith("bf-verify-cache: hit"):
+                self._cache_hit = True
             if line.startswith("Bad Response"):
                 raise ProcessException(line)
             # Get this error if site down/blocked
@@ -178,10 +184,16 @@ class PeerflixProcess(ExternalProcess):
                 raise ProcessException("Unable to retrieve torrent")
             elif line.startswith("server is listening"):
                 self.args["outfile"] = self._advertised_url(line)
-                cherrypy.log(
-                    "TIMING peerflix %.1fs to serve (verified %s%%)"
-                    % (time.time() - self._started_at, self._verifying)
-                )
+                if self._cache_hit:
+                    cherrypy.log(
+                        "TIMING peerflix %.1fs to serve (cache hit)"
+                        % (time.time() - self._started_at)
+                    )
+                else:
+                    cherrypy.log(
+                        "TIMING peerflix %.1fs to serve (verified %s%%)"
+                        % (time.time() - self._started_at, self._verifying)
+                    )
                 from .processpipe import _start_thread
 
                 _start_thread(self._watch_progress)
