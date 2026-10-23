@@ -47,6 +47,7 @@ from .backend import (
     PlayerBackend,
 )
 from .processpipe import _TERMINATE_GRACE, TMP_DIR, ProcessException, _start_thread
+from .pflixproc import drop_buffer_cache
 
 VLC_BIN = "cvlc"
 _START_TIMEOUT = 30
@@ -1222,6 +1223,14 @@ class VlcProcess(PlayerBackend):
         self._http_port = _free_port()
         self._http_password = secrets.token_urlsafe(16)
         self._input_url = args.get("outfile")
+        # Evict the torrent buffer's file pages before the player allocates.
+        # The decoder's setup needs large contiguous pieces of the display
+        # memory's region, and the verifier's reads fragment it; what was
+        # dropped after the last play plus what has accumulated since goes now,
+        # so the first allocations land on whole blocks. See drop_buffer_cache.
+        dropped = drop_buffer_cache()
+        if dropped:
+            cherrypy.log("evicted %d buffer files from page cache" % dropped)
         super().start(args)
 
     def _ready(self):
@@ -2435,13 +2444,13 @@ class VlcProcess(PlayerBackend):
         self._overlay_shown = None
         # Ask the player to leave before the signal does.
         #
-        # VLC takes the display when it opens a video output and hands it back
-        # when it exits properly. SIGTERM usually gets that, and the process is
-        # still signalled below if this does not land -- but a quit through the
-        # interface it is already listening on is the exit it knows how to
-        # tidy up after, and the display is the thing that does not recover
-        # when it does not: measured on rpi, about 145MB of the Pi's 256MB of
-        # video memory is still gone after a play, and the second or third film
-        # then decodes to a black screen.
+        # A quit through the interface it is already listening on is the exit
+        # it knows how to tidy up after, and the process is still signalled
+        # below if this does not land. (This was once thought to release the
+        # Pi's video memory -- measured, ~145MB still gone after a play -- but
+        # that loss is the torrent buffer's file pages sitting in the display
+        # memory's region, not the player failing to exit: both exits in the
+        # log are clean shuts, and evicting the pages recovers it. See
+        # drop_buffer_cache in pflixproc.)
         self._send_command("quit")
         super().stop()

@@ -53,6 +53,61 @@ _PROGRESS_FOR = 300
 #: short enough that a dead one is not left looking busy.
 _STALLED_AFTER = 20
 
+#: How often, in progress-watch ticks, the buffer's page cache is dropped while
+#: the film starts. The watch ticks every _PROGRESS_EVERY seconds, so 30 is
+#: about once a minute: often enough that the verifier's one-pass reads never
+#: accumulate beside the film, seldom enough that the walk is noise.
+_CACHE_DROP_EVERY = 30
+
+
+def drop_buffer_cache():
+    """
+    Evict the torrent buffer's file pages from memory. Returns how many files
+    were dropped.
+
+    Verifying a buffered torrent reads gigabytes through the page cache, and
+    on this box those pages land in the display memory's region faster than
+    the kernel migrates them out: measured on rpi, a 60MB read cost 155MB of
+    CmaFree, and a play starting with a pressured region decodes to a black
+    screen -- "Atomic commit failed: No space left on device", which is the
+    display, not the disk. The verifier reads each piece once and never again,
+    so what has been read is never needed in memory; telling the kernel so
+    keeps the region defragmented for the decoder's large contiguous
+    allocations. Needs no privileges: an eviction hint on files this user can
+    read.
+
+    Best effort, so it never raises: a play must not fail because housekeeping
+    did.
+    """
+    try:
+        return _drop_buffer_cache()
+    except Exception:
+        return 0
+
+
+def _drop_buffer_cache():
+    if not os.path.isdir(BUFFER_DIR):
+        return 0
+    fadvise = getattr(os, "posix_fadvise", None)
+    dontneed = getattr(os, "POSIX_FADV_DONTNEED", None)
+    if fadvise is None or dontneed is None:
+        return 0
+    dropped = 0
+    for root, _dirs, files in os.walk(BUFFER_DIR):
+        for name in files:
+            try:
+                fd = os.open(os.path.join(root, name), os.O_RDONLY)
+            except OSError:
+                continue
+            try:
+                fadvise(fd, 0, 0, dontneed)
+                dropped += 1
+            except OSError:
+                pass
+            finally:
+                os.close(fd)
+    return dropped
+
 
 class PeerflixProcess(ExternalProcess):
     def __init__(self, torrent, idx, subs=None):
@@ -200,9 +255,16 @@ class PeerflixProcess(ExternalProcess):
         if not base:
             return
         deadline = time.time() + _PROGRESS_FOR
+        ticks = 0
         while time.time() < deadline:
             if self.killing:
                 return
+            ticks += 1
+            if ticks % _CACHE_DROP_EVERY == 0:
+                # Free-behind the verifier while it hashes: see
+                # drop_buffer_cache. This loop already runs for exactly the
+                # window the hashing runs in.
+                drop_buffer_cache()
             try:
                 r = requests.get(base + "/.json", timeout=5)
                 stats = json.loads(r.content.decode("utf-8"))
@@ -243,6 +305,11 @@ class PeerflixProcess(ExternalProcess):
         # Nothing is deleted here. This used to rmtree the download directory on
         # every stop, which discarded the whole download each time.
         super().stop()
+        # Leave the box as it was found. Whatever the verifier read since the
+        # last drop is still sitting in the display memory's region; the next
+        # film's decoder needs that region defragmented, and nothing will read
+        # these pages again until it is verified again.
+        drop_buffer_cache()
 
 
 def _size(value):
