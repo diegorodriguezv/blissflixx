@@ -3191,6 +3191,36 @@ class TestWhatATrackIsCalled:
         assert proc._track_window([1, 2, 3], 1) == "< One 1/3 > Two | Three"
 
 
+class TestPercentInAnOverlayMessage:
+    """
+    marq runs its text through strftime before drawing it.
+
+    So a percent sign in a film's name is a format sequence: "%Y" becomes the
+    year and "100%" loses characters. Measured against the source of marq.c,
+    which calls vlc_strftime() on whatever the file holds.
+    """
+
+    def test_percent_signs_are_doubled_before_writing(self, tmp_path, monkeypatch):
+        from lib.player import vlcproc
+
+        path = str(tmp_path / "marq.txt")
+        monkeypatch.setattr(vlcproc, "MARQ_FILE", path)
+        proc = VlcProcess({"osd_overlay": "0"})
+        proc._write_overlay("100% Entertainment, %Y")
+        assert open(path, encoding="utf-8").read() == "100%% Entertainment, %%Y"
+
+    def test_a_message_without_one_is_unchanged(self, tmp_path, monkeypatch):
+        from lib.player import vlcproc
+
+        path = str(tmp_path / "marq.txt")
+        monkeypatch.setattr(vlcproc, "MARQ_FILE", path)
+        proc = VlcProcess({"osd_overlay": "0"})
+        proc._write_overlay("English | Dubtitle · English < SDH · English 3/39 >")
+        assert open(path, encoding="utf-8").read() == (
+            "English | Dubtitle · English < SDH · English 3/39 >"
+        )
+
+
 class TestSeveralChosenSubtitles:
     """
     More than one subtitle on the same film.

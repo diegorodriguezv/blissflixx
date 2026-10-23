@@ -1884,6 +1884,8 @@ class VlcProcess(PlayerBackend):
         """
         Rewrite the file marq re-reads, atomically.
 
+        The text is escaped for strftime first: see the note below.
+
         marq reads it on a timer, so a half-written file would show a truncated
         message. Written to a temporary file and renamed, which is atomic on the
         same filesystem.
@@ -1896,6 +1898,11 @@ class VlcProcess(PlayerBackend):
         """
         if text == self._overlay_shown:
             return
+        # marq runs the text through strftime before drawing it, so a percent
+        # sign in a film's name is a format sequence: "100% Entertainment" loses
+        # characters, and "%Y" becomes the year. Doubling them is what strftime
+        # reads back as one.
+        text = text.replace("%", "%%")
         try:
             os.makedirs(os.path.dirname(MARQ_FILE), exist_ok=True)
             tmp = MARQ_FILE + ".tmp"
