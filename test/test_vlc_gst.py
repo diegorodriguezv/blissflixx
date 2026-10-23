@@ -3407,3 +3407,25 @@ class TestAStreamThatWillNotOpen:
         proc = self._proc(ready=False)
         proc._observe_output(self._opened(self.MAIN))
         assert proc.get_errors() == []
+
+
+class TestADisplayThatCannotCommit:
+    """
+    The screen going black while the film decodes is not the torrent.
+
+    The Pi's contiguous video memory is 256MB, shared by the display and the
+    decoder. A box that has played a lot can run out: frames decode, nothing
+    reaches the screen, and every commit fails. Left unsaid it looks exactly
+    like a slow source, and the only cure is a restart.
+    """
+
+    def test_it_says_the_pi_is_out_of_video_memory(self):
+        proc = VlcProcess({"osd_overlay": "0"})
+        proc._ready_seen = True
+        proc._observe_output(
+            "[74800ef0] drm_vout vout display error: [0]: Atomic commit failed: "
+            "No space left on device"
+        )
+        errors = proc.get_errors()
+        assert len(errors) == 1
+        assert "video memory" in errors[0]

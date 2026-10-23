@@ -775,6 +775,14 @@ class VlcProcess(PlayerBackend):
     #: _ERROR_MARKERS, which are about the interface itself failing to come up.
     _CANNOT_OPEN = "unable to open the MRL"
 
+    #: What the video output says when it cannot put a frame on the screen. The
+    #: Pi's contiguous video memory is 256MB and the display takes it out of the
+    #: same pool as the decoder, so a box that has played a lot can run out: the
+    #: film decodes, the screen stays black, and every frame fails to commit.
+    #: Nothing recovers it but a restart, so it is worth saying rather than
+    #: leaving a black screen that looks like a slow torrent.
+    _NO_DISPLAY = "Atomic commit failed"
+
     def _observe_output(self, line):
         """
         Every line the player writes, and the two that mean something.
@@ -798,7 +806,13 @@ class VlcProcess(PlayerBackend):
         says the same thing about a slave stream, and the second half of a
         two-stream source failing is not the film failing.
         """
-        if (
+        if self._ready_seen and self._NO_DISPLAY in line and not self.has_error():
+            self._set_error(
+                "The display could not keep up with the film: the Pi is out of "
+                "video memory. Restarting it clears this."
+            )
+            self._failure_reported = True
+        elif (
             self._ready_seen
             and self._CANNOT_OPEN in line
             and self._input_url
