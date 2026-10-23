@@ -1896,6 +1896,70 @@ def _delay_press_proc(step=None):
     return proc, shown, sent
 
 
+class TestAddingASubtitleToARunningFilm:
+    """
+    The http interface is the only way to add a subtitle to a film already
+    playing, and its value has to be encoded for it rather than for a form.
+    """
+
+    def test_the_best_of_the_new_tracks_is_the_one_selected(self, monkeypatch):
+        """
+        The search sorts by rating and the files are added in that order, so
+        the first track that was not there before is the most probable one --
+        not the last id in the listing, which is the least probable.
+        """
+        from lib.player import vlcproc
+
+        proc = VlcProcess({"osd_overlay": "0"})
+        listings = [[-1, 2], [-1, 2, 20, 21]]
+        proc._track_ids = lambda command: (
+            listings.pop(0) if listings else [-1, 2, 20, 21]
+        )
+        sent = []
+        proc._send_command = lambda command: sent.append(command) or True
+        proc._show_overlay = lambda text, hold=None: None
+        added = []
+        proc._add_subtitle_over_http = lambda path: added.append(path) or True
+
+        monkeypatch.setattr(
+            vlcproc.subprocess,
+            "check_output",
+            lambda *a, **k: b'{"filenames": ["/x/a.srt", "/x/b.srt"]}',
+        )
+
+        assert proc.add_subtitles([{"id": 1}, {"id": 2}], "eng") is True
+        assert added == ["/x/a.srt", "/x/b.srt"]
+        assert sent[-1] == "strack 20", sent
+
+    def test_the_path_is_percent_encoded_not_plus_encoded(self, monkeypatch):
+        """
+        requests encodes a space as "+", and the interface reads the value back
+        without turning "+" into a space again. Measured on the Pi: the player
+        then looked for "Coyote+Vs.+Acme" and logged that it could not open it.
+        """
+        from lib.player import vlcproc
+
+        seen = {}
+
+        class _Reply:
+            status_code = 200
+
+        def fake_get(url, **kwargs):
+            seen["url"] = url
+            return _Reply()
+
+        monkeypatch.setattr(vlcproc.requests, "get", fake_get)
+        proc = VlcProcess({"osd_overlay": "0"})
+        proc._http_port = 4567
+        proc._http_password = "secret"
+
+        assert proc._add_subtitle_over_http("/tmp/a b [c].srt") is True
+        url = seen["url"]
+        assert "command=addsubtitle" in url
+        assert "/tmp/a%20b%20%5Bc%5D.srt" in url
+        assert "+" not in url
+
+
 class TestWhatATrackIsCalled:
     """
     Language first, then the variant: "English (SDH)", "Chinese (Simplified)".

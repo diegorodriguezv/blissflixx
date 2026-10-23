@@ -966,9 +966,15 @@ class VlcProcess(PlayerBackend):
         if port is None:
             return False
         try:
+            # Encoded here rather than by requests: it turns a space into "+",
+            # and the http interface reads the value back without turning "+"
+            # into a space again -- VLC then looks for "Coyote+Vs.+Acme" on
+            # disk and finds nothing. A percent-encoded space survives.
+            from urllib.parse import quote
+
             r = requests.get(
-                "http://127.0.0.1:%d/requests/status.json" % port,
-                params={"command": "addsubtitle", "val": path},
+                "http://127.0.0.1:%d/requests/status.json"
+                "?command=addsubtitle&val=%s" % (port, quote(path, safe="/")),
                 auth=("", self._http_password),
                 timeout=10,
             )
