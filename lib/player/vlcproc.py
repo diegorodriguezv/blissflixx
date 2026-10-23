@@ -1851,10 +1851,13 @@ class VlcProcess(PlayerBackend):
             self._step_track("atrack", -1)
             self._show_overlay(self._audio_label(), hold=_CONFIRM_HOLD)
         elif action in ("subplus", "subminus"):
-            self._show_overlay(
-                self._subtitle_delay_label(1 if action == "subplus" else -1),
-                hold=_CONFIRM_HOLD,
-            )
+            # VLC draws its own OSD for the delay hotkeys -- measured on the Pi
+            # -- so a confirmation of ours would sit on top of the player's.
+            # Only a refusal is said here: that is a press which moved nothing,
+            # and which the player therefore says nothing about.
+            note = self._subtitle_delay_message(1 if action == "subplus" else -1)
+            if note:
+                self._show_overlay(note, hold=_CONFIRM_HOLD)
 
     def _show_overlay(self, text, hold=None):
         """
@@ -1919,29 +1922,29 @@ class VlcProcess(PlayerBackend):
             or "audio"
         )
 
-    def _subtitle_delay_label(self, direction):
+    def _subtitle_delay_message(self, direction):
         """
-        What the overlay says after a subtitle-delay press.
+        Why a subtitle-delay press could not move anything, or None when it did.
 
-        Says nothing about timing when there is no subtitle on screen to have
-        any. The delay belongs to the selected track rather than to the film:
-        measured on the Pi, four presses with the track switched off left VLC's
-        delay at zero. Moving it there would be a change nobody could see and
-        that the overlay would have claimed, so the press is declined and the
-        reason given instead.
+        None is the ordinary answer, and it is not shown. VLC's own OSD reports
+        the press and the offset -- the -250/+250 ms buttons are hotkeys, and the
+        player says what they did -- so a marquee of ours would repeat it in a
+        second, larger message.
 
-        The word for a film with no subtitle tracks at all is the same one the
-        subtitle buttons use -- it is the same fact about the film.
+        Something is said only when the press moved nothing and the player will
+        therefore say nothing either. The delay belongs to the selected track
+        rather than to the film: measured on the Pi, four presses with the track
+        switched off left VLC's delay at zero. Moving it there would be a change
+        nobody could see, and the word for a film with no subtitle tracks is the
+        same one the subtitle buttons use -- it is the same fact about the film.
         """
-        chosen = self._track_choice.get("strack")
         if self._no_tracks("strack"):
             return "no subtitles"
+        chosen = self._track_choice.get("strack")
         if chosen is None or chosen < 0:
             return "Subtitles are off"
-        delay = self._shift_subtitle_delay(direction)
-        if not delay:
-            return "Subtitles in sync"
-        return "Subtitles %+.2fs" % delay
+        self._shift_subtitle_delay(direction)
+        return None
 
     def _shift_subtitle_delay(self, direction):
         """

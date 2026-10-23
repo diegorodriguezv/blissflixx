@@ -2319,25 +2319,28 @@ class TestWhatTheOverlaySays:
 
         assert shown == ["no audio"], shown
 
-    def test_one_press_of_the_delay_moves_a_step_and_says_so(self):
+    def test_one_press_of_the_delay_moves_a_step_and_leaves_the_saying_to_vlc(self):
         """
         VLC's own hotkey moves the subtitle delay 50ms at a time and it cannot
         be asked for an amount, so a quarter-second step is five presses. They
         go out together: five separate commands would each cost the reply settle
         and hold the button for a second and a half.
+
+        No marquee: the press is a hotkey, so VLC draws its own OSD for it, and
+        a message of ours appeared underneath the player's.
         """
         proc, shown, sent = _delay_press_proc()
 
         proc.control("subplus")
 
         assert sent == [["key key-subdelay-up"] * 5], sent
-        assert shown == ["Subtitles +0.25s"], shown
+        assert shown == [], shown
 
     def test_the_pair_returns_to_sync(self):
         """
         Later then earlier comes back to where it started, which is what pressing
-        the two buttons in a row should do -- and the overlay says so rather than
-        naming a zero offset.
+        the two buttons in a row should do. The offset is tracked here, so the
+        presses can be told apart from a burst that never reached the player.
         """
         proc, shown, sent = _delay_press_proc()
 
@@ -2346,19 +2349,16 @@ class TestWhatTheOverlaySays:
         proc.control("subminus")
         proc.control("subminus")
 
-        assert shown == [
-            "Subtitles +0.25s",
-            "Subtitles +0.50s",
-            "Subtitles +0.25s",
-            "Subtitles in sync",
-        ], shown
+        assert proc._subtitle_delay == 0.0
         assert sent[2] == ["key key-subdelay-down"] * 5, sent
+        assert shown == [], shown
 
     def test_a_burst_that_never_reached_the_player_moves_nothing(self):
         """
         The offset is what was sent, so a send that failed must not advance it.
-        The overlay would otherwise confirm a move the player never made, and
-        every press after that would be that much further out than the film is.
+        Otherwise every press after that would be that much further out than the
+        film is, and VLC's own OSD would be showing the truth beside a number of
+        ours that was not.
         """
         proc, shown, sent = _delay_press_proc()
         proc._send_commands = lambda commands: False
@@ -2366,7 +2366,8 @@ class TestWhatTheOverlaySays:
         proc.control("subplus")
         proc.control("subplus")
 
-        assert shown == ["Subtitles in sync", "Subtitles in sync"], shown
+        assert proc._subtitle_delay == 0.0
+        assert shown == [], shown
 
     @pytest.mark.parametrize(
         "step,presses",
@@ -2387,7 +2388,7 @@ class TestWhatTheOverlaySays:
         proc.control("subplus")
 
         assert sent == [["key key-subdelay-up"] * presses], sent
-        assert shown == ["Subtitles %+.2fs" % (presses * 0.05)], shown
+        assert shown == [], shown
 
     def test_the_delay_is_declined_when_there_is_nothing_to_delay(self):
         """
