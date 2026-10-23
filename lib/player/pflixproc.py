@@ -118,6 +118,12 @@ class PeerflixProcess(ExternalProcess):
         #: A hit emits no verifying/verify lines, so without this the TIMING
         #: line would read "verified None%".
         self._cache_hit = False
+        #: Whether the buffer has been evicted at the end of hashing. The
+        #: copier feeds every line here for the whole run (see on_output_line),
+        #: so the hashing just finished is visible while the decoder is about
+        #: to set up -- the one moment a defragmented region matters most.
+        self._dropped_at_end = False
+        self.on_output_line = self._watch_verify_end
         #: The swarm's last answer: downloaded / total / speed / peers.
         self._progress = None
         self._progress_at = None
@@ -312,6 +318,26 @@ class PeerflixProcess(ExternalProcess):
             return match.group(1)
         cherrypy.log("peerflix listening line had no url: " + line)
         return "http://127.0.0.1:" + _PEERFLIX_PORT
+
+    def _watch_verify_end(self, line):
+        """
+        Evict the buffer once, when the hashing is nearly done.
+
+        Verification reads gigabytes through the page cache and the decoder
+        sets up on the first frame, which arrives just as the hashing
+        finishes -- measured on rpi, CmaFree at 10MB at that moment and the
+        setup failing with "Atomic commit failed", while the same film starts
+        on the same box with the region cleared. The percentage rounds, so 99
+        fires on the last stretch rather than exactly at the end; nothing
+        re-pollutes afterwards except the swarm's own downloads, which are
+        megabytes, so slightly early is still the cleared region.
+        """
+        if self._dropped_at_end or self.killing:
+            return
+        found = _VERIFYING_RE.search(line)
+        if found and int(found.group(1)) >= 99:
+            self._dropped_at_end = True
+            drop_buffer_cache()
 
     def stop(self):
         # Nothing is deleted here. This used to rmtree the download directory on

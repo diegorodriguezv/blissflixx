@@ -60,6 +60,55 @@ def pristine_tree(mod, root):
     )
 
 
+#: The fixed hunks, mirroring VERIFY_CACHED_LOOP_NEW. If the script changes
+#: them without updating these, the upgrade tests below fail -- that is the
+#: point: fresh and upgraded trees must converge byte for byte.
+FIXED_LOAD_CHECK = """      for (i = 0; i < torrent.files.length; i++) {
+        var st
+        try {
+          st = fs.statSync(path.join(opts.path, torrent.files[i].path))
+        } catch (e) { st = null }
+        var actual = (st && st.isFile()) ? st.size : -1
+        if (actual !== cached.files[i].size) return false
+      }
+"""
+
+FIXED_SAVE_MAP = """          files: torrent.files.map(function (f) {
+            return {
+              path: f.path,
+              size: bfVerifyCacheSize(f.path)
+            }
+          })
+"""
+
+FIXED_SIZE_DEF = """    // blissflixx:verify-cache-tolerates-missing -- save/load tolerate files
+    // that are not on disk (a partial torrent): absent records -1, so the
+    // flag is written and refused on presence rather than crashing the save.
+    var bfVerifyCacheSize = function (rel) {
+      try {
+        return fs.statSync(path.join(opts.path, rel)).size
+      } catch (e) { return -1 }
+    }
+
+    var bfVerifyCacheSave = function () {
+"""
+
+
+def rewind_to_buggy(mod, root):
+    """Put the fake tree back to the first-deployed cache text."""
+    p = root / "node_modules" / "torrent-stream" / "index.js"
+    text = p.read_text()
+    text = text.replace(FIXED_LOAD_CHECK, mod.BUGGY_LOAD_CHECK)
+    text = text.replace(FIXED_SAVE_MAP, mod.BUGGY_SAVE_SIZES)
+    text = text.replace(FIXED_SIZE_DEF, mod.BUGGY_SAVE_DEF)
+    assert mod.BUGGY_LOAD_CHECK in text
+    assert mod.BUGGY_SAVE_SIZES in text
+    assert mod.BUGGY_SAVE_DEF in text
+    assert "bfVerifyCacheSize" not in text
+    p.write_text(text)
+    return p
+
+
 class TestPatchScript:
     def test_all_three_markers_applied(self, tmp_path, monkeypatch):
         mod = load_script(monkeypatch, tmp_path)
@@ -87,6 +136,40 @@ class TestPatchScript:
         assert mod.main() == 0
         for p, text in after_first.items():
             assert p.read_text() == text
+
+    def test_fresh_tree_skips_upgrade(self, tmp_path, monkeypatch, capsys):
+        mod = load_script(monkeypatch, tmp_path)
+        pristine_tree(mod, tmp_path)
+        assert mod.main() == 0
+        out = capsys.readouterr().out
+        assert "not patching" not in out
+        assert "tolerate missing" not in out
+        tstream = (tmp_path / "node_modules" / "torrent-stream" / "index.js").read_text()
+        assert "bfVerifyCacheSize" in tstream
+
+    def test_upgrade_fixes_buggy_tree(self, tmp_path, monkeypatch):
+        mod = load_script(monkeypatch, tmp_path)
+        pristine_tree(mod, tmp_path)
+        assert mod.main() == 0
+        p = rewind_to_buggy(mod, tmp_path)
+        mod2 = load_script(monkeypatch, tmp_path)
+        assert mod2.main() == 0
+        fixed = p.read_text()
+        assert mod2.CACHE_FIX_MARK in fixed
+        assert "bfVerifyCacheSize" in fixed
+        assert mod2.BUGGY_LOAD_CHECK not in fixed
+        assert mod2.BUGGY_SAVE_SIZES not in fixed
+
+    def test_fresh_and_upgraded_converge(self, tmp_path, monkeypatch):
+        mod = load_script(monkeypatch, tmp_path)
+        pristine_tree(mod, tmp_path)
+        assert mod.main() == 0
+        p = tmp_path / "node_modules" / "torrent-stream" / "index.js"
+        fresh = p.read_text()
+        rewind_to_buggy(mod, tmp_path)
+        mod2 = load_script(monkeypatch, tmp_path)
+        assert mod2.main() == 0
+        assert p.read_text() == fresh
 
     def test_cache_hit_signal_present(self, tmp_path, monkeypatch):
         mod = load_script(monkeypatch, tmp_path)

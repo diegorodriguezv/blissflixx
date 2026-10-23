@@ -59,6 +59,33 @@ CACHE_MARK = "blissflixx:verify-cache"
 #: Skip the read without reinstalling: BF_VERIFY_CACHE=0 hashes every time.
 CACHE_OFF = "BF_VERIFY_CACHE"
 
+#: Trees patched before the save tolerated missing files carry a save that
+#: throws away the whole flag on a partial torrent (statSync on a file that
+#: is not there), so no flag is ever written. The upgrade below fixes those
+#: two hunks in place; fresh trees already have the fixed text.
+CACHE_FIX_MARK = "blissflixx:verify-cache-tolerates-missing"
+
+#: The two hunks as first deployed, byte for byte.
+BUGGY_LOAD_CHECK = """      for (i = 0; i < torrent.files.length; i++) {
+        var st
+        try {
+          st = fs.statSync(path.join(opts.path, torrent.files[i].path))
+        } catch (e) { return false }
+        if (!st.isFile() || st.size !== cached.files[i].size) return false
+      }
+"""
+
+BUGGY_SAVE_SIZES = """          files: torrent.files.map(function (f) {
+            return {
+              path: f.path,
+              size: fs.statSync(path.join(opts.path, f.path)).size
+            }
+          })
+"""
+
+BUGGY_SAVE_DEF = """    var bfVerifyCacheSave = function () {
+"""
+
 #: Where npm put it. Overridable so the patch can be tried on a copy first.
 TREE = pathlib.Path(
     os.environ.get("BF_PEERFLIX_TREE", "/usr/local/lib/node_modules/peerflix")
@@ -189,8 +216,9 @@ VERIFY_CACHED_LOOP_NEW = (
     """    // %s -- a previous run already hashed every piece on disk and wrote
     // the answer down, so take it back instead of hashing again. Trusted, not
     // re-checked: files here are written once and never touched afterwards.
-    // The only check is presence, by index and size, so a deleted file cannot
-    // keep its pieces marked have. Restores the picker too, not just the
+    // The only check is presence, by index and size -- a file that is absent
+    // is recorded as -1, so a deleted file cannot keep its pieces marked
+    // have, and a file that arrived since is correctly refused. Restores the picker too, not just the
     // bitfield: selections advance on pieces[i] going null, so a have piece
     // left non-null would be fetched from the swarm all over again.
     var bfVerifyCachePath = function () {
@@ -210,8 +238,9 @@ VERIFY_CACHED_LOOP_NEW = (
         var st
         try {
           st = fs.statSync(path.join(opts.path, torrent.files[i].path))
-        } catch (e) { return false }
-        if (!st.isFile() || st.size !== cached.files[i].size) return false
+        } catch (e) { st = null }
+        var actual = (st && st.isFile()) ? st.size : -1
+        if (actual !== cached.files[i].size) return false
       }
       var have
       try {
@@ -225,6 +254,15 @@ VERIFY_CACHED_LOOP_NEW = (
       return true
     }
 
+    // blissflixx:verify-cache-tolerates-missing -- save/load tolerate files
+    // that are not on disk (a partial torrent): absent records -1, so the
+    // flag is written and refused on presence rather than crashing the save.
+    var bfVerifyCacheSize = function (rel) {
+      try {
+        return fs.statSync(path.join(opts.path, rel)).size
+      } catch (e) { return -1 }
+    }
+
     var bfVerifyCacheSave = function () {
       try {
         fs.mkdirSync(path.dirname(bfVerifyCachePath()), { recursive: true })
@@ -235,7 +273,7 @@ VERIFY_CACHED_LOOP_NEW = (
           files: torrent.files.map(function (f) {
             return {
               path: f.path,
-              size: fs.statSync(path.join(opts.path, f.path)).size
+              size: bfVerifyCacheSize(f.path)
             }
           })
         }))
@@ -280,7 +318,55 @@ def main():
     patch(TSTREAM, [(VERIFY_LOOP, VERIFY_LOOP_EARLY)], mark=SWARM_MARK)
     patch(APP, [(STOP_VERIFYING, KEEP_VERIFYING)], mark=SWARM_MARK)
     print("and to remember verified pieces across runs:")
+    try:
+        before_cache = TSTREAM.read_text()
+    except OSError:
+        before_cache = ""
     patch(TSTREAM, [(VERIFY_CACHED_LOOP, VERIFY_CACHED_LOOP_NEW)], mark=CACHE_MARK)
+    if CACHE_MARK in before_cache and CACHE_FIX_MARK not in before_cache:
+        print("and to tolerate missing files in the flag:")
+        patch(
+            TSTREAM,
+            [
+                (
+                    BUGGY_LOAD_CHECK,
+                    """      for (i = 0; i < torrent.files.length; i++) {
+        var st
+        try {
+          st = fs.statSync(path.join(opts.path, torrent.files[i].path))
+        } catch (e) { st = null }
+        var actual = (st && st.isFile()) ? st.size : -1
+        if (actual !== cached.files[i].size) return false
+      }
+""",
+                ),
+                (
+                    BUGGY_SAVE_SIZES,
+                    """          files: torrent.files.map(function (f) {
+            return {
+              path: f.path,
+              size: bfVerifyCacheSize(f.path)
+            }
+          })
+""",
+                ),
+                (
+                    BUGGY_SAVE_DEF,
+                    """    // blissflixx:verify-cache-tolerates-missing -- save/load tolerate files
+    // that are not on disk (a partial torrent): absent records -1, so the
+    // flag is written and refused on presence rather than crashing the save.
+    var bfVerifyCacheSize = function (rel) {
+      try {
+        return fs.statSync(path.join(opts.path, rel)).size
+      } catch (e) { return -1 }
+    }
+
+    var bfVerifyCacheSave = function () {
+""",
+                ),
+            ],
+            mark=CACHE_FIX_MARK,
+        )
     return 0
 
 
