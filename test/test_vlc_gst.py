@@ -839,8 +839,9 @@ class TestVlcControl:
 
         Stepping starts by asking for the listing -- the bare verb -- and only
         then sends an id. With nothing chosen yet the current track is taken to
-        be the first real one, so "next" from there wraps to -1 and disables,
-        and "prev" from the first track also wraps to -1.
+        be the first real one, and the ring is the real tracks only: -1 is
+        VLC's Disable entry, and stepping onto it turned "next" from the last
+        track into "sound off", which is not a track and has no button here.
         """
         proc = VlcProcess()
         sent = []
@@ -859,7 +860,7 @@ class TestVlcControl:
 
         proc._send_and_collect = collect
         proc.control("next_audio")
-        assert sent == ["atrack", "atrack -1"], sent
+        assert sent == ["atrack", "atrack 1"], sent
 
         # From -1, "prev" wraps forward to the last real track.
         sent.clear()
@@ -2000,9 +2001,8 @@ class TestWhatTheOverlaySays:
         # -- and it is Commentary that gets named, not the one it came from.
         proc.control("next_subtitle")
 
-        # A list now, not a label: two tracks, the current one marked, and where
-        # in the list it is.
-        assert shown == ["  English (CC)\n> Commentary\n(2 of 2)"], shown
+        # The list around the current track, on one line.
+        assert shown == ["English (CC) < Commentary 2/2 >"], shown
 
     @pytest.mark.parametrize(
         "action",
@@ -2035,12 +2035,11 @@ class TestWhatTheOverlaySays:
 
         assert shown == ["no subtitles"], (action, shown)
 
-    def test_stepping_onto_the_disable_entry_names_the_track_it_left(self):
+    def test_stepping_from_the_last_track_wraps_to_the_first(self):
         """
-        The last real track in this listing is "Commentary", so a step from
-        there wraps onto VLC's -1 - Disable, which is what the listing always
-        includes. That entry names nothing, so the label has to reach back to
-        the track that was showing rather than give up and say "[off] subtitle".
+        It used to wrap onto VLC's -1 - Disable, turning "next subtitle" from
+        the last one into "subtitles off" -- a state that has its own button,
+        and one the next press then had to step back out of.
         """
         proc = VlcProcess()
         shown = []
@@ -2058,8 +2057,8 @@ class TestWhatTheOverlaySays:
         proc.control("next_subtitle")  # and on to the Disable entry
 
         assert shown == [
-            "  English (CC)\n> Commentary\n(2 of 2)",
-            "[off] Commentary",
+            "English (CC) < Commentary 2/2 >",
+            "< English (CC) 1/2 > Commentary",
         ], shown
 
     def test_hiding_names_the_track_it_switched_off(self):
@@ -2148,9 +2147,9 @@ class TestWhatTheOverlaySays:
         proc.control("show_subtitle")
 
         assert shown == [
-            "  English (CC)\n> Commentary\n(2 of 2)",
+            "English (CC) < Commentary 2/2 >",
             "[off] Commentary",
-            "  English (CC)\n> Commentary\n(2 of 2)",
+            "English (CC) < Commentary 2/2 >",
         ], shown
         assert sent[-1] == "strack 5", sent
 
@@ -2199,7 +2198,9 @@ class TestWhatTheOverlaySays:
         proc.control("next_audio")  # off the only track, onto Disable
         proc.control("next_audio")  # and back onto it
 
-        assert shown == ["[off] Track 1", "[on] Track 1"], shown
+        # A single audio track wraps to itself: "off" is not in the ring, and
+        # audio has no hide button to reach it with.
+        assert shown == ["[on] Track 1", "[on] Track 1"], shown
 
         silent = VlcProcess()
         shown = []
@@ -3180,25 +3181,14 @@ class TestWhatATrackIsCalled:
         proc = VlcProcess()
         ids = list(range(1, 41))
         proc._track_names = {"strack": {i: "Lang %d" % i for i in ids}}
-        lines = proc._track_window(ids, 20).splitlines()
-        assert lines == [
-            "  Lang 18",
-            "  Lang 19",
-            "> Lang 20",
-            "  Lang 21",
-            "  Lang 22",
-            "(20 of 40)",
-        ]
+        assert proc._track_window(ids, 20) == (
+            "Lang 18 | Lang 19 < Lang 20 20/40 > Lang 21 | Lang 22"
+        )
 
     def test_the_window_stops_at_the_ends(self):
         proc = VlcProcess()
         proc._track_names = {"strack": {1: "One", 2: "Two", 3: "Three"}}
-        assert proc._track_window([1, 2, 3], 1).splitlines() == [
-            "> One",
-            "  Two",
-            "  Three",
-            "(1 of 3)",
-        ]
+        assert proc._track_window([1, 2, 3], 1) == "< One 1/3 > Two | Three"
 
 
 class TestSeveralChosenSubtitles:

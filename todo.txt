@@ -1,29 +1,53 @@
-# Ideas to implement in the future:
+# future
 
+## proxy to bypass geolocation for bbc
 look back at the history to understand how the bbc channel proxy service was implemented, try to figure out how the backend was working and see what it would take to do it
-add the play with subtitles action to each item when in a "view files" page
-sometimes a torrent has one or more subtitles inside, add them to the player 
-allow loading srt in the torrent
-allow downloading subtitles while playing
-allow selecting the subtitle when play with subtitles
+
+## refactor 
 describe the current architecture. find ways to simplify the code for humans. yagni. reduce complexity where possible. look up for stale modules, dependencies, repeating or unnecesary operations. plan a simplified internal architecture that allows all current features plus allow for change where it can be expected.
 rename the different Player classes and modules with meaningful descriptions of intention and responsabilities... if not possible then refactor
 
-# Ideas to implement soon:
-torrent movie/series search button duckduckgo
-floating go up button
+## more info about the running video
 clicking the title when playing opens a panel with the full title and details about the video
-subtitles 
 
+## try to run h265 1080p
+overclock rpitv, enable thermostat to keep it cool, it already has a fan wired
+
+## glossary of ui elements for better testing/prompting 
+bottom bar 
+error bar
 
 # Bugs:
 
-the playlist functionality doesn't really works, it is a form of grouping of videos, but you can't play all the videos one after another automatically, which is the meaning of a playlist
+## improve error messages
+example: 
+error: 400
+OpenSubtitles search failed: Traceback (most recent call last):
+  File "/home/diego/blissflixx-arctic/bin/getsubs.py", line 292, in <module>
+    ...
+  File "/usr/lib/python3.13/xmlrpc/client.py", line 1170, in single_request
+    raise ProtocolError(
+    ...<3 lines>...
+        )
+xmlrpc.client.ProtocolError: <ProtocolError for api.opensubtitles.org/xml-rpc: 500 Internal Server Error>
 
-there is no space between the back button of the title and the play all button in the playlist, but i remember seeing the same problem somewhere else
+so, the title should be more useful what is 400? where it happened? doing what?
+the trace should be under a button: show output / details / appropriate name
+button: retry (basically go-back) 
+button: cancel (basically go-back two times, skip the action that throwed the error)
+can we iprove the design so that this errors do not stop the flow of actions of the user
+
+___ running sessions ___
+
+# improve subtitles
+running
+
+# time to play improvement (running other session)
+hold until everything else is stable
+in planning stage but got mixed with improving the feedback to feel more responsive
+
+## at the end
+another agent worked on fixing the subtitles, check it out and find if it changes the plan
 
 
-# Dictionary of ui elements
-bottom bar 
-error bar
 

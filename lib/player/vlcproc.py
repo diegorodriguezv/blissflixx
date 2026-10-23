@@ -2092,14 +2092,16 @@ class VlcProcess(PlayerBackend):
         The active id is cached after the first listing, because the listing is
         the only way to find it and it costs a round trip.
         """
-        tracks = self._track_ids(command)
+        # Real tracks only: -1 is VLC's Disable, and stepping onto it turned
+        # "next subtitle" from the last track into "subtitles off" -- a state
+        # with its own button, and one that the next press then had to step back
+        # out of. Audio has no hide button at all, so it must never land there.
+        tracks = [t for t in self._track_ids(command) if t != _TRACK_DISABLED]
         if not tracks:
             return False
         current = self._track_choice.get(command)
         if current is None or current not in tracks:
-            current = next((t for t in tracks if t != _TRACK_DISABLED), None)
-            if current is None:
-                return False
+            current = tracks[0]
         # Whether it was read from the choice or assumed to be the first real
         # track, this is the one that was showing, and it is what an "[off] ..."
         # label names when this step lands on the Disable entry. Audio is never
@@ -2207,25 +2209,35 @@ class VlcProcess(PlayerBackend):
 
     def _track_window(self, ids, current):
         """
-        The track list around the chosen one, and where in it the film is.
+        The tracks around the chosen one, and where in the list it is.
 
-            > SDH \u00b7 English
-              Track 4 \u00b7 Japanese
-              Track 5 \u00b7 Arabic
-            (3 of 39)
+            English | Dubtitle\u00b7English < SDH\u00b7English 3/39 > Japanese | SDH\u00b7Japanese
 
-        Two either side of the current track. Stepping through thirty-nine
-        subtitles blind is hopeless, and "which of the four English ones is
-        this" is the question a list answers and a single label cannot.
+        Two before, two after, the current one between angle brackets with its
+        position and the total. One line, because the marquee lays out one line
+        -- \n and \r\n are read as the end of the text, and it wraps a long
+        line by itself rather than taking a break. Fewer entries at the ends of
+        the list, where there are not two to show.
+
+        "Disable" never appears: it is not a subtitle, and the two buttons that
+        need it -- hide, and off -- have their own.
         """
         position = ids.index(current)
         names = self._track_names.get("strack") or {}
-        lines = []
-        for one in ids[max(0, position - 2) : position + 3]:
-            mark = ">" if one == current else " "
-            lines.append("%s %s" % (mark, names.get(one) or ("Track %d" % one)))
-        lines.append("(%d of %d)" % (position + 1, len(ids)))
-        return "\n".join(lines)
+
+        def display(one):
+            return names.get(one) or ("Track %d" % one)
+
+        before = [display(i) for i in ids[max(0, position - 2) : position]]
+        here = "< %s %d/%d >" % (display(current), position + 1, len(ids))
+        after = [display(i) for i in ids[position + 1 : position + 3]]
+        parts = []
+        if before:
+            parts.append(" | ".join(before))
+        parts.append(here)
+        if after:
+            parts.append(" | ".join(after))
+        return " ".join(parts)
 
     def _no_tracks(self, command):
         """
