@@ -41,10 +41,13 @@ def load_script(monkeypatch, tree):
     return mod
 
 
-def make_tree(root, tstream, peerflix="", app=""):
+def make_tree(root, tstream, peerflix="", app="", fstream=""):
     ts = root / "node_modules" / "torrent-stream"
     ts.mkdir(parents=True)
     (ts / "index.js").write_text(tstream)
+    lib = ts / "lib"
+    lib.mkdir(exist_ok=True)
+    (lib / "file-stream.js").write_text(fstream)
     (root / "index.js").write_text(peerflix)
     (root / "app.js").write_text(app)
     return root
@@ -57,6 +60,7 @@ def pristine_tree(mod, root):
         mod.FILES_END + mod.LATE_EMIT + mod.VERIFY_LOOP + LOOP_BODY,
         mod.SETUP_ON_READY + mod.LISTEN_ON_READY,
         mod.STOP_VERIFYING,
+        mod.FSTREAM_CTOR + mod.FSTREAM_DESTROY,
     )
 
 
@@ -120,6 +124,11 @@ class TestPatchScript:
         assert mod.CACHE_MARK in tstream
         assert (tmp_path / "index.js").read_text().count(mod.MARK) == 2
         assert mod.SWARM_MARK in (tmp_path / "app.js").read_text()
+        fstream = (
+            tmp_path / "node_modules" / "torrent-stream" / "lib" / "file-stream.js"
+        ).read_text()
+        assert mod.WAKE_MARK in fstream
+        assert "_onverify" in fstream
 
     def test_second_run_is_a_noop(self, tmp_path, monkeypatch):
         mod = load_script(monkeypatch, tmp_path)
@@ -129,6 +138,7 @@ class TestPatchScript:
             p: p.read_text()
             for p in [
                 tmp_path / "node_modules" / "torrent-stream" / "index.js",
+                tmp_path / "node_modules" / "torrent-stream" / "lib" / "file-stream.js",
                 tmp_path / "index.js",
                 tmp_path / "app.js",
             ]
@@ -181,11 +191,16 @@ class TestPatchScript:
 
     def test_anchor_miss_leaves_file_untouched(self, tmp_path, monkeypatch, capsys):
         mod = load_script(monkeypatch, tmp_path)
-        make_tree(tmp_path, "// some other torrent-stream\n")
+        make_tree(tmp_path, "// some other torrent-stream\n", fstream="// other\n")
         assert mod.main() == 0
         kept = (tmp_path / "node_modules" / "torrent-stream" / "index.js").read_text()
         assert kept == "// some other torrent-stream\n"
         assert mod.CACHE_MARK not in kept
+        kept_fs = (
+            tmp_path / "node_modules" / "torrent-stream" / "lib" / "file-stream.js"
+        ).read_text()
+        assert kept_fs == "// other\n"
+        assert mod.WAKE_MARK not in kept_fs
 
     def test_missing_tree_returns_one(self, tmp_path, monkeypatch):
         mod = load_script(monkeypatch, tmp_path / "absent")

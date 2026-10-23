@@ -24,6 +24,11 @@ A third marker remembers verification across runs: .bf-verified/<infohash>.json
 beside the buffer, taken back instead of re-hashed while the files are still
 there at the same sizes. See CACHE_MARK below.
 
+A fourth wakes reads as pieces verify, in lib/file-stream.js: a read for an
+unverified piece parks on engine.critical() with nothing waking it, because
+selections advance through gc() and the verify loop never calls it. See
+WAKE_MARK below.
+
 peerflix is installed by configure.sh, so this runs from there. It is safe to
 run by hand on a box that already has it.
 """
@@ -65,6 +70,17 @@ CACHE_OFF = "BF_VERIFY_CACHE"
 #: two hunks in place; fresh trees already have the fixed text.
 CACHE_FIX_MARK = "blissflixx:verify-cache-tolerates-missing"
 
+#: Waking reads as pieces verify. Serving before verifying exposed a race the
+#: stock order never hit: a read for an unverified piece parks on
+#: engine.critical() and nothing wakes it, because selections advance through
+#: gc() and the verify loop never calls it. Upstream always hashed everything
+#: before listening, so the first read never parked; here the player connects
+#: at once, and without a wakeup it waits until it re-requests on its own --
+#: measured, five silent minutes with the port open and the bytes on disk.
+#: 'verify' fires for loop verifications and swarm downloads alike, so one
+#: subscription wakes both.
+WAKE_MARK = "blissflixx:verify-wakeup"
+
 #: The two hunks as first deployed, byte for byte.
 BUGGY_LOAD_CHECK = """      for (i = 0; i < torrent.files.length; i++) {
         var st
@@ -94,12 +110,51 @@ TREE = pathlib.Path(
 TSTREAM = TREE / "node_modules" / "torrent-stream" / "index.js"
 PEERFLIX = TREE / "index.js"
 APP = TREE / "app.js"
+FSTREAM = TREE / "node_modules" / "torrent-stream" / "lib" / "file-stream.js"
 
 #: The end of the file list, which is the first moment either the server or the
 #: player can be told which files exist.
 FILES_END = """      return file
     })
 """
+
+#: The constructor's last line, and destroy: the only two places a stream's
+#: lifetime is managed.
+FSTREAM_CTOR = """  this._offset = offset - this.startPiece * pieceLength
+}
+"""
+
+FSTREAM_CTOR_NEW = (
+    """  this._offset = offset - this.startPiece * pieceLength
+  // %s -- re-drive this stream as pieces verify. A read for an unverified
+  // piece parks on engine.critical() with nothing waking it afterwards, so
+  // subscribe to the event both verifications and downloads emit.
+  this._onverify = this.notify.bind(this)
+  engine.on('verify', this._onverify)
+}
+"""
+    % WAKE_MARK
+)
+
+FSTREAM_DESTROY = """FileStream.prototype.destroy = function () {
+  if (this._destroyed) return
+  this._destroyed = true
+  this.emit('close')
+}
+"""
+
+FSTREAM_DESTROY_NEW = (
+    """FileStream.prototype.destroy = function () {
+  if (this._destroyed) return
+  this._destroyed = true
+  // %s -- the subscription ends with the stream; the engine outlives it for
+  // the whole play.
+  this._engine.removeListener('verify', this._onverify)
+  this.emit('close')
+}
+"""
+    % WAKE_MARK
+)
 
 EARLY_EMIT = (
     """      return file
@@ -367,6 +422,12 @@ def main():
             ],
             mark=CACHE_FIX_MARK,
         )
+    print("and to wake reads as pieces verify:")
+    patch(
+        FSTREAM,
+        [(FSTREAM_CTOR, FSTREAM_CTOR_NEW), (FSTREAM_DESTROY, FSTREAM_DESTROY_NEW)],
+        mark=WAKE_MARK,
+    )
     return 0
 
 
