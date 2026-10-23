@@ -76,6 +76,22 @@ def play(url=None, title=None, subs=None, plid=None, itemnum=None):
         Player.playYtdl(url, title, subs, playlist, index)
 
 
+def add_subtitles(chosen=None, lang=None):
+    """
+    Subtitles for the film already playing, from the control panel.
+
+    Nothing is restarted: a torrent would have to re-verify its download first,
+    which on a film twenty minutes in is not a trade anyone wants.
+    """
+    if not chosen:
+        raise ApiError("No subtitles were chosen")
+    try:
+        Player.add_subtitles(chosen, lang)
+    except RuntimeError as exc:
+        raise ApiError(str(exc))
+    return True
+
+
 def control(action=None):
     if action is None:
         raise ApiError("Action is undefined")

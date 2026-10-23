@@ -136,21 +136,46 @@ def _track_parts(line):
 _GENERIC_TRACK = re.compile(r"^Track \d+$")
 
 
+def _without_language(name, language):
+    """
+    What is left of a track's name once the language is taken out of it.
+
+        English (CC)          -> CC
+        Simplified Chinese    -> Simplified
+        Latin American Spanish -> Latin American
+
+    Releases name their tracks in both orders -- "Chinese (Simplified)" and
+    "Simplified Chinese" -- and the language is in the brackets on the listing
+    line either way. Removing it is what keeps "Chinese (Simplified Chinese)"
+    from happening when the name already says it.
+    """
+    pattern = re.compile(r"(?<!\w)" + re.escape(language) + r"(?!\w)", re.IGNORECASE)
+    rest = re.sub(r"\s+", " ", pattern.sub(" ", name)).strip()
+    rest = rest.strip(" -\u2013\u2014\u00b7:,[]")
+    if rest.startswith("(") and rest.endswith(")") and rest.count("(") == 1:
+        rest = rest[1:-1].strip()
+    return rest.strip(" -\u2013\u2014\u00b7:,()[]")
+
+
 def _track_display(name, language):
     """
-    One line that says what a track is: "SDH · English", "Japanese", "Track 4".
+    One line that says what a track is: "English (SDH)", "Chinese
+    (Simplified)", "English", "Commentary".
 
-    The generic "Track N" is dropped when a language is known, because it is
-    VLC counting rather than naming; without a language it is all there is.
+    The language comes first and the rest is the variant in brackets, because
+    the language is what is being chosen between and the variant is what tells
+    two tracks in the same language apart. VLC's generic "Track 4" is dropped
+    when a language is known: it is the player counting, not a name.
     """
+    name = (name or "").strip()
+    language = (language or "").strip()
     if name and language and _GENERIC_TRACK.match(name):
-        # "Track 4" is VLC counting; with a language it adds nothing.
         name = None
-    if name and language and language.lower() not in name.lower():
-        # Not "English (CC) \u00b7 English": a name that already says the
-        # language does not need it repeating.
-        return name + " \u00b7 " + language
-    return name or language or ""
+    if name and language:
+        name = _without_language(name, language)
+        if name and name.lower() != language.lower():
+            return "%s (%s)" % (language, name)
+    return language or name or ""
 
 
 #: A whole line of a track listing: "| 4 - Dubtitle - [English] *".
@@ -679,6 +704,14 @@ class VlcProcess(PlayerBackend):
         # The input this stage was asked to play, remembered so that a failure
         # line can be told apart from one about a slave stream. Set in start().
         self._input_url = None
+        # The loopback control port and its password. Chosen in start(), not in
+        # build_command(), which is pure so it can be tested without a player.
+        self._http_port = None
+        self._http_password = None
+        # Whether the sound is muted, as far as the buttons know. VLC's cli can
+        # set a mute but not read one back, and "key mute" toggles, so this is
+        # what keeps the two in step.
+        self._muted = False
         # Whether this stage has already said, in its own words, why it failed.
         # A message that says what happened needs no log tail after it; see
         # _add_output_to_error.
@@ -863,6 +896,59 @@ class VlcProcess(PlayerBackend):
         cherrypy.log("subtitle fetched: " + path)
         return path
 
+    def add_subtitles(self, chosen, lang=None):
+        """
+        Put subtitles on the film that is already playing.
+
+        The panel's button, for a film that turned out to have nothing usable:
+        the alternative is to start it again, and on a torrent that means
+        re-verifying its download -- minutes of watching lost to add a subtitle.
+        """
+        chosen = list(chosen or [])
+        if not chosen:
+            return False
+        import json as _json
+
+        from .subsproc import GETSUBS_PATH
+
+        wanted = _json.dumps({"lang": lang or "eng", "files": chosen})
+        try:
+            out = subprocess.check_output(
+                [GETSUBS_PATH, lang or "eng", "--choosens", wanted],
+                stderr=subprocess.STDOUT,
+                timeout=90,
+            )
+            found = _json.loads(out.decode("utf-8"))
+        except Exception as exc:
+            cherrypy.log("could not download the chosen subtitles: %s" % exc)
+            return False
+        paths = found.get("filenames") or []
+        # The listing before, so the tracks this added can be told from the ones
+        # already there. They are appended, and the search sorts by rating, so
+        # the first new one is the best of them -- which is the one to show.
+        before = set(self._track_ids("strack"))
+        added = 0
+        for path in paths:
+            if self._add_subtitle_over_http(path):
+                added += 1
+        if not added:
+            return False
+        tracks = []
+        for _ in range(10):
+            tracks = [t for t in self._track_ids("strack") if t != _TRACK_DISABLED]
+            if [t for t in tracks if t not in before]:
+                break
+            time.sleep(0.2)
+        fresh = [t for t in tracks if t not in before]
+        pick = fresh[0] if fresh else (tracks[-1] if tracks else None)
+        if pick is not None:
+            self._track_choice["strack"] = pick
+            self._remember_track("strack", pick)
+            self._send_command("strack " + str(pick))
+        cherrypy.log("added %d subtitle(s) from the panel" % added)
+        self._show_overlay("Subtitles added", hold=_CONFIRM_HOLD)
+        return True
+
     def _add_subtitle_over_http(self, path):
         """
         Add a subtitle to the film that is playing.
@@ -992,14 +1078,13 @@ class VlcProcess(PlayerBackend):
         # film is playing, not a file to hand VLC now. Taken here for the same
         # reason the title is: this is where the args arrive.
         self._subtitles_wanted = args.get("subtitles_wanted") or []
-        # A subtitle that arrives while the film is playing needs the http
-        # interface: the cli has no verb for adding one (VLC 3 answers that
-        # "sub-add" is not a command), and --sub-file only exists at start.
-        self._http_port = None
-        self._http_password = None
-        if self._subtitles_wanted:
-            self._http_port = _free_port()
-            self._http_password = secrets.token_urlsafe(16)
+        # The http interface is what can add a subtitle to a film already
+        # playing: the cli has no verb for it (VLC 3 answers "sub-add" is not a
+        # command), and --sub-file only exists at start.
+        #
+        # Its port is chosen in start(), not here: build_command is documented
+        # as pure so it can be tested without a player, and a port chosen here
+        # would make every call return a different argv.
         # Taken from yt-dlp rather than worked out here, because there is no way
         # to work it out here. VLC's get_length answers for a live stream too,
         # and what it answers is the size of the sliding window -- it was 11 on
@@ -1063,8 +1148,6 @@ class VlcProcess(PlayerBackend):
         if str(self.opt("fast_seek")).lower() not in ("0", "false", "", "none"):
             cmd.append("--input-fast-seek")
         if self._http_port is not None:
-            # Only when a subtitle is due to arrive after the film starts: it is
-            # the one thing that can add one to a film already playing.
             cmd.append("--extraintf=http")
             cmd.append("--http-host=127.0.0.1")
             cmd.append("--http-port=" + str(self._http_port))
@@ -1106,13 +1189,22 @@ class VlcProcess(PlayerBackend):
 
     def start(self, args):
         """
-        Remember the input before the player is given it.
+        Give the player its own control port before it is started.
 
-        The failure line names the URL that could not be opened, and that is the
-        only way to tell the main input from a slave stream: VLC says the same
-        thing about both. Kept here rather than in build_command(), which is
-        meant to be pure so it can be tested without a player.
+        The http interface is what can add a subtitle to a film already
+        playing -- the cli has no verb for it -- and the control panel can ask
+        for one at any moment, so every play has it. Loopback only, a port
+        nothing else is using, and a password of its own that lives as long as
+        the player and dies with it.
+
+        The input is remembered here too: the failure line names the URL that
+        could not be opened, and that is the only way to tell the main input
+        from a slave stream, since VLC says the same thing about both. Kept out
+        of build_command(), which is meant to be pure so it can be tested
+        without a player.
         """
+        self._http_port = _free_port()
+        self._http_password = secrets.token_urlsafe(16)
         self._input_url = args.get("outfile")
         super().start(args)
 
@@ -1683,6 +1775,14 @@ class VlcProcess(PlayerBackend):
             # With the time on it, because that is what pausing and un-pausing
             # is for: you stop to do something and come back to where you
 
+        elif action == "mute":
+            # A hotkey, not a volume change: the cli has no mute verb, and
+            # setting the volume to zero would lose the level to come back to.
+            self._muted = not self._muted
+            self._send_command("key mute")
+            self._show_overlay(
+                "Muted" if self._muted else "Sound on", hold=_CONFIRM_HOLD
+            )
         elif action == "stop":
             self._send_command("quit")
             self._force_quit()
@@ -2218,7 +2318,7 @@ class VlcProcess(PlayerBackend):
         """
         The tracks either side of the chosen one, and where in the list it is.
 
-            Simplified\u00b7Chinese | English < Dubtitle\u00b7English 2/39 > SDH\u00b7English
+            Chinese (Simplified) \u25b8 < English (Dubtitle) 2/39 > \u25b8 English (SDH)
 
         One before and one after, wrapping around the ends so there is always
         both -- a list is clearer than a window that shrinks at the ends of the
@@ -2246,7 +2346,9 @@ class VlcProcess(PlayerBackend):
             return here
         before = display(ids[(position - 1) % count])
         after = display(ids[(position + 1) % count])
-        return "%s %s %s" % (before, here, after)
+        # A mark between the parts: a space alone let the three run together on
+        # a busy frame. U+25B8 is in the fonts VLC falls back to on the Pi.
+        return "%s \u25b8 %s \u25b8 %s" % (before, here, after)
 
     def _no_tracks(self, command):
         """

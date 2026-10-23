@@ -385,6 +385,20 @@ class _Player:
         # Local File path behaviour is like http
         return self.build(title, LocalFileProcess(filepath), http=True)
 
+    def add_subtitles(self, chosen=None, lang=None):
+        """
+        Attach subtitles to the film that is playing, without starting it again.
+
+        Raises rather than returning quietly: this is a button, and a button
+        that does nothing is worse than one that says why.
+        """
+        pipe = self.play_pipe
+        if pipe is None or not pipe.is_started():
+            raise RuntimeError("Nothing is playing")
+        if not pipe.add_subtitles(chosen, lang):
+            raise RuntimeError("The player could not take those subtitles")
+        return True
+
     def status(self):
         play_pipe = self.play_pipe
         status = {

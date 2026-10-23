@@ -447,6 +447,14 @@ a.item-action {
   margin-bottom: 20px;
 }
 /*
+ * The remote panel is ten rows of two buttons, and the twenty pixels under each
+ * one is most of why it does not fit a phone screen. The same class is used by
+ * the settings pages, so this is scoped to the panel rather than changed.
+ */
+#remoteModal .btn-lg {
+  margin-bottom: 8px;
+}
+/*
  * The subtitle search results.
  *
  * A row per candidate with a tick box: a release can offer a plain track, a

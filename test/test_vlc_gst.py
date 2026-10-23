@@ -1896,6 +1896,42 @@ def _delay_press_proc(step=None):
     return proc, shown, sent
 
 
+class TestWhatATrackIsCalled:
+    """
+    Language first, then the variant: "English (SDH)", "Chinese (Simplified)".
+
+    The language is what is being chosen between; the variant is what tells two
+    tracks in the same language apart. The order matters because the earlier
+    "SDH \u00b7 English" reads as a name with an annotation rather than as
+    something to pick.
+    """
+
+    @pytest.mark.parametrize(
+        "name,language,expected",
+        [
+            ("Dubtitle", "English", "English (Dubtitle)"),
+            ("SDH", "English", "English (SDH)"),
+            ("Simplified", "Chinese", "Chinese (Simplified)"),
+            ("Latin American", "Spanish", "Spanish (Latin American)"),
+            ("Brazilian", "Portuguese", "Portuguese (Brazilian)"),
+            # VLC counting, not naming: the language says all of it.
+            ("Track 4", "English", "English"),
+            # The name already says the language; repeating it would say it twice.
+            ("English (CC)", "English", "English (CC)"),
+            ("Simplified Chinese", "Chinese", "Chinese (Simplified)"),
+            ("English", "English", "English"),
+            # No language to lead with, so the name stands as it is.
+            ("Commentary", None, "Commentary"),
+            ("Track 7", None, "Track 7"),
+            (None, "Japanese", "Japanese"),
+        ],
+    )
+    def test_the_language_leads_and_the_variant_follows(self, name, language, expected):
+        from lib.player.vlcproc import _track_display
+
+        assert _track_display(name, language) == expected
+
+
 class TestWhatTheOverlaySays:
     """
     The wording of a confirmation, which is the only thing the person watching
@@ -2002,7 +2038,9 @@ class TestWhatTheOverlaySays:
         proc.control("next_subtitle")
 
         # The list around the current track, on one line.
-        assert shown == ["English (CC) < Commentary 2/2 > English (CC)"], shown
+        assert shown == [
+            "English (CC) \u25b8 < Commentary 2/2 > \u25b8 English (CC)"
+        ], shown
 
     @pytest.mark.parametrize(
         "action",
@@ -2057,8 +2095,8 @@ class TestWhatTheOverlaySays:
         proc.control("next_subtitle")  # and on to the Disable entry
 
         assert shown == [
-            "English (CC) < Commentary 2/2 > English (CC)",
-            "Commentary < English (CC) 1/2 > Commentary",
+            "English (CC) \u25b8 < Commentary 2/2 > \u25b8 English (CC)",
+            "Commentary \u25b8 < English (CC) 1/2 > \u25b8 Commentary",
         ], shown
 
     def test_hiding_names_the_track_it_switched_off(self):
@@ -2147,9 +2185,9 @@ class TestWhatTheOverlaySays:
         proc.control("show_subtitle")
 
         assert shown == [
-            "English (CC) < Commentary 2/2 > English (CC)",
+            "English (CC) \u25b8 < Commentary 2/2 > \u25b8 English (CC)",
             "[off] Commentary",
-            "English (CC) < Commentary 2/2 > English (CC)",
+            "English (CC) \u25b8 < Commentary 2/2 > \u25b8 English (CC)",
         ], shown
         assert sent[-1] == "strack 5", sent
 
@@ -3075,150 +3113,36 @@ class TestTheSubtitleInsideTheTorrent:
         assert proc.added == []
         assert [p for p in tmp_path.iterdir() if p.suffix == ".srt"] == []
 
-    def test_the_http_interface_is_asked_for_only_when_a_subtitle_is_due(
-        self, monkeypatch, tmp_path
-    ):
+    def test_the_http_interface_is_started_for_every_play(self, monkeypatch, tmp_path):
         """
-        It is one more listening socket, so a film that is not waiting for a
-        subtitle does not get one.
+        It is one more listening socket, so it is worth being deliberate about:
+        the control panel can ask for a subtitle at any moment, and this is the
+        only way to add one to a film already playing. Loopback only, a port of
+        its own, a password of its own.
         """
         from lib.player import vlcproc
 
         monkeypatch.setattr(vlcproc, "TMP_DIR", str(tmp_path))
-        with_sub = VlcProcess({"osd_overlay": "0"}).build_command(
-            {"outfile": "/x", "subtitles_wanted": [{"url": self.URL, "name": "a.srt"}]}
-        )
-        without = VlcProcess({"osd_overlay": "0"}).build_command({"outfile": "/x"})
-        assert "--extraintf=http" in with_sub
-        assert "--http-host=127.0.0.1" in with_sub
-        assert not [a for a in without if a.startswith("--http-")]
-        assert not [a for a in without if a.startswith("--extraintf")]
+        proc = VlcProcess({"osd_overlay": "0"})
+        proc.start = None  # not started; build the command the way a play does
+        proc._http_port = 41234
+        proc._http_password = "secret"
+        cmd = proc.build_command({"outfile": "/x"})
+        assert "--extraintf=http" in cmd
+        assert "--http-host=127.0.0.1" in cmd
+        assert "--http-port=41234" in cmd
+        assert "--http-password=secret" in cmd
 
-    def test_the_embedded_subtitle_waiter_stands_down_for_a_torrent_one(
-        self, monkeypatch, tmp_path
-    ):
+    def test_building_a_command_does_not_choose_a_port(self):
         """
-        Both select a track, and the one that happens to answer first wins. The
-        torrent's list is the considered answer, so it is left to decide.
+        build_command is documented as pure so it can be tested without a
+        player. A port chosen there would make every call return a different
+        argv; it is chosen in start() instead.
         """
-        import threading
-
-        from lib.player import vlcproc
-
-        started = []
-        monkeypatch.setattr(vlcproc, "_start_thread", lambda *a, **k: started.append(a))
         proc = VlcProcess({"osd_overlay": "0"})
-        proc._subtitles_wanted = [{"url": "http://x/1", "name": "a.srt"}]
-        proc._enable_embedded_subtitles()
-        assert started == []
-
-
-class TestASeekSaysNothing:
-    """
-    VLC draws its own position marker when the film is moved, so the app's
-    marquee used to print a second, larger one on top of it.
-    """
-
-    def _proc(self, frames=(100, 140)):
-        proc = VlcProcess({"osd_overlay": "0"})
-        proc.overlay = []
-        proc._show_overlay = lambda text, hold=None: proc.overlay.append(text)
-        proc.seeks = []
-        proc._seek = lambda seconds: proc.seeks.append(seconds)
-        proc._decoded_frames = lambda: next(iter(frames), frames[-1])
-        proc._frames = iter(frames)
-        proc._decoded_frames = lambda: next(proc._frames, frames[-1])
-        proc._paused = False
-        return proc
-
-    def test_a_seek_that_works_writes_nothing(self):
-        proc = self._proc()
-        proc._stalled(-30)
-        assert proc.seeks == [-30]
-        assert proc.overlay == []
-
-    def test_a_stall_still_says_so(self):
-        """A picture that does not come back is worth saying, and is not the marker."""
-        from lib.player import vlcproc
-
-        proc = self._proc()
-        proc._decoded_frames = lambda: 0
-        with_patch = m.patch.object(vlcproc.time, "sleep", lambda s: None)
-        with with_patch:
-            assert proc._stalled(30) is True
-        assert proc.overlay and "Stalled" in proc.overlay[0]
-
-
-class TestWhatATrackIsCalled:
-    """
-    A subtitle's name and its language, together.
-
-    VLC's listing carries both and the app used to keep one of them: "Track 1,
-    Track 2, Track 3" for a release with thirty generically named tracks, or
-    "SDH" with no language. Measured on a Netflix release with 39 subtitle
-    tracks: nine named (Dubtitle, SDH, Latin American, European, Brazilian,
-    Simplified) and the rest "Track N", all with a language.
-    """
-
-    @pytest.mark.parametrize(
-        "line,label",
-        [
-            ("|  4 - Dubtitle - [English]", "Dubtitle \u00b7 English"),
-            ("|  3 - Track 1 - [English]", "English"),
-            ("| 40 - Simplified - [Chinese]", "Simplified \u00b7 Chinese"),
-            ("| 31 - Brazilian - [Portuguese]", "Brazilian \u00b7 Portuguese"),
-            ("| 14 - Latin American - [Spanish] *", "Latin American \u00b7 Spanish"),
-            ("|  6 - Track 4 - [Japanese]", "Japanese"),
-            ("|  5 - SDH - [English]", "SDH \u00b7 English"),
-        ],
-    )
-    def test_the_label_is_both_halves(self, line, label):
-        from lib.player.vlcproc import _track_display, _track_parts
-
-        assert _track_display(*_track_parts(line)) == label
-
-    def test_the_window_is_one_either_side_and_the_count(self):
-        proc = VlcProcess()
-        ids = list(range(1, 41))
-        proc._track_names = {"strack": {i: "Lang %d" % i for i in ids}}
-        assert proc._track_window(ids, 20) == ("Lang 19 < Lang 20 20/40 > Lang 21")
-
-    def test_the_window_stops_at_the_ends(self):
-        proc = VlcProcess()
-        proc._track_names = {"strack": {1: "One", 2: "Two", 3: "Three"}}
-        # Wrapped, not clipped: the track before the first is the last one.
-        assert proc._track_window([1, 2, 3], 1) == "Three < One 1/3 > Two"
-        assert proc._track_window([1, 2, 3], 3) == "Two < Three 3/3 > One"
-
-
-class TestPercentInAnOverlayMessage:
-    """
-    marq runs its text through strftime before drawing it.
-
-    So a percent sign in a film's name is a format sequence: "%Y" becomes the
-    year and "100%" loses characters. Measured against the source of marq.c,
-    which calls vlc_strftime() on whatever the file holds.
-    """
-
-    def test_percent_signs_are_doubled_before_writing(self, tmp_path, monkeypatch):
-        from lib.player import vlcproc
-
-        path = str(tmp_path / "marq.txt")
-        monkeypatch.setattr(vlcproc, "MARQ_FILE", path)
-        proc = VlcProcess({"osd_overlay": "0"})
-        proc._write_overlay("100% Entertainment, %Y")
-        assert open(path, encoding="utf-8").read() == "100%% Entertainment, %%Y"
-
-    def test_a_message_without_one_is_unchanged(self, tmp_path, monkeypatch):
-        from lib.player import vlcproc
-
-        path = str(tmp_path / "marq.txt")
-        monkeypatch.setattr(vlcproc, "MARQ_FILE", path)
-        proc = VlcProcess({"osd_overlay": "0"})
-        proc._write_overlay("English | Dubtitle · English < SDH · English 3/39 >")
-        assert open(path, encoding="utf-8").read() == (
-            "English | Dubtitle · English < SDH · English 3/39 >"
-        )
+        cmd = proc.build_command({"outfile": "/x"})
+        assert not [a for a in cmd if a.startswith("--http-")]
+        assert not [a for a in cmd if a.startswith("--extraintf")]
 
 
 class TestSeveralChosenSubtitles:

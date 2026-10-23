@@ -233,6 +233,12 @@ class ProcessPipe:
                 idx = 0
             return self.procs[idx].status_msg()
 
+    def add_subtitles(self, chosen, lang=None):
+        """Put subtitles on the film that is playing, if the player can."""
+        if not self.started:
+            return False
+        return self.procs[-1].add_subtitles(chosen, lang)
+
     def waiting(self):
         """
         Whether the player is up but nothing has come through it yet.
@@ -450,6 +456,10 @@ class Process(ABC):
 
     def waiting(self):
         """Whether this stage is up but has nothing to play yet."""
+        return False
+
+    def add_subtitles(self, chosen, lang=None):
+        """Attach subtitles to a film already playing. Most players cannot."""
         return False
 
     @abstractmethod

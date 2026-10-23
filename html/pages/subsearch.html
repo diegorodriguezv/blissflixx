@@ -56,7 +56,7 @@
     <div class="row">
       <div class="col-xs-12">
         <button onclick={ play } type="button" class="btn btn-primary" show={ chosen }>
-          Play With These Subtitles
+          { live ? 'Add To The Film' : 'Play With These Subtitles' }
         </button>
       </div>
     </div>
@@ -94,6 +94,10 @@
       riot.route.exec(function(page, url, name) {
         self.url = decodeURIComponent(url)
         self.name = decodeURIComponent(name)
+        // "live" is the control panel's Add Subtitles button: a film is already
+        // playing, and what is picked here is attached to it rather than played.
+        // Everything else is the release's own page, where Play starts it.
+        self.live = self.url === 'live'
         // The release name is what the search starts from: it carries the
         // title and the year, and it is editable because releases abbreviate.
         self.f_title.value = self.name
@@ -138,6 +142,13 @@
       var subs = {lang: self.f_lang.value, chosen: self.chosen.map(function(r) {
         return {id: r.id, name: r.name}
       })}
+      if (self.live) {
+        Utils.rpc('playr', 'add_subtitles', subs, function(err) {
+          if (err) return Utils.showError(err)
+          window.history.back()
+        })
+        return
+      }
       playerStore.playWithSubs(self.url, self.name, subs, function(err) {
         if (err) return Utils.showError(err)
         window.history.back()

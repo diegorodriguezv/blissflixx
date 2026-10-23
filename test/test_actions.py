@@ -111,13 +111,13 @@ class TestControlSurfaceMatches:
         A floor as much as a count: an action that loses its branch without
         losing its button is what this catches.
 
-        Seventeen are answered in a backend, and the loop answers five above it
+        Eighteen are answered in a backend, and the loop answers five above it
         -- pause and resume because it is the loop that tracks whether the film
         is paused, stop for the same reason, and the two for changing film. The
         union is two more than either list alone, because three of the five are
         answered in both.
         """
-        assert len(SERVER_ACTIONS) == 17, sorted(SERVER_ACTIONS)
+        assert len(SERVER_ACTIONS) == 18, sorted(SERVER_ACTIONS)
         assert PLAYER_ACTIONS == {
             "pause",
             "resume",
@@ -125,7 +125,7 @@ class TestControlSurfaceMatches:
             "next_item",
             "prev_item",
         }, sorted(PLAYER_ACTIONS)
-        assert len(ALL_SERVER_ACTIONS) == 19, sorted(ALL_SERVER_ACTIONS)
+        assert len(ALL_SERVER_ACTIONS) == 20, sorted(ALL_SERVER_ACTIONS)
 
     def test_the_remote_panel_is_where_they_live(self):
         """
