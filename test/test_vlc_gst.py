@@ -3242,38 +3242,20 @@ class TestMuting:
 
     def test_mute_presses_the_players_own_mute_hotkey(self):
         """
-        The action id is "key-vol-mute", not "mute". Measured on the box: the
-        press said "Muted" and the sound carried on, because an unknown key name
-        is not an error the cli reports.
+        The action id is "key-vol-mute", not "mute". Measured on the box: "mute"
+        was silently ignored, because an unknown hotkey name is not an error the
+        cli reports -- the marquee said "Muted" over a film that was not.
+
+        No marquee of ours: the hotkey is one VLC has an OSD for, so it says so
+        itself, and a message of ours appeared underneath it.
         """
         proc = self._proc()
 
         proc.control("mute")
-
-        assert proc.sent == ["key key-vol-mute"], proc.sent
-        assert proc.shown == ["Muted"], proc.shown
-
         proc.control("mute")
 
-        assert proc.sent == ["key key-vol-mute", "key key-vol-mute"], proc.sent
-        assert proc.shown == ["Muted", "Sound on"], proc.shown
-
-    def test_a_volume_press_puts_the_sound_back_on(self):
-        """
-        VLC's mute sets the level to zero, so setting a level undoes it. The
-        next mute press should mute, not restore a level already in force.
-        """
-        proc = self._proc()
-        proc.control("mute")
-
-        proc.control("volup")
-
-        assert proc._muted is False
-
-        proc.control("mute")
-
-        assert proc.sent[-1] == "key key-vol-mute"
-        assert proc.shown[-1] == "Muted"
+        assert proc.sent == ["key key-vol-mute"] * 2, proc.sent
+        assert proc.shown == [], proc.shown
 
 
 class TestSeveralChosenSubtitles:

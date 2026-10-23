@@ -708,10 +708,6 @@ class VlcProcess(PlayerBackend):
         # build_command(), which is pure so it can be tested without a player.
         self._http_port = None
         self._http_password = None
-        # Whether the sound is muted, as far as the buttons know. VLC's cli can
-        # set a mute but not read one back, and the mute hotkey toggles, so this
-        # is what keeps the two in step.
-        self._muted = False
         # Whether this stage has already said, in its own words, why it failed.
         # A message that says what happened needs no log tail after it; see
         # _add_output_to_error.
@@ -1788,16 +1784,13 @@ class VlcProcess(PlayerBackend):
         elif action == "mute":
             # A hotkey, not a volume change: the cli has no mute verb, and
             # setting the volume to zero would lose the level to come back to.
+            # VLC draws its own OSD for it, so there is no marquee here.
             #
             # The name is VLC's action id, not the word: the hotkey is
             # "key-vol-mute", the same way the delay hotkeys are
             # "key-subdelay-up". "mute" is not one, and the press was silently
             # ignored -- the overlay said "Muted" over a film that was not.
-            self._muted = not self._muted
             self._send_command("key key-vol-mute")
-            self._show_overlay(
-                "Muted" if self._muted else "Sound on", hold=_CONFIRM_HOLD
-            )
         elif action == "stop":
             self._send_command("quit")
             self._force_quit()
@@ -1814,10 +1807,6 @@ class VlcProcess(PlayerBackend):
             if action == "voldown":
                 step = -step
             self._set_volume(self._current_volume() + step)
-            # A volume change is sound coming back: VLC's mute sets the level to
-            # zero, so setting a level undoes it, and the next mute press should
-            # mean "mute" rather than restore a level that is already in force.
-            self._muted = False
             # Read back rather than computed: _set_volume clamps, and the number
             # on the overlay is the level that was actually set -- so pressing up
             # at the ceiling says 120%, not a larger number that was refused.
