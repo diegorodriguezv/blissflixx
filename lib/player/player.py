@@ -417,6 +417,9 @@ class _Player:
             # that sits there looking like a film with a black screen.
             "Waiting": False,
             "Elapsed": 0,
+            # What the source is doing, when it can say: "12% · 1.4 MB/s · 6
+            # peers". Shown while the film is not on screen; see status_msg.
+            "Detail": "",
             # Whether this film came from a playlist. The panel's prev/next item
             # buttons are about the list around the film, and a film played on
             # its own has no list for them to move through.
@@ -438,6 +441,7 @@ class _Player:
 
         status["Title"] = play_pipe.status_msg()
         status["Waiting"] = play_pipe.waiting()
+        status["Detail"] = play_pipe.detail()
         # How long it took, once, for the question that keeps coming back:
         # "was that slower than it used to be". Everything a play waits on is
         # already logged with a timestamp -- peerflix verifying its buffer,

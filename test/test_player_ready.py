@@ -12,6 +12,7 @@ picture and sound come out, and whether subtitles burn in correctly. What is
 tested is everything up to the point the bytes are handed to the player.
 """
 
+import time
 import types
 
 import pytest
@@ -154,6 +155,50 @@ class TestPeerflixSubtitleFile:
         """
         args = self._ready([{"idx": 3, "name": "Film.eng.srt"}])
         assert "subtitles" not in args
+
+
+class TestWhatTheBarSaysWhileATorrentStarts:
+    """
+    peerflix hashes the whole buffer before it opens its port, and then waits
+    for pieces. Both are minutes with nothing on screen, and both have numbers
+    behind them: the hashing prints its own percentage, and the swarm answers
+    /.json with bytes, speed and peers.
+    """
+
+    def test_the_verifying_line_is_understood_with_its_colours(self):
+        from lib.player import pflixproc
+
+        found = pflixproc._VERIFYING_RE.search(
+            "\x1b[33mVerifying downloaded:\x1b[39m 27%"
+        )
+        assert found.group(1) == "27"
+
+    def test_the_bar_says_the_percentage_while_it_hashes(self):
+        proc = PeerflixProcess("http://x/y.torrent", 0)
+        proc._verifying = 27
+        assert proc.status_msg() == "VERIFYING 27%"
+
+    def test_the_detail_says_percent_speed_and_peers(self):
+        proc = PeerflixProcess("http://x/y.torrent", 0)
+        proc._progress = {"percent": 12, "speed": 1468006, "peers": 6}
+        proc._moved_at = time.time()
+        assert proc.detail() == "12% · 1.4 MB/s · 6 peers"
+
+    def test_it_says_when_nothing_is_arriving(self):
+        """
+        A torrent that is not downloading has to look like one. Without this the
+        bar shows the same numbers for three minutes and reads as a stall the
+        person has to guess at.
+        """
+        proc = PeerflixProcess("http://x/y.torrent", 0)
+        proc._progress = {"percent": 12, "speed": 0, "peers": 0}
+        proc._moved_at = time.time() - 24
+        said = proc.detail()
+        assert said.startswith("12% · 0 B/s · 0 peers")
+        assert "nothing arriving for 2" in said
+
+    def test_nothing_to_say_before_the_first_answer(self):
+        assert PeerflixProcess("http://x/y.torrent", 0).detail() == ""
 
 
 class TestPeerflixReady:

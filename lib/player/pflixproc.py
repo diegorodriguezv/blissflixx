@@ -1,7 +1,10 @@
+import json
 import os
 import re
+import time
 
 import cherrypy
+import requests
 
 from ..api.torrent import torrent2magnet
 from ..locations import DATA_PATH
@@ -32,10 +35,36 @@ BUFFER_DIR = os.path.join(DATA_PATH, "downloads", "torrent-stream")
 #: 127.0.0.1:9696" after sitting there for a minute.
 _LISTENING_RE = re.compile(r"(http://\S+?)/?\s*$")
 
+#: peerflix's own progress line while it hashes what is already on disk:
+#: "Verifying downloaded: 27%". The colours around it are why this looks for the
+#: number rather than the whole line.
+_VERIFYING_RE = re.compile(r"Verifying downloaded:.*?(\d+)%")
+
+#: How often the swarm's own numbers are read, and for how long.
+#:
+#: They are only wanted while the picture has not started -- a film that is
+#: playing says what it is doing on the screen -- so the asking stops after a
+#: few minutes rather than running for the length of the film.
+_PROGRESS_EVERY = 2
+_PROGRESS_FOR = 300
+
+#: How long the numbers may stay identical before the bar says nothing is
+#: arriving. Long enough that a slow piece does not read as a dead torrent,
+#: short enough that a dead one is not left looking busy.
+_STALLED_AFTER = 20
+
 
 class PeerflixProcess(ExternalProcess):
     def __init__(self, torrent, idx, subs=None):
         super().__init__()
+        #: The last "Verifying downloaded: N%" seen, or None.
+        self._verifying = None
+        #: The swarm's last answer: downloaded / total / speed / peers.
+        self._progress = None
+        self._progress_at = None
+        #: When the numbers last changed, for the stalled line.
+        self._moved_at = None
+        self._started_at = None
         #: The files inside this torrent to pull out as subtitles, most
         #: probable first: [{"idx": n, "name": ".."}]. Empty when this play
         #: asked for none.
@@ -80,8 +109,12 @@ class PeerflixProcess(ExternalProcess):
         return self.cmd
 
     def _ready(self):
+        self._started_at = time.time()
         while True:
             line = self._readline()
+            found = _VERIFYING_RE.search(line)
+            if found:
+                self._verifying = int(found.group(1))
             if line.startswith("Bad Response"):
                 raise ProcessException(line)
             # Get this error if site down/blocked
@@ -90,6 +123,13 @@ class PeerflixProcess(ExternalProcess):
                 raise ProcessException("Unable to retrieve torrent")
             elif line.startswith("server is listening"):
                 self.args["outfile"] = self._advertised_url(line)
+                cherrypy.log(
+                    "TIMING peerflix %.1fs to serve (verified %s%%)"
+                    % (time.time() - self._started_at, self._verifying)
+                )
+                from .processpipe import _start_thread
+
+                _start_thread(self._watch_progress)
                 if self.subs:
                     # Where the subtitles live, not the subtitles: fetching one
                     # waits on pieces that may not be here yet, and waiting here
@@ -104,6 +144,76 @@ class PeerflixProcess(ExternalProcess):
                         for s in self.subs
                     ]
                 return self.args
+
+    def status_msg(self):
+        """
+        What the bar says before the port is open: the hashing, in numbers.
+
+        peerflix hashes the whole buffer before it will serve anything, which
+        for a film watched before is minutes with nothing on screen. The
+        percentage is its own; it prints one per piece.
+        """
+        if self._verifying is not None:
+            return "VERIFYING %d%%" % self._verifying
+        return "LOADING STREAM"
+
+    def detail(self):
+        """
+        The swarm's numbers, while the picture has not started.
+
+        "12% · 1.4 MB/s · 6 peers", and when they stop moving, how long they
+        have been still: a torrent that is not downloading has to look like one
+        rather than like a film that is thinking about it.
+        """
+        if self._progress is None:
+            return ""
+        text = "%d%% · %s/s · %d peers" % (
+            self._progress["percent"],
+            _size(self._progress["speed"]),
+            self._progress["peers"],
+        )
+        if self._moved_at is not None:
+            quiet = int(time.time() - self._moved_at)
+            if quiet >= _STALLED_AFTER:
+                return text + " — nothing arriving for %ds" % quiet
+        return text
+
+    def _watch_progress(self):
+        """
+        Ask the swarm what it is doing, every couple of seconds, for a while.
+
+        peerflix answers /.json with the piece of its own bookkeeping this
+        needs: bytes downloaded against the torrent's length, the speed, and
+        how many peers are connected. Cheap, and it stops on its own.
+        """
+        base = (self.args.get("outfile") or "").rstrip("/")
+        if not base:
+            return
+        deadline = time.time() + _PROGRESS_FOR
+        while time.time() < deadline:
+            if self.killing:
+                return
+            try:
+                r = requests.get(base + "/.json", timeout=5)
+                stats = json.loads(r.content.decode("utf-8"))
+            except Exception:
+                time.sleep(_PROGRESS_EVERY)
+                continue
+            total = stats.get("totalLength") or 0
+            downloaded = stats.get("downloaded") or 0
+            if not total:
+                time.sleep(_PROGRESS_EVERY)
+                continue
+            percent = int(downloaded * 100 / total)
+            if self._progress is None or percent != self._progress["percent"]:
+                self._moved_at = time.time()
+            self._progress = {
+                "percent": percent,
+                "speed": int(stats.get("downloadSpeed") or 0),
+                "peers": int(stats.get("totalPeers") or 0),
+            }
+            self._progress_at = time.time()
+            time.sleep(_PROGRESS_EVERY)
 
     def _advertised_url(self, line):
         """
@@ -122,3 +232,12 @@ class PeerflixProcess(ExternalProcess):
         # Nothing is deleted here. This used to rmtree the download directory on
         # every stop, which discarded the whole download each time.
         super().stop()
+
+
+def _size(value):
+    """Bytes per second, in words."""
+    if value >= 1024 * 1024:
+        return "%.1f MB" % (value / (1024 * 1024))
+    if value >= 1024:
+        return "%d kB" % (value / 1024)
+    return "%d B" % value

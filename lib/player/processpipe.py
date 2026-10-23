@@ -239,6 +239,14 @@ class ProcessPipe:
             return False
         return self.procs[-1].add_subtitles(chosen, lang)
 
+    def detail(self):
+        """Whatever any stage can say about what it is doing right now."""
+        for proc in self.procs:
+            said = proc.detail()
+            if said:
+                return said
+        return ""
+
     def waiting(self):
         """
         Whether the player is up but nothing has come through it yet.
@@ -457,6 +465,10 @@ class Process(ABC):
     def waiting(self):
         """Whether this stage is up but has nothing to play yet."""
         return False
+
+    def detail(self):
+        """A running account of what this stage is doing, if it can give one."""
+        return ""
 
     def add_subtitles(self, chosen, lang=None):
         """Attach subtitles to a film already playing. Most players cannot."""

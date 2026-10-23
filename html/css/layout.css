@@ -226,6 +226,21 @@ ul.navitems-left>li {
 }
 
 /*
+ * What the source is doing while the film has not started: "12% · 1.4 MB/s ·
+ * 6 peers". Between the name and the count, dimmer than the name and never
+ * wrapped -- it is a reading, not a title.
+ */
+.play-detail {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  margin-left: 12px;
+  font-size: 20px;
+  color: #4a6b8a;
+}
+
+/*
  * The count beside a film that has not started yet.
  *
  * "Loading Stream 12s". A chip rather than plain text: the title on this bar is

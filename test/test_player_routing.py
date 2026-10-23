@@ -397,6 +397,7 @@ class TestStatus:
             "Waiting",
             "Elapsed",
             "Playlist",
+            "Detail",
         }
 
     def test_idle_player_is_not_running(self):
@@ -439,6 +440,9 @@ class TestStatus:
 
             def waiting(self):
                 return True
+
+            def detail(self):
+                return ""
 
             def is_started(self):
                 return True
@@ -593,6 +597,9 @@ class _FakePipe:
         # This fake is always a film that arrived; waiting is the player stage
         # saying it has nothing to decode yet. See ProcessPipe.waiting().
         return False
+
+    def detail(self):
+        return ""
 
 
 def _builder(title):

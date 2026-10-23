@@ -156,6 +156,9 @@
       }
       if (!self.starting && !self.lingering) self.lastCount = ''
       self.pill = self.starting || self.lingering ? self.lastCount : ''
+      // What the source is doing. Only while the film is not on screen: once it
+      // plays, the picture says more than a percentage can.
+      self.detail = self.starting ? (self.status.Detail || '') : ''
       // The bar stays closed once closed until there is nothing to say, so a
       // notice about a film that has since been dealt with does not come back
       // on the next poll. Both kinds count, not just errors.

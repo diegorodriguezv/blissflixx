@@ -41,19 +41,7 @@ so, the title should be more useful what is 400? where it happened? doing what?
 the trace should be under a button: show output / details / appropriate name
 button: retry (basically go-back) 
 button: cancel (basically go-back two times, skip the action that throwed the error)
-can we iprove the design so that this errors do not stop the flow of actions of the user
+can we improve the design so that this errors do not stop the flow of actions of the user
 
-___ running sessions ___
-
-# improve subtitles
-running
-
-# time to play improvement (running other session)
-hold until everything else is stable
-in planning stage but got mixed with improving the feedback to feel more responsive
-
-## at the end
-another agent worked on fixing the subtitles, check it out and find if it changes the plan
-
-
-
+when i click on cyberpunk s02 a video started playing but it wasn't the first one, i couldn't tell which one was playing
+maybe we shouldn't play it but go, directly to view file, also add subtitles makes no sense here. it has to be another kind of torrent file, one with several episodes, or even several seasons, a container-torrent, the add to playlist has to be renamed: create playlist, that creates a flattened, ordered playlist
