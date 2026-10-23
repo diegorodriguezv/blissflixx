@@ -576,14 +576,15 @@ class TestVlcControl:
         ]
         assert proc._decoded_frames() == 435
 
-    def test_a_seek_that_works_says_nothing(self):
+    def test_a_seek_that_works_reports_the_position(self):
         """
-        VLC draws its own position marker for a seek, so the app's marquee used
-        to print a second, larger one over it. The player's own is the feedback.
+        VLC 3 draws nothing of its own for a seek on this box, measured with the
+        ±30 s buttons: the screen stays clean. Without this the press had no
+        visible effect at all until the picture happened to change.
         """
         proc, sent = self._seeking([900, 1240])
         proc._stalled(30)
-        assert [s for s in sent if not s.startswith("seek")] == [], sent
+        assert sent == ["seek +30", "1:45 / 21:37"], sent
 
     def test_a_seek_that_freezes_the_film_says_so(self):
         """
@@ -594,8 +595,9 @@ class TestVlcControl:
         """
         proc, sent = self._seeking([900, 900])
         assert proc._stalled(30) is True
-        assert "Stalled 1:45 / 21:37" in sent, sent
-        assert "1:45 / 21:37" not in [s for s in sent if not s.startswith("Stalled")]
+        # The position first, as the seek's own confirmation, then the truth
+        # once the picture has had its settle and stayed flat.
+        assert sent == ["seek +30", "1:45 / 21:37", "Stalled 1:45 / 21:37"], sent
 
     def test_a_film_that_will_not_say_is_not_called_a_stall(self):
         """
@@ -605,7 +607,8 @@ class TestVlcControl:
         """
         proc, sent = self._seeking([None, None])
         assert proc._stalled(30) is None
-        assert [s for s in sent if not s.startswith("seek")] == [], sent
+        # The position is shown; no stall is claimed on top of it.
+        assert sent == ["seek +30", "1:45 / 21:37"], sent
 
     def test_a_seek_while_paused_is_not_a_stall(self):
         """
@@ -616,7 +619,7 @@ class TestVlcControl:
         """
         proc, sent = self._seeking([900, 900], paused=True)
         assert proc._stalled(30) is None
-        assert not [s for s in sent if s.startswith("Stalled")], sent
+        assert sent == ["seek +30", "1:45 / 21:37"], sent
 
     def test_the_seek_is_sent_whether_or_not_frames_come_back(self):
         """
@@ -2434,22 +2437,36 @@ class TestAConfirmationAlwaysSaysSomething:
     is the one thing this mechanism exists to rule out.
     """
 
-    def test_a_seek_says_nothing_whatever_the_player_answers(self):
+    def test_a_seek_says_the_position_it_landed_on(self):
         """
-        A seek is confirmed by VLC's own marker on the picture. The app used to
-        draw a second one, and when the player would not say where it was, the
-        bare word "Seek" -- which is not feedback, it is a label for feedback
-        that did not arrive.
+        VLC draws no seek marker of its own on this box, so this message is the
+        only sign the press did anything. The position comes from the player,
+        not from adding the step to the clock: a seek is clamped, and the
+        player is the only thing that knows where it stopped.
         """
-        for position in (None, (64.0, 1297.0)):
-            proc = on_screen_proc()
-            shown = []
-            proc._show_overlay = lambda text, hold=None: shown.append(text)
-            proc._read_position = lambda pos=position: pos
+        proc = on_screen_proc()
+        shown = []
+        proc._show_overlay = lambda text, hold=None: shown.append(text)
+        proc._read_position = lambda: (64.0, 1297.0)
 
-            proc.control("plus30")
+        proc.control("plus30")
 
-            assert shown == [], shown
+        assert shown == ["1:04 / 21:37"], shown
+
+    def test_a_seek_with_no_readable_position_says_the_action(self):
+        """
+        The player not saying where it is says nothing about whether the seek
+        was accepted. Showing nothing is the one outcome this mechanism exists
+        to rule out.
+        """
+        proc = on_screen_proc()
+        shown = []
+        proc._show_overlay = lambda text, hold=None: shown.append(text)
+        proc._read_position = lambda: None
+
+        proc.control("plus30")
+
+        assert shown == ["Seek"], shown
 
 
 class TestHowLongAMessageStays:

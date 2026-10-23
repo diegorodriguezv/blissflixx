@@ -1646,9 +1646,12 @@ class VlcProcess(PlayerBackend):
         been observed to do it. If it happens again, the film is now saying so
         on screen instead of quietly looking fine.
 
-        A seek that worked says nothing. VLC draws its own position marker for
-        a seek, and this used to draw a second one over it -- the app's marquee
-        repeating what the player had already put on the screen.
+        The position goes up straight away, before the settle is waited out.
+        VLC 3 draws no marker of its own for a seek on this box -- measured, the
+        screen stays clean -- so this is the only feedback a ±30 s press has,
+        and it is worth having on screen while the picture catches up rather
+        than two and a half seconds later. A stall replaces it below; that is
+        the one thing the message cannot claim.
 
         None rather than True when the count cannot be read either side of the
         seek. A player that will not answer is not evidence of a stall, and
@@ -1657,6 +1660,7 @@ class VlcProcess(PlayerBackend):
         """
         before = self._decoded_frames()
         self._seek(seconds)
+        self._report_progress(label="Seek")
         if before is None:
             # Nothing to compare against, so there is nothing to wait for.
             return None

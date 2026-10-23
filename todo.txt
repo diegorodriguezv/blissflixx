@@ -1,5 +1,11 @@
 # future
 
+Add the console blank kernel argument during install. optional, only useful for lite raspios 
+
+## Improve peerflix to make it snappier.
+Improve the peer handling mechanism to improve speed, reduce stalls... Keep a list of the fastest ones, change them if they degrade... Keep a list of next possible candidates to swap fast
+
+
 ## proxy to bypass geolocation for bbc
 look back at the history to understand how the bbc channel proxy service was implemented, try to figure out how the backend was working and see what it would take to do it
 
