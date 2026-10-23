@@ -417,6 +417,10 @@ class _Player:
             # that sits there looking like a film with a black screen.
             "Waiting": False,
             "Elapsed": 0,
+            # Whether this film came from a playlist. The panel's prev/next item
+            # buttons are about the list around the film, and a film played on
+            # its own has no list for them to move through.
+            "Playlist": self.playlist is not None,
         }
 
         if self.error is not None:

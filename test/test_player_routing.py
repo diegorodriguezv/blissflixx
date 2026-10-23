@@ -396,6 +396,7 @@ class TestStatus:
             "Notice",
             "Waiting",
             "Elapsed",
+            "Playlist",
         }
 
     def test_idle_player_is_not_running(self):
@@ -411,6 +412,20 @@ class TestStatus:
         status = player_module._Player().status()
         assert status["Waiting"] is False
         assert status["Elapsed"] == 0
+
+    def test_a_film_on_its_own_is_not_in_a_playlist(self):
+        """
+        The panel's prev/next item buttons are about the list around the film.
+        A film played on its own -- from a search, or pasted -- has no list for
+        them to move through, so they are hidden rather than left saying "Not
+        playing a playlist" when pressed.
+        """
+        pl = player_module._Player()
+        pl.playlist = None
+        assert pl.status()["Playlist"] is False
+
+        pl.playlist = ["some playlist"]
+        assert pl.status()["Playlist"] is True
 
     def test_the_count_runs_from_when_the_film_was_asked_for(self):
         """

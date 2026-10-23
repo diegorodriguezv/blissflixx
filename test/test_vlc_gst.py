@@ -2039,7 +2039,7 @@ class TestWhatTheOverlaySays:
 
         # The list around the current track, on one line.
         assert shown == [
-            "English (CC) \u25b8 < Commentary 2/2 > \u25b8 English (CC)"
+            "English (CC) \u25c2 Commentary 2/2 \u25b8 English (CC)"
         ], shown
 
     @pytest.mark.parametrize(
@@ -2095,16 +2095,16 @@ class TestWhatTheOverlaySays:
         proc.control("next_subtitle")  # and on to the Disable entry
 
         assert shown == [
-            "English (CC) \u25b8 < Commentary 2/2 > \u25b8 English (CC)",
-            "Commentary \u25b8 < English (CC) 1/2 > \u25b8 Commentary",
+            "English (CC) \u25c2 Commentary 2/2 \u25b8 English (CC)",
+            "Commentary \u25c2 English (CC) 1/2 \u25b8 Commentary",
         ], shown
 
-    def test_hiding_names_the_track_it_switched_off(self):
+    def test_hiding_says_subtitles_are_off(self):
         """
-        hide_subtitle leaves the recorded choice alone -- that choice is what a
-        later step lands relative to, and moving it is a separate thing from
-        this -- so the press says for itself that it left subtitles off, and
-        names the track rather than falling back to the plain word.
+        The label says the state, not the track that was showing: naming a
+        track after "off" reads as a choice that is still on. The recorded
+        choice is left alone, because that is what a later step lands relative
+        to, and moving it is a separate thing from this.
         """
         proc = VlcProcess()
         shown = []
@@ -2120,7 +2120,7 @@ class TestWhatTheOverlaySays:
         proc.control("show_subtitle")  # choose the track
         proc.control("hide_subtitle")
 
-        assert shown == ["[on] Track 1", "[off] Track 1"], shown
+        assert shown == ["[on] Track 1", "subtitles off"], shown
 
     def test_next_after_hiding_turns_subtitles_back_on(self):
         """
@@ -2151,7 +2151,7 @@ class TestWhatTheOverlaySays:
         proc.control("hide_subtitle")  # off
         proc.control("next_subtitle")  # and back on
 
-        assert shown == ["[on] Track 1", "[off] Track 1", "[on] Track 1"], shown
+        assert shown == ["[on] Track 1", "subtitles off", "[on] Track 1"], shown
         assert sent[-1] == "strack 1", sent
 
     def test_show_after_hide_returns_to_the_track_that_was_on(self):
@@ -2185,9 +2185,9 @@ class TestWhatTheOverlaySays:
         proc.control("show_subtitle")
 
         assert shown == [
-            "English (CC) \u25b8 < Commentary 2/2 > \u25b8 English (CC)",
-            "[off] Commentary",
-            "English (CC) \u25b8 < Commentary 2/2 > \u25b8 English (CC)",
+            "English (CC) \u25c2 Commentary 2/2 \u25b8 English (CC)",
+            "subtitles off",
+            "English (CC) \u25c2 Commentary 2/2 \u25b8 English (CC)",
         ], shown
         assert sent[-1] == "strack 5", sent
 
@@ -2238,7 +2238,7 @@ class TestWhatTheOverlaySays:
 
         # A single audio track wraps to itself: "off" is not in the ring, and
         # audio has no hide button to reach it with.
-        assert shown == ["[on] Track 1", "[on] Track 1"], shown
+        assert shown == ["Track 1", "Track 1"], shown
 
         silent = VlcProcess()
         shown = []

@@ -51,7 +51,7 @@
               <div show={ status.Paused } class="col-xs-6"><button onclick={ pause } type="button" class="btn btn-info btn-lg btn-block"><i class="fa fa-play"></i> PLAY</button></div>
               <div class="col-xs-6"><button onclick={ stop } type="button" class="btn btn-info btn-lg btn-block"><i class="fa fa-stop"></i> STOP</button></div>
             </div>
-            <div class="row">
+            <div class="row" show={ status.Playlist }>
               <div class="col-xs-6"><button onclick={ doPrevItem } type="button" class="btn btn-info btn-lg btn-block"><i class="fa fa-step-backward"></i> PREV ITEM</button></div>
               <div class="col-xs-6"><button onclick={ doNextItem } type="button" class="btn btn-info btn-lg btn-block"><i class="fa fa-step-forward"></i> NEXT ITEM</button></div>
             </div>

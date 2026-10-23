@@ -1883,9 +1883,10 @@ class VlcProcess(PlayerBackend):
             return "no subtitles"
         chosen = self._track_choice.get("strack")
         if chosen is not None and chosen < 0:
-            return _track_label(
-                "subtitle", _TRACK_DISABLED, self._showing_track_name("strack")
-            )
+            # The state, not the track that was showing. "subtitles off" is the
+            # whole of what the press did; a name after it reads as a choice
+            # that is still on.
+            return "subtitles off"
         return _track_label(
             "subtitle",
             chosen,
@@ -1894,22 +1895,18 @@ class VlcProcess(PlayerBackend):
 
     def _audio_label(self):
         """
-        What the overlay says after an audio change.
+        What the overlay says after an audio change: the track's name alone.
 
-        The same three states as subtitles, so the same labels. There is no
-        hide-audio action, so off is never passed here.
+        No "[on]": there is no hide-audio button, so the prefix said nothing the
+        press had not just said itself. The track name is the whole answer, and
+        the language is already in it.
         """
         if self._no_tracks("atrack"):
             return "no audio"
         chosen = self._track_choice.get("atrack")
-        if chosen is not None and chosen < 0:
-            return _track_label(
-                "audio", _TRACK_DISABLED, self._showing_track_name("atrack")
-            )
-        return _track_label(
-            "audio",
-            chosen,
-            self._track_name("atrack", chosen or self._track_showing.get("atrack")),
+        return (
+            self._track_name("atrack", chosen or self._track_showing.get("atrack"))
+            or "audio"
         )
 
     def _subtitle_delay_label(self, direction):
@@ -2318,13 +2315,13 @@ class VlcProcess(PlayerBackend):
         """
         The tracks either side of the chosen one, and where in the list it is.
 
-            Chinese (Simplified) \u25b8 < English (Dubtitle) 2/39 > \u25b8 English (SDH)
+            Chinese (Simplified) \u25c2 English (Dubtitle) 2/39 \u25b8 English (SDH)
 
         One before and one after, wrapping around the ends so there is always
         both -- a list is clearer than a window that shrinks at the ends of the
         film's subtitle list, and the position already says where you are. The
-        current track sits between angle brackets with its position and the
-        total.
+        current track sits in the middle with its position and the total, an
+        arrow pointing back to the one before and forward to the one after.
 
         One line, because the marquee lays out one line: \n and \r\n are read as
         the end of the text (MarqueeReadFile in marq.c reads the file with
@@ -2341,14 +2338,15 @@ class VlcProcess(PlayerBackend):
         def display(one):
             return names.get(one) or ("Track %d" % one)
 
-        here = "< %s %d/%d >" % (display(current), position + 1, count)
+        here = "%s %d/%d" % (display(current), position + 1, count)
         if count < 2:
             return here
         before = display(ids[(position - 1) % count])
         after = display(ids[(position + 1) % count])
-        # A mark between the parts: a space alone let the three run together on
-        # a busy frame. U+25B8 is in the fonts VLC falls back to on the Pi.
-        return "%s \u25b8 %s \u25b8 %s" % (before, here, after)
+        # Arrows rather than brackets: they say which way the buttons step, and
+        # a space alone let the three run together on a busy frame. Both are in
+        # the fonts VLC falls back to on the Pi.
+        return "%s \u25c2 %s \u25b8 %s" % (before, here, after)
 
     def _no_tracks(self, command):
         """
