@@ -167,11 +167,16 @@ class PeerflixProcess(ExternalProcess):
         """
         if self._progress is None:
             return ""
-        text = "%d%% · %s/s · %d peers" % (
-            self._progress["percent"],
-            _size(self._progress["speed"]),
-            self._progress["peers"],
-        )
+        # The percentage is the swarm's bytes for *this* run, not the share of
+        # the film on disk: a film already buffered reads 0% while needing
+        # nothing. So it is shown only when this run has downloaded something,
+        # and the speed and peers -- which are always true -- carry the line.
+        parts = []
+        if self._progress["downloaded"]:
+            parts.append("%d%%" % self._progress["percent"])
+        parts.append("%s/s" % _size(self._progress["speed"]))
+        parts.append("%d peers" % self._progress["peers"])
+        text = " · ".join(parts)
         if self._moved_at is not None:
             quiet = int(time.time() - self._moved_at)
             if quiet >= _STALLED_AFTER:
@@ -208,6 +213,7 @@ class PeerflixProcess(ExternalProcess):
             if self._progress is None or percent != self._progress["percent"]:
                 self._moved_at = time.time()
             self._progress = {
+                "downloaded": downloaded,
                 "percent": percent,
                 "speed": int(stats.get("downloadSpeed") or 0),
                 "peers": int(stats.get("totalPeers") or 0),

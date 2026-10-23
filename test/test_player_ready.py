@@ -180,7 +180,12 @@ class TestWhatTheBarSaysWhileATorrentStarts:
 
     def test_the_detail_says_percent_speed_and_peers(self):
         proc = PeerflixProcess("http://x/y.torrent", 0)
-        proc._progress = {"percent": 12, "speed": 1468006, "peers": 6}
+        proc._progress = {
+            "downloaded": 250,
+            "percent": 12,
+            "speed": 1468006,
+            "peers": 6,
+        }
         proc._moved_at = time.time()
         assert proc.detail() == "12% · 1.4 MB/s · 6 peers"
 
@@ -191,10 +196,12 @@ class TestWhatTheBarSaysWhileATorrentStarts:
         person has to guess at.
         """
         proc = PeerflixProcess("http://x/y.torrent", 0)
-        proc._progress = {"percent": 12, "speed": 0, "peers": 0}
+        proc._progress = {"downloaded": 0, "percent": 12, "speed": 0, "peers": 0}
         proc._moved_at = time.time() - 24
         said = proc.detail()
-        assert said.startswith("12% · 0 B/s · 0 peers")
+        # No percentage: nothing was downloaded by this run, so "12%" would be a
+        # lie about a film that may be entirely on disk.
+        assert said.startswith("0 B/s · 0 peers")
         assert "nothing arriving for 2" in said
 
     def test_nothing_to_say_before_the_first_answer(self):
