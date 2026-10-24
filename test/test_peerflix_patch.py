@@ -60,7 +60,7 @@ def pristine_tree(mod, root):
         mod.FILES_END + mod.LATE_EMIT + mod.VERIFY_LOOP + LOOP_BODY,
         mod.SETUP_ON_READY + mod.LISTEN_ON_READY,
         mod.STOP_VERIFYING,
-        mod.FSTREAM_CTOR + mod.FSTREAM_DESTROY,
+        mod.FSTREAM_CTOR + mod.FSTREAM_PARK + mod.FSTREAM_DESTROY,
     )
 
 
@@ -129,6 +129,8 @@ class TestPatchScript:
         ).read_text()
         assert mod.WAKE_MARK in fstream
         assert "_onverify" in fstream
+        assert mod.PARKED_MARK in fstream
+        assert "_promote()" in fstream
 
     def test_second_run_is_a_noop(self, tmp_path, monkeypatch):
         mod = load_script(monkeypatch, tmp_path)

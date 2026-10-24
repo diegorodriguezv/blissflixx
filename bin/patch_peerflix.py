@@ -70,6 +70,16 @@ CACHE_OFF = "BF_VERIFY_CACHE"
 #: two hunks in place; fresh trees already have the fixed text.
 CACHE_FIX_MARK = "blissflixx:verify-cache-tolerates-missing"
 
+#: A read that is parked on a piece the swarm does not have yet takes priority
+#: over the download's own order. Measured on rpi: a 5.3GB MP4 whose index sits
+#: at the end of the file -- VLC asks for "bytes=5314433909-" before it will
+#: demux anything -- and peerflix answered only when its sequential download
+#: reached that offset, hours later. VLC read 666MB of a film it could not
+#: start and showed a black screen. The range a reader is waiting on is now
+#: moved to the front of the engine's selections, so its pieces are fetched in
+#: seconds; the download resumes its own order afterwards.
+PARKED_MARK = "blissflixx:parked-read-priority"
+
 #: Waking reads as pieces verify. Serving before verifying exposed a race the
 #: stock order never hit: a read for an unverified piece parks on
 #: engine.critical() and nothing wakes it, because selections advance through
@@ -131,9 +141,38 @@ FSTREAM_CTOR_NEW = (
   // subscribe to the event both verifications and downloads emit.
   this._onverify = this.notify.bind(this)
   engine.on('verify', this._onverify)
+  // %s -- a read waiting on a piece takes the front of the queue. Without
+  // this its range is just one more selection, and the download's own order
+  // wins: measured, a 5.3GB MP4 whose index is at the end of the file left
+  // VLC reading 666MB of a film it could not start.
+  this._promote = function () {
+    var selections = engine.selection
+    for (var k = 1; k < selections.length; k++) {
+      if (selections[k].from === this.startPiece && selections[k].to === this.endPiece) {
+        selections.unshift(selections.splice(k, 1)[0])
+        return
+      }
+    }
+  }
 }
 """
-    % WAKE_MARK
+    % (WAKE_MARK, PARKED_MARK)
+)
+
+#: The parked branch of notify(), which is where a reader discovers that the
+#: piece it wants is not there.
+FSTREAM_PARK = """  if (!this._engine.bitfield.get(this._piece)) return this._engine.critical(this._piece, this._critical)
+"""
+
+FSTREAM_PARK_NEW = (
+    """  if (!this._engine.bitfield.get(this._piece)) {
+    // %s -- the piece this read is waiting on is fetched ahead of the
+    // download's own order; see _promote.
+    this._promote()
+    return this._engine.critical(this._piece, this._critical)
+  }
+"""
+    % PARKED_MARK
 )
 
 FSTREAM_DESTROY = """FileStream.prototype.destroy = function () {
@@ -425,9 +464,45 @@ def main():
     print("and to wake reads as pieces verify:")
     patch(
         FSTREAM,
-        [(FSTREAM_CTOR, FSTREAM_CTOR_NEW), (FSTREAM_DESTROY, FSTREAM_DESTROY_NEW)],
+        [
+            (FSTREAM_CTOR, FSTREAM_CTOR_NEW),
+            (FSTREAM_PARK, FSTREAM_PARK_NEW),
+            (FSTREAM_DESTROY, FSTREAM_DESTROY_NEW),
+        ],
         mark=WAKE_MARK,
     )
+    print("and to put a waiting read at the front of the queue:")
+    # Anchored on the wakeup patch's own text, so it applies to trees that
+    # already have it (every box) and skips cleanly if it is absent.
+    before = FSTREAM.read_text() if FSTREAM.exists() else ""
+    if WAKE_MARK in before:
+        patch(
+            FSTREAM,
+            [
+                (
+                    "  this._onverify = this.notify.bind(this)\n"
+                    "  engine.on('verify', this._onverify)\n}",
+                    "  this._onverify = this.notify.bind(this)\n"
+                    "  engine.on('verify', this._onverify)\n"
+                    "  // %s -- a read waiting on a piece takes the front of the\n"
+                    "  // queue. Without this its range is just one more selection,\n"
+                    "  // and the download's own order wins: measured, a 5.3GB MP4\n"
+                    "  // whose index is at the end of the file left VLC reading\n"
+                    "  // 666MB of a film it could not start.\n"
+                    "  this._promote = function () {\n"
+                    "    var selections = engine.selection\n"
+                    "    for (var k = 1; k < selections.length; k++) {\n"
+                    "      if (selections[k].from === this.startPiece && selections[k].to === this.endPiece) {\n"
+                    "        selections.unshift(selections.splice(k, 1)[0])\n"
+                    "        return\n"
+                    "      }\n"
+                    "    }\n"
+                    "  }\n}" % PARKED_MARK,
+                ),
+                (FSTREAM_PARK, FSTREAM_PARK_NEW),
+            ],
+            mark=PARKED_MARK,
+        )
     return 0
 
 

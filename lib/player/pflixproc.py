@@ -320,9 +320,15 @@ class PeerflixProcess(ExternalProcess):
         files = (self._progress or {}).get("files") or []
         if not files:
             return None
+        # peerflix serves index 0 when no -i was given, so an unset index is
+        # index 0 and not "unknown": this used to return nothing at all for a
+        # magnet that carried no file index, which is most of them, and the one
+        # reading that says how much of the film is on the card disappeared
+        # exactly when a stall made it worth looking at.
+        index = self.idx if isinstance(self.idx, int) else 0
         entry = None
-        if isinstance(self.idx, int) and 0 <= self.idx < len(files):
-            entry = files[self.idx]
+        if 0 <= index < len(files):
+            entry = files[index]
         if not isinstance(entry, dict):
             return None
         name = str(entry.get("name") or "")
