@@ -533,6 +533,70 @@ class TestLocalFileEviction:
         assert calls == [str(local)]
 
 
+class TestDisplayWatchdog:
+    def _proc(self, monkeypatch, snapshots):
+        proc = vlcproc.VlcProcess()
+        values = list(snapshots)
+        proc.proc = type("P", (), {"poll": lambda self: None})()
+        monkeypatch.setattr(proc, "_status_snapshot", lambda: values.pop(0) if values else {})
+        quit_calls = []
+        monkeypatch.setattr(proc, "_force_quit", lambda: quit_calls.append(1))
+        monkeypatch.setattr(vlcproc.time, "sleep", lambda seconds: None)
+        # A clock that advances a second per reading, so the loop's deadline is
+        # reached without sleeping.
+        state = {"now": 0.0}
+
+        def tick():
+            state["now"] += 1.0
+            return state["now"]
+
+        monkeypatch.setattr(vlcproc.time, "time", tick)
+        return proc, quit_calls
+
+    def test_a_decoded_film_with_no_picture_ends_the_play(self, monkeypatch):
+        """
+        The screen is black, the demuxer is open, frames are decoded -- so the
+        bar stops waiting -- and nothing says why. This is the one failure the
+        viewer cannot tell from a slow stream, so it is ended with the reason.
+        """
+        proc, quits = self._proc(
+            monkeypatch,
+            [{"stats": {"decodedvideo": 5, "displayedpictures": 0}}] * 5,
+        )
+        proc._watch_display()
+        assert quits == [1]
+        assert proc.has_error()
+
+    def test_a_displayed_frame_ends_the_watch(self, monkeypatch):
+        proc, quits = self._proc(
+            monkeypatch,
+            [{"stats": {"decodedvideo": 5, "displayedpictures": 3}}],
+        )
+        proc._watch_display()
+        assert quits == []
+        assert not proc.has_error()
+
+    def test_nothing_decoded_yet_is_not_a_display_failure(self, monkeypatch):
+        """A torrent with no peers decodes nothing; that is not this."""
+        proc, quits = self._proc(
+            monkeypatch,
+            [{"stats": {"decodedvideo": 0, "displayedpictures": 0}}] * 4,
+        )
+        proc._watch_display()
+        assert quits == []
+        assert not proc.has_error()
+
+
+class TestSourceModeset:
+    def test_the_display_follows_the_film_by_default(self):
+        cmd = vlcproc.VlcProcess().build_command({"outfile": "/x"})
+        assert "--drm-vout-source-modeset" in cmd
+
+    def test_it_can_be_turned_off(self):
+        cmd = vlcproc.VlcProcess({"source_modeset": "0"}).build_command({"outfile": "/x"})
+        assert "--drm-vout-source-modeset" not in cmd
+
+
 class _Stage:
     def __init__(self, name, **extra):
         self._name = name

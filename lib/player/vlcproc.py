@@ -353,6 +353,10 @@ _TRACKS_EVERY = 30
 #: not to matter. See VlcProcess._evict_input.
 _EVICT_EVERY = 10
 
+#: How long the display is given to show a decoded frame before the play is
+#: declared unwatchable. See VlcProcess._watch_display.
+_DISPLAY_WAIT = 15
+
 
 def _number(value):
     """One number out of VLC's json, or None. Its lua tables mix strings in."""
@@ -619,6 +623,30 @@ class VlcProcess(PlayerBackend):
         "audio_device": "hdmi:CARD=vc4hdmi,DEV=0",
         "video_output": "drm_vout",
         "video_output_module": "vc4",
+        # Match the display to the film instead of scaling it.
+        #
+        # The TV reports 1366x768 as its preferred mode, so a 1080p film was
+        # scaled down by the display controller. That scaling consumes the
+        # HVS's line-buffer entries -- a fixed, tiny hardware pool, nothing to
+        # do with RAM -- and the marquee's own overlay plane then could not
+        # get one. The kernel said exactly that:
+        #
+        #     vc4-drm soc:gpu: [drm] *ERROR* Failed to allocate LBM entry: -28
+        #
+        # and every atomic commit that carried the overlay failed, which is
+        # every frame while the on-screen text is up: the film decodes, the
+        # screen stays black, and VLC reports "Atomic commit failed: No space
+        # left on device" -- ENOSPC from the display, not the disk.
+        #
+        # Measured on rpi, same file, same marquee, only this flag differing:
+        #
+        #     scaled to 768p        84 line-buffer failures
+        #     display matched       0
+        #
+        # So the display follows the film. A television that cannot offer the
+        # film's mode falls back to its preferred one, and _watch_display()
+        # catches the case that follows.
+        "source_modeset": "1",
         # Keyframe seeking, on by default here and off in VLC.
         #
         # Two seeks in quick succession -- pressing +30 twice -- stopped the film
@@ -1216,6 +1244,47 @@ class VlcProcess(PlayerBackend):
         self._panel_tracks = (now, tracks)
         return tracks
 
+    def _watch_display(self):
+        """
+        Stop a film the display is refusing, instead of leaving a black screen.
+
+        The failure has no line of its own in the interface: the demuxer opens,
+        frames are decoded -- so "waiting for the picture" ends -- and the
+        screen stays black because every commit is rejected. Measured on rpi,
+        the kernel says why and VLC says why, but the page showed a film that
+        looked merely slow, for as long as anyone was willing to wait.
+
+        Decoded frames with none displayed is the distinction that matters:
+        the decoder working and the display not. Fifteen seconds of it is not
+        a slow start, and a restart is the only thing that clears it, so the
+        play is ended with that said rather than left running.
+        """
+        deadline = time.time() + _DISPLAY_WAIT
+        while time.time() < deadline:
+            if self.killing:
+                return
+            proc = getattr(self, "proc", None)
+            if proc is None or proc.poll() is not None:
+                return
+            snapshot = self._status_snapshot() or {}
+            stats = snapshot.get("stats") or {}
+            shown = stats.get("displayedpictures") or 0
+            decoded = stats.get("decodedvideo") or 0
+            if shown > 0:
+                return
+            if decoded > 0:
+                self._set_error(
+                    "The TV would not take the picture: the display rejected "
+                    "every frame. Restarting the Pi clears it; if it comes "
+                    "back, set the TV to the film's resolution or turn the "
+                    "on-screen text off."
+                )
+                self._failure_reported = True
+                cherrypy.log("display is refusing frames; ending the play")
+                self._force_quit()
+                return
+            time.sleep(1.0)
+
     def _evict_input(self):
         """
         Keep a local film's own pages out of the cache it is read through.
@@ -1382,8 +1451,7 @@ class VlcProcess(PlayerBackend):
             "--vout=" + self.opt("video_output"),
             "--drm-vout-module=" + self.opt("video_output_module"),
             "--sub-text-scale=" + self.opt("subtitle_text_scale"),
-            "--sub-margin=" + self.opt("sub_margin"),
-            # A run that must not stop on its own.
+            "--sub-margin=" + self.opt("sub_margin"),            # A run that must not stop on its own.
             # OSD is what tells the user their action landed. Without it a
             # pause or a seek is invisible on the screen, so the only feedback
             # is whatever the log says, which nobody watching a film can see.
@@ -1424,6 +1492,11 @@ class VlcProcess(PlayerBackend):
         # measured working invocation.
         if str(self.opt("fast_seek")).lower() not in ("0", "false", "", "none"):
             cmd.append("--input-fast-seek")
+        if str(self.opt("source_modeset")).lower() not in ("0", "false", "", "none"):
+            # See the note on source_modeset: without this the display scales
+            # the film, the scaling uses the HVS line buffers, and the overlay
+            # plane then cannot get one -- a black screen with a decoded film.
+            cmd.append("--drm-vout-source-modeset")
         if self._http_port is not None:
             cmd.append("--extraintf=http")
             cmd.append("--http-host=127.0.0.1")
@@ -1537,6 +1610,7 @@ class VlcProcess(PlayerBackend):
                 _start_thread(self._wait_for_media)
                 _start_thread(self._show_opening_title)
                 _start_thread(self._evict_input)
+                _start_thread(self._watch_display)
                 if getattr(self, "_subtitles_wanted", None):
                     _start_thread(self._add_torrent_subtitles)
                 return

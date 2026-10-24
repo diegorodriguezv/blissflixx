@@ -118,6 +118,10 @@ class TestVlcCommand:
             # see the note on fast_seek in vlcproc. Asserted separately too, so
             # turning it off is a deliberate act rather than a tidy-up.
             "--input-fast-seek",
+            # The display follows the film's resolution instead of scaling it;
+            # the scaling is what ran the display controller out of line
+            # buffers. See the note on source_modeset in vlcproc.
+            "--drm-vout-source-modeset",
             FILE_OUT,
         ]
 

@@ -384,10 +384,17 @@ The full set of keys, and their defaults, is each backend's `defaults` dict:
 
 | Backend | Keys |
 |---|---|
-| `vlc` | `binary`, `extra_args`, `audio_device`, `video_output`, `video_output_module`, `fast_seek`, `subtitle_text_scale`, `start_timeout`, `report_progress`, `osd_overlay`, `osd_refresh`, `osd_position`, `osd_size`, `osd_opacity`,  `sub_margin`, `volume_step`, `volume_max`, `subtitle_delay_step` |
+| `vlc` | `binary`, `extra_args`, `audio_device`, `video_output`, `video_output_module`, `source_modeset`, `fast_seek`, `subtitle_text_scale`, `start_timeout`, `report_progress`, `osd_overlay`, `osd_refresh`, `osd_position`, `osd_size`, `osd_opacity`,  `sub_margin`, `volume_step`, `volume_max`, `subtitle_delay_step` |
 
 `extra_args` replaces the built-in flag list rather than adding to it, so a flag
 the backend always passes can be removed by naming the list without it.
+
+`source_modeset` matches the display to the film instead of scaling it. It is on,
+because the scaling is not free: the display controller's scaler uses the HVS's
+line-buffer entries, a small fixed hardware pool, and the on-screen text needs one
+of its own. With a 1080p film on a 1366x768 mode the pool ran out and every frame
+was rejected -- a decoded film and a black screen. Matching the mode costs a
+flicker at the start of a film and removes the scaling entirely.
 
 `fast_seek` is on here and off in VLC. It seeks to the nearest keyframe, which
 costs a little precision — up to a GOP — and buys a picture that keeps moving
