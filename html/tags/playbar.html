@@ -326,6 +326,7 @@
       var p = d.Playback || {}
       var src = d.Source || {}
       var swarm = src.swarm || {}
+      var sw = swarm
       var file = src.file || {}
       var player = d.Player || {}
       var pb = player.playback || {}
@@ -358,7 +359,7 @@
       line('verify', src.verifying === null || src.verifying === undefined ? 'not running' : src.verifying + '%')
       line('served in', src.serve_after === null || src.serve_after === undefined
         ? '—' : src.serve_after + 's' + (src.cache_hit ? ' · from verify cache' : ''))
-      line('movie missing', src.stalled_for ? src.stalled_for + 's with no peers' : 'no')
+      line('no data', src.stalled_for ? src.stalled_for + 's · no peers with pieces missing' : 'no')
       out.push('')
       out.push('PLAYER')
       line('state', pb.state)
@@ -366,7 +367,7 @@
         ? '—' : player.picture_after + 's')
       line('input read', stats.readbytes === undefined ? '—' : self.bytes(stats.readbytes))
       line('demux read', stats.demuxreadbytes === undefined ? '—' : self.bytes(stats.demuxreadbytes))
-      line('demux rate', stats.demuxbitrate === undefined ? '—' : stats.demuxbitrate + '× realtime')
+      line('demux rate', stats.demuxbitrate === undefined ? '—' : Number(stats.demuxbitrate).toFixed(2) + '× realtime')
       line('video', 'decoded ' + self.num(stats.decodedvideo) +
         ' · shown ' + self.num(stats.displayedpictures) +
         ' · lost ' + self.num(stats.lostpictures))
