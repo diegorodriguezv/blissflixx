@@ -186,10 +186,17 @@ def _track_display(name, language):
 _TRACK_LINE = re.compile(r"^\|?\s*(-?\d+)\s+-\s*(.*?)\s*(\*)?$")
 
 _TRACK_ID = re.compile(r"^\|?\s*(-?\d+)\s+-")
-#: How long to keep asking for a subtitle track once the player is up. The
-#: listing is empty until VLC has opened the media, and a torrent being streamed
-#: over http can take a while to start producing.
-_SUBTITLE_WAIT_TIMEOUT = 60
+#: How long to keep asking for a subtitle track once the player is up.
+#:
+#: The listing is empty until VLC has opened the media, so one ask straight
+#: away is answered "nothing" for every film. This used to be sixty attempts,
+#: one a second: a film with no subtitles -- every YouTube video -- therefore
+#: cost the cli sixty commands in its first minute, and the cli is the one
+#: interface that stops answering when it is asked too often. Measured on rpi,
+#: eighteen of them in twenty-three seconds, and then "pause -> no reply".
+#: Three attempts, spread out, is enough: an embedded track is in the listing
+#: as soon as the media is open, which is what "the picture has started" means.
+_SUBTITLE_WAIT_DELAYS = (1.0, 2.0, 4.0)
 #: How many times to ask how long the film is before giving up and showing the
 #: title alone, and how long to wait between asks.
 #:
@@ -1107,8 +1114,38 @@ class VlcProcess(PlayerBackend):
             return cached[1]
         data = self._http_get("status.json")
         snapshot = _normalize_status(data) if isinstance(data, dict) else None
+        if snapshot is not None:
+            self._note_input(snapshot, now)
         self._snapshot = (now, snapshot)
         return snapshot
+
+    def _note_input(self, snapshot, now):
+        """
+        How fast the input is arriving, and how long since it last did.
+
+        The one reading that separates "the player is stuck" from "nothing is
+        arriving": VLC's position stops in both cases, but only one of them has
+        bytes still coming in. A YouTube stream that the far end closed leaves
+        the position frozen and this number at zero for ever, which is exactly
+        what happened on rpi -- and what nothing on the page could say.
+        """
+        stats = snapshot.get("stats") or {}
+        read = stats.get("readbytes")
+        if read is None:
+            return
+        previous = getattr(self, "_input_sample", None)
+        self._input_sample = (now, read)
+        if previous is None:
+            return
+        elapsed = now - previous[0]
+        if elapsed <= 0:
+            return
+        gained = read - previous[1]
+        snapshot["read_speed"] = max(0, int(gained / elapsed))
+        if gained > 0:
+            self._input_at = now
+        since = self._input_at or now
+        snapshot["read_idle"] = max(0, int(now - since))
 
     def playback(self):
         """
@@ -1126,6 +1163,7 @@ class VlcProcess(PlayerBackend):
         base["playback"] = snapshot
         base["tracks"] = self._tracks_for_panel()
         base["http_port"] = getattr(self, "_http_port", None)
+        base["last_command"] = getattr(self, "_last_reply", None)
         if self._media_at and getattr(self, "_spawned_at", None):
             base["picture_after"] = round(self._media_at - self._spawned_at, 1)
         return base
@@ -1336,6 +1374,18 @@ class VlcProcess(PlayerBackend):
             # but the stream URL, "http://192.168.1.119:9696/", which says
             # nothing to anyone watching. The title is ours to draw, below.
             "--no-video-title-show",
+            # A connection that dies mid-stream is not noticed otherwise: VLC
+            # sits at the last frame for ever, "playing", with no error in the
+            # log. Measured on rpi, cutting a local http stream after 12MB:
+            #
+            #     without   position 0 for 28 seconds, one request, frozen
+            #     with      re-requested, 0 to 29 seconds of playback, smooth
+            #
+            # That is what a YouTube video did on this box -- the far end
+            # closed the connection and the picture stopped at 0:23 -- and it
+            # is the difference between a stream that recovers and one that has
+            # to be restarted by hand.
+            "--http-reconnect",
             "--play-and-exit",
         ]
         # See the note on fast_seek: two seeks in a row used to wedge the
@@ -1572,8 +1622,16 @@ class VlcProcess(PlayerBackend):
         """
         lines = self._send_and_collect(command)
         if lines is None:
+            # Said out loud, because this is the case where the interface is
+            # wrong about the player: the command was written, nothing came
+            # back, and whether it took effect is now unknown. It is how the
+            # cli looks when it has been asked too often -- "pause -> no reply"
+            # -- and the diagnostics panel shows it for the same reason.
+            cherrypy.log("VLC CLI: " + command + " -> no reply")
+            self._last_reply = {"command": command, "replied": False}
             return False
         cherrypy.log("VLC CLI: " + command + " -> " + _summarise_reply(lines))
+        self._last_reply = {"command": command, "replied": True}
         return True
 
     def _send_and_collect(self, command):
@@ -2332,8 +2390,9 @@ class VlcProcess(PlayerBackend):
         # this can give, not a blank screen.
 
     def _wait_for_subtitles(self, args):
-        deadline = time.time() + _SUBTITLE_WAIT_TIMEOUT
-        while time.time() < deadline:
+        for delay in (0,) + _SUBTITLE_WAIT_DELAYS:
+            if delay:
+                time.sleep(delay)
             if self.killing or self._acted:
                 return
             proc = getattr(self, "proc", None)
@@ -2350,8 +2409,7 @@ class VlcProcess(PlayerBackend):
                 self._send_command("strack " + str(tracks[0]))
                 return
             # The listing is empty because the media is not open yet, not because
-            # there is nothing there. Give it a moment before asking again.
-            time.sleep(1.0)
+            # there is nothing there. See _SUBTITLE_WAIT_DELAYS.
         cherrypy.log("no subtitle track appeared in this file")
 
     def _show_track(self, command):

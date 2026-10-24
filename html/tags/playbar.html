@@ -377,6 +377,10 @@
       line('picture in', player.picture_after === null || player.picture_after === undefined
         ? '—' : player.picture_after + 's')
       line('input read', stats.readbytes === undefined ? '—' : self.bytes(stats.readbytes))
+      line('input now', pb.read_speed === undefined
+        ? '—'
+        : self.bytes(pb.read_speed) + '/s' +
+          (pb.read_idle ? ' · nothing for ' + pb.read_idle + 's' : ''))
       line('demux read', stats.demuxreadbytes === undefined ? '—' : self.bytes(stats.demuxreadbytes))
       line('demux rate', stats.demuxbitrate === undefined ? '—' : Number(stats.demuxbitrate).toFixed(2) + '× realtime')
       line('video', 'decoded ' + self.num(stats.decodedvideo) +
@@ -385,6 +389,10 @@
       line('audio', 'decoded ' + self.num(stats.decodedaudio) +
         ' · played ' + self.num(stats.playedabuffers) +
         ' · lost ' + self.num(stats.lostabuffers))
+      if (player.last_command) {
+        line('last command', player.last_command.command +
+          (player.last_command.replied ? ' · answered' : ' · NO REPLY'))
+      }
       out.push('')
       out.push('STREAMS')
       var streams = pb.streams || []

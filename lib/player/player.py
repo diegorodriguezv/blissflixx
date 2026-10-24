@@ -56,7 +56,10 @@ _STALL_PICTURE_AFTER = 15
 #: How long the swarm may have no peers while the file is still incomplete
 #: before the bar says so. Earlier than the picture warning on purpose: this is
 #: the one that arrives while there is still something to watch.
-_STALL_SOURCE_AFTER = 30#: Move to the neighbouring item of the playlist this film came from. The
+_STALL_SOURCE_AFTER = 30
+#: How long after a pause/resume command the interface's own idea of the state
+#: is trusted before the player's is. See _Player._sync_paused.
+_PAUSE_SETTLE = 2.0#: Move to the neighbouring item of the playlist this film came from. The
 #: direction follows as its own message, the way a play is followed by its pipe.
 MSG_PLAYER_SKIP = 5
 
@@ -100,6 +103,9 @@ class _Player:
         #: one thing a stuck stream cannot fake. Reset per play.
         self._pos_last = None
         self._pos_changed_at = None
+        #: When the pause state was last asked for by the interface. See
+        #: _sync_paused: the player's answer wins after a moment.
+        self._paused_at = 0.0
 
     def _stop(self):
         if self.play_pipe:
@@ -477,9 +483,9 @@ class _Player:
             status["State"] = ST_RUNNING
         elif not self._is_stopping():
             status["State"] = ST_STARTING
-        status["Paused"] = self.paused
         if status["State"] == ST_RUNNING:
             self._add_playback(status, play_pipe)
+        status["Paused"] = self.paused
         return status
 
     def _add_playback(self, status, pipe):
@@ -501,6 +507,7 @@ class _Player:
         because that is when there is still time to do something about it.
         """
         playback = pipe.playback() if hasattr(pipe, "playback") else {}
+        self._sync_paused(playback.get("state"))
         position = playback.get("position")
         if position is not None:
             status["Position"] = int(position)
@@ -515,6 +522,29 @@ class _Player:
         if stalled:
             status["Stalled"] = stalled
             status["StallReason"] = reason
+
+    def _sync_paused(self, state):
+        """
+        Take the pause state from the player, not from the button.
+
+        The interface flips its own idea of paused the moment the button is
+        pressed, because that is what makes the button feel immediate. But the
+        command travels through the cli, and the cli is the thing that stops
+        answering -- measured on rpi, "pause -> no reply" with the film frozen.
+        When that happened the bar went on showing a pause that may never have
+        been applied, and because a paused film is never reported as stalled,
+        the one warning that mattered was suppressed.
+
+        So after the command has had a moment to land, the player's own state
+        is the one that counts. Two seconds: long enough that the toggle is not
+        immediately undone by a snapshot taken before the command arrived,
+        short enough that a lie cannot outlive the action by much.
+        """
+        if state not in ("playing", "paused"):
+            return
+        if time.time() - self._paused_at < _PAUSE_SETTLE:
+            return
+        self.paused = state == "paused"
 
     def _note_position(self, position):
         now = time.time()
@@ -616,6 +646,7 @@ class _Player:
                 # what happened -- and it is what decides which button is drawn
                 # and what the spacebar sends next.
                 self.paused = not self.paused
+                self._paused_at = time.time()
 
 
 def _machine():

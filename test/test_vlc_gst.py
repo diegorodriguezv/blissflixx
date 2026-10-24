@@ -107,6 +107,12 @@ class TestVlcCommand:
             # Not --video-title-show: for a torrent that is the stream URL,
             # http://192.168.1.119:9696/, which says nothing to a viewer.
             "--no-video-title-show",
+            # A connection that dies mid-stream is otherwise not noticed: the
+            # film sits at its last frame for ever, "playing", with nothing in
+            # the log. Measured by cutting a local http stream after 12MB --
+            # without this, position 0 for 28 seconds; with it, re-requested
+            # and played on. Asserted separately too.
+            "--http-reconnect",
             "--play-and-exit",
             # Keyframe seeking. Two seeks in a row used to stop the film dead;
             # see the note on fast_seek in vlcproc. Asserted separately too, so
@@ -1828,9 +1834,10 @@ class TestEmbeddedSubtitlesAreEnabledOnStart:
         """
         Asking once is not enough: at readiness the listing is always empty,
         because VLC has printed its banner but not opened the media. The wait is
-        what turns that into a real answer.
+        what turns that into a real answer -- and it is a handful of asks, not
+        one a second for a minute, which is what made the cli stop answering.
         """
-        monkeypatch.setattr("lib.player.vlcproc._SUBTITLE_WAIT_TIMEOUT", 0)
+        monkeypatch.setattr("lib.player.vlcproc._SUBTITLE_WAIT_DELAYS", ())
         proc, sent = self._proc_with_listing(["+----[ spu-es ]", "| -1 - Disable"])
         proc._wait_for_subtitles({})
         assert sent == []
@@ -3219,12 +3226,15 @@ class TestTheSubtitleInsideTheTorrent:
         """
         build_command is documented as pure so it can be tested without a
         player. A port chosen there would make every call return a different
-        argv; it is chosen in start() instead.
+        argv; it is chosen in start() instead. --http-reconnect is static and
+        is not the port, so it belongs to the command like any other flag.
         """
         proc = VlcProcess({"osd_overlay": "0"})
         cmd = proc.build_command({"outfile": "/x"})
-        assert not [a for a in cmd if a.startswith("--http-")]
+        assert not [a for a in cmd if a.startswith(("--http-port", "--http-password"))]
         assert not [a for a in cmd if a.startswith("--extraintf")]
+        assert "--http-reconnect" in cmd
+        assert cmd.count("--http-reconnect") == 1
 
 
 class TestMuting:

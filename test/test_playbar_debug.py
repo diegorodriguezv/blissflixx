@@ -344,6 +344,135 @@ class TestPlayerDebug:
         assert debug["Source"] is None
 
 
+class TestSubtitleWait:
+    def _proc(self, monkeypatch, replies, sleeps):
+        proc = vlcproc.VlcProcess()
+        proc._http_port = 1234
+        proc._http_password = "secret"
+        proc.proc = type("P", (), {"poll": lambda self: None})()
+        calls = []
+
+        def fake_ids(command):
+            calls.append(command)
+            return replies.pop(0) if replies else []
+
+        monkeypatch.setattr(proc, "_track_ids", fake_ids)
+        monkeypatch.setattr(vlcproc, "time", type("T", (), {
+            "time": staticmethod(lambda: 0),
+            "sleep": staticmethod(lambda seconds: sleeps.append(seconds)),
+        }))
+        return proc, calls
+
+    def test_a_film_without_subtitles_asks_a_handful_of_times(self, monkeypatch):
+        """
+        This used to be sixty asks, one a second: sixty cli commands in the
+        first minute of every YouTube video, and the cli stops answering when
+        it is asked too often -- measured, "pause -> no reply".
+        """
+        sleeps = []
+        proc, calls = self._proc(monkeypatch, [], sleeps)
+        proc._wait_for_subtitles({})
+        assert len(calls) == 4
+        assert sleeps == [1.0, 2.0, 4.0]
+
+    def test_the_first_listing_that_has_a_track_is_used(self, monkeypatch):
+        sleeps = []
+        proc, calls = self._proc(monkeypatch, [[], [], [7]], sleeps)
+        sent = []
+        monkeypatch.setattr(proc, "_send_command", lambda c: sent.append(c))
+        proc._wait_for_subtitles({})
+        assert sent == ["strack 7"]
+        assert len(calls) == 3
+
+    def test_a_user_action_ends_the_wait(self, monkeypatch):
+        sleeps = []
+        proc, calls = self._proc(monkeypatch, [], sleeps)
+        proc._acted = True
+        proc._wait_for_subtitles({})
+        assert calls == []
+
+
+class TestPauseTruth:
+    def test_the_players_state_wins_after_the_command_settles(self):
+        pl = _player(_Pipe(playback={"position": 10, "length": 100, "state": "paused"}))
+        pl.paused = False
+        pl._paused_at = time.time() - 5
+        assert pl.status()["Paused"] is True
+
+    def test_the_toggle_is_trusted_immediately(self):
+        """The button must not flip back under the hand that pressed it."""
+        pl = _player(_Pipe(playback={"position": 10, "length": 100, "state": "playing"}))
+        pl.paused = True
+        pl._paused_at = time.time()
+        assert pl.status()["Paused"] is True
+
+    def test_a_state_the_player_will_not_name_is_ignored(self):
+        pl = _player(_Pipe(playback={"position": 10, "length": 100}))
+        pl.paused = True
+        pl._paused_at = time.time() - 5
+        assert pl.status()["Paused"] is True
+
+
+class TestNoReply:
+    def test_a_command_with_no_answer_is_said_and_remembered(self, monkeypatch, capsys):
+        proc = vlcproc.VlcProcess()
+        monkeypatch.setattr(proc, "_send_and_collect", lambda command: None)
+        assert proc._send_command("pause") is False
+        assert proc.debug()["last_command"] == {"command": "pause", "replied": False}
+
+    def test_an_answered_command_is_remembered_too(self, monkeypatch):
+        proc = vlcproc.VlcProcess()
+        monkeypatch.setattr(proc, "_send_and_collect", lambda command: ["ok"])
+        assert proc._send_command("seek 10") is True
+        assert proc.debug()["last_command"] == {"command": "seek 10", "replied": True}
+
+
+class TestInputIdle:
+    def _proc(self, monkeypatch, readings):
+        proc = vlcproc.VlcProcess()
+        proc._http_port = 1234
+        proc._http_password = "secret"
+        values = list(readings)
+
+        def fake_get(name, timeout=2):
+            return {"state": "playing", "time": 1, "stats": {"readbytes": values.pop(0)}}
+
+        monkeypatch.setattr(proc, "_http_get", fake_get)
+        return proc
+
+    def test_bytes_arriving_keep_the_idle_clock_at_zero(self, monkeypatch):
+        proc = self._proc(monkeypatch, [1000, 5000, 9000])
+        now = [100.0]
+
+        monkeypatch.setattr(vlcproc, "time", type("T", (), {
+            "time": staticmethod(lambda: now[0]),
+        }))
+        first = proc.playback()          # first sample has no rate yet
+        assert "read_speed" not in first
+        now[0] += 1
+        second = proc.playback()
+        assert second["read_speed"] == 4000
+        assert second["read_idle"] == 0
+
+    def test_a_dead_input_shows_nothing_arriving(self, monkeypatch):
+        proc = self._proc(monkeypatch, [1000, 5000, 5000, 5000])
+        now = [100.0]
+        monkeypatch.setattr(vlcproc, "time", type("T", (), {
+            "time": staticmethod(lambda: now[0]),
+        }))
+        proc.playback()
+        now[0] += 1
+        proc.playback()
+        now[0] += 1
+        proc._snapshot = None
+        third = proc.playback()
+        now[0] += 1
+        proc._snapshot = None
+        fourth = proc.playback()
+        assert fourth["read_speed"] == 0
+        assert fourth["read_idle"] >= 2
+
+
 class _Stage:
     def __init__(self, name, **extra):
         self._name = name
