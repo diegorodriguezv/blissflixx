@@ -136,6 +136,12 @@ class PeerflixProcess(ExternalProcess):
         #: probable first: [{"idx": n, "name": ".."}]. Empty when this play
         #: asked for none.
         self.subs = subs or []
+        #: Which file inside the torrent this play asked for, from -i.
+        self.idx = idx
+        #: When the swarm last had a peer at all. Zero peers for long enough
+        #: while there is still film missing is the "nothing arriving" case the
+        #: bar warns about; see stalled_for().
+        self._peers_seen_at = None
         cmd = [node_binary(), "--max-old-space-size=128", "/usr/local/bin/peerflix"]
         # Avoid problems with downloading torrent files
         torrent = torrent2magnet(torrent)
@@ -257,28 +263,144 @@ class PeerflixProcess(ExternalProcess):
         parts.append("%s/s" % _size(self._progress["speed"]))
         parts.append("%d peers" % self._progress["peers"])
         text = " · ".join(parts)
-        if self._moved_at is not None:
-            quiet = int(time.time() - self._moved_at)
-            if quiet >= _STALLED_AFTER:
-                return text + " — nothing arriving for %ds" % quiet
+        info = self.served_file()
+        if info is not None and info["percent"] >= 99:
+            # Complete on disk: no peers is the normal state, not a warning.
+            quiet = 0
+        elif info is None or self._progress["peers"]:
+            # Nothing has come in for a while. Without a file to check -- while
+            # the torrent is still being resolved -- the old clock is all there
+            # is, and it is what this line always used.
+            quiet = int(time.time() - self._moved_at) if self._moved_at is not None else 0
+        else:
+            quiet = self.stalled_for()
+        if quiet >= _STALLED_AFTER:
+            return text + " — nothing arriving for %ds" % quiet
         return text
+
+    def served_file(self):
+        """
+        The file this play asked for: how big it is and how much is on disk.
+
+        peerflix's /.json says how much *this run* has downloaded, which is 0
+        for a film that was downloaded yesterday, and says nothing about the
+        file on the card. The share that is really here is the difference
+        between the file's logical size and what the filesystem has allocated
+        for it: a torrent file is written as pieces arrive, and the parts that
+        have not arrived are holes.
+
+        None until the swarm has answered once.
+        """
+        files = (self._progress or {}).get("files") or []
+        if not files:
+            return None
+        entry = None
+        if isinstance(self.idx, int) and 0 <= self.idx < len(files):
+            entry = files[self.idx]
+        if not isinstance(entry, dict):
+            return None
+        name = str(entry.get("name") or "")
+        length = int(entry.get("length") or 0)
+        path = self._resolve(name)
+        present = 0
+        if path is not None:
+            try:
+                st = os.stat(path)
+            except OSError:
+                path = None
+            else:
+                # Allocated, not logical: the holes are what is missing. It can
+                # round past the end of the file, hence the clamp.
+                present = min(st.st_blocks * 512, st.st_size)
+                length = length or st.st_size
+        percent = min(100, int(present * 100 / length)) if length else 0
+        return {
+            "name": name,
+            "path": path,
+            "length": length,
+            "present": present,
+            "percent": percent,
+        }
+
+    def _resolve(self, name):
+        """Where a torrent-relative file name is on disk, or None."""
+        if not name:
+            return None
+        direct = os.path.join(BUFFER_DIR, name)
+        if os.path.isfile(direct):
+            return direct
+        cached = getattr(self, "_path_cache", {}).get(name)
+        if cached and os.path.isfile(cached):
+            return cached
+        # peerflix reports a file's name, which for a pack is relative to the
+        # torrent, and the buffer holds one directory per torrent. Walk for it
+        # rather than assume the shape, and remember where it was.
+        base = os.path.basename(name)
+        for root, _dirs, files in os.walk(BUFFER_DIR):
+            if base in files:
+                found = os.path.join(root, base)
+                if not hasattr(self, "_path_cache"):
+                    self._path_cache = {}
+                self._path_cache[name] = found
+                return found
+        return None
+
+    def stalled_for(self):
+        """
+        How long this torrent has been unable to bring anything new, in seconds.
+
+        Zero unless it matters: a film that is complete on disk needs no peers
+        and must never be reported as stuck, and one that has peers is working
+        even if it is slow. What is left is the real case -- pieces still
+        missing and nobody to ask -- which is what the freeze looks like from
+        the source's side, minutes before the picture notices.
+        """
+        info = self.served_file()
+        if not info or info["percent"] >= 99:
+            return 0
+        if not self._progress or self._progress["peers"]:
+            return 0
+        since = self._peers_seen_at or self._moved_at or self._started_at
+        if since is None:
+            return 0
+        return max(0, int(time.time() - since))
+
+    def debug(self):
+        base = super().debug()
+        swarm = {k: v for k, v in (self._progress or {}).items() if k != "files"}
+        base.update(
+            {
+                "swarm": swarm,
+                "file": self.served_file(),
+                "stalled_for": self.stalled_for(),
+                "verifying": self._verifying,
+                "cache_hit": self._cache_hit,
+                "serve_after": getattr(self, "_ready_after", None),
+            }
+        )
+        return base
 
     def _watch_progress(self):
         """
-        Ask the swarm what it is doing, every couple of seconds, for a while.
+        Ask the swarm what it is doing, for as long as the torrent is open.
 
         peerflix answers /.json with the piece of its own bookkeeping this
-        needs: bytes downloaded against the torrent's length, the speed, and
-        how many peers are connected. Cheap, and it stops on its own.
+        needs: bytes downloaded against the torrent's length, the speed, the
+        peers, and the files it is serving. Cheap, one local request every two
+        seconds.
+
+        It used to stop after five minutes, on the grounds that a film that is
+        playing says what it is doing on the screen. What it does not say is
+        when it has stopped being able to: a swarm that has gone to zero peers
+        looks exactly like a film, right up until the buffer runs out. The
+        panel and the stall warning both need this while the film plays, so it
+        now runs until the stage is stopped.
         """
         base = (self.args.get("outfile") or "").rstrip("/")
         if not base:
             return
-        deadline = time.time() + _PROGRESS_FOR
         ticks = 0
-        while time.time() < deadline:
-            if self.killing:
-                return
+        while not self.killing:
             ticks += 1
             if ticks % _CACHE_DROP_EVERY == 0:
                 # Free-behind the verifier while it hashes: see
@@ -293,6 +415,7 @@ class PeerflixProcess(ExternalProcess):
                 continue
             total = stats.get("totalLength") or 0
             downloaded = stats.get("downloaded") or 0
+            files = stats.get("files") or []
             if not total:
                 time.sleep(_PROGRESS_EVERY)
                 continue
@@ -303,8 +426,14 @@ class PeerflixProcess(ExternalProcess):
                 "downloaded": downloaded,
                 "percent": percent,
                 "speed": int(stats.get("downloadSpeed") or 0),
+                "uploaded": int(stats.get("uploaded") or 0),
+                "upload_speed": int(stats.get("uploadSpeed") or 0),
                 "peers": int(stats.get("totalPeers") or 0),
+                "active_peers": int(stats.get("activePeers") or 0),
+                "files": files,
             }
+            if self._progress["peers"]:
+                self._peers_seen_at = time.time()
             self._progress_at = time.time()
             time.sleep(_PROGRESS_EVERY)
 

@@ -2,7 +2,9 @@ import os
 import shutil
 import signal
 import subprocess
+import time
 from abc import ABC, abstractmethod
+from collections import deque
 from queue import Empty, Queue
 from threading import Thread
 
@@ -247,6 +249,29 @@ class ProcessPipe:
                 return said
         return ""
 
+    def debug(self):
+        """Every stage's own account of itself, for the diagnostics panel."""
+        stages = []
+        for proc in self.procs:
+            try:
+                stages.append(proc.debug())
+            except Exception as exc:
+                # A broken stage must not cost the panel the other stages.
+                stages.append({"name": proc.name(), "error": str(exc)})
+        return {"title": self.title, "stages": stages}
+
+    def playback(self):
+        """Where the film is, from the stage that knows. Empty if none does."""
+        if not self.started or not self.procs:
+            return {}
+        ask = getattr(self.procs[-1], "playback", None)
+        if not callable(ask):
+            return {}
+        try:
+            return ask() or {}
+        except Exception:
+            return {}
+
     def waiting(self):
         """
         Whether the player is up but nothing has come through it yet.
@@ -439,6 +464,12 @@ class Process(ABC):
 
     def __init__(self):
         self.errors = []
+        #: The last lines this stage wrote, for the diagnostics panel. A ring
+        #: rather than a log file: the panel is opened while something is wrong,
+        #: and the twenty seconds before it are the useful part. Every stage
+        #: fills it from the one place that sees its output -- see
+        #: _observe_line -- so nothing has to subscribe twice.
+        self.log_tail = deque(maxlen=40)
 
     def set_msgq(self, msgq, procidx):
         self.msgq = msgq
@@ -469,6 +500,25 @@ class Process(ABC):
     def detail(self):
         """A running account of what this stage is doing, if it can give one."""
         return ""
+
+    def debug(self):
+        """
+        Everything this stage can say about itself, for the diagnostics panel.
+
+        A dict rather than lines, because the panel groups it by stage and shows
+        the groups as sections. The default is what every stage can answer;
+        stages that know more override and extend it. Must never raise: the
+        panel is a diagnostic and a diagnostic that fails is worse than one
+        that says less.
+        """
+        proc = getattr(self, "proc", None)
+        return {
+            "name": self.name(),
+            "pid": getattr(proc, "pid", None),
+            "running": bool(proc is not None and proc.poll() is None),
+            "ready_after": getattr(self, "_ready_after", None),
+            "log": list(getattr(self, "log_tail", [])),
+        }
 
     def add_subtitles(self, chosen, lang=None):
         """Attach subtitles to a film already playing. Most players cannot."""
@@ -577,6 +627,7 @@ class ExternalProcess(Process):
             # the thread, the pipeline never started, and the interface sat at
             # LOADING STREAM with nothing in the log but a traceback.
             cherrypy.log("RUN: " + " ".join(str(part) for part in cmd))
+        self._spawned_at = time.time()
         self.proc = subprocess.Popen(
             cmd,
             stderr=subprocess.STDOUT,
@@ -626,6 +677,7 @@ class ExternalProcess(Process):
 
         try:
             args = self._ready()
+            self._ready_after = round(time.time() - getattr(self, "_spawned_at", time.time()), 1)
             self.msg_ready(args)
         except ProcessException as e:
             # Ignore errors if process is being killed
@@ -644,6 +696,7 @@ class ExternalProcess(Process):
         consumes lines cannot lose one before it is logged.
         """
         cherrypy.log("LINE(" + self.name() + "): " + line)
+        self.log_tail.append(line)
         self._lines.put(line)
         if self.on_output_line is not None:
             self.on_output_line(line)

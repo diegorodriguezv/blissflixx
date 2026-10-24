@@ -1,9 +1,11 @@
+import os
 import time
 from collections import namedtuple
 from queue import Full, Queue
 
 import cherrypy
 
+from ..locations import DATA_PATH
 from ..settings import load
 from . import ythelper
 from .backends import DEFAULT_BACKEND, get_backend
@@ -47,7 +49,14 @@ _PLAY_JOIN_TIMEOUT = 5
 MSG_PLAYER_PLAY = 1
 MSG_PLAYER_STOP = 2
 MSG_PLAYER_QUIT = 3
-#: Move to the neighbouring item of the playlist this film came from. The
+#: How long the picture may stand still before the bar says the stream has
+#: stalled. Long enough that a seek, or a keyframe the decoder is slow to
+#: produce, is not mistaken for a dead stream.
+_STALL_PICTURE_AFTER = 15
+#: How long the swarm may have no peers while the file is still incomplete
+#: before the bar says so. Earlier than the picture warning on purpose: this is
+#: the one that arrives while there is still something to watch.
+_STALL_SOURCE_AFTER = 30#: Move to the neighbouring item of the playlist this film came from. The
 #: direction follows as its own message, the way a play is followed by its pipe.
 MSG_PLAYER_SKIP = 5
 
@@ -86,6 +95,11 @@ class _Player:
         self.play_requested_at = None
         #: Whether the start has been timed into the log yet.
         self.start_logged = False
+        #: The last position the player reported and when it last changed, for
+        #: the stall warning: a picture that demonstrates it is moving is the
+        #: one thing a stuck stream cannot fake. Reset per play.
+        self._pos_last = None
+        self._pos_changed_at = None
 
     def _stop(self):
         if self.play_pipe:
@@ -102,6 +116,8 @@ class _Player:
         # the thing being timed.
         self.play_requested_at = time.time()
         self.start_logged = False
+        self._pos_last = None
+        self._pos_changed_at = None
         self.play_thread = _start_thread(play.pipe.start, self.msgq)
 
     def _clear_place(self):
@@ -462,8 +478,122 @@ class _Player:
         elif not self._is_stopping():
             status["State"] = ST_STARTING
         status["Paused"] = self.paused
-
+        if status["State"] == ST_RUNNING:
+            self._add_playback(status, play_pipe)
         return status
+
+    def _add_playback(self, status, pipe):
+        """
+        Where the film is and whether it is still moving.
+
+        The interface needs a clock that means something: the count it shows
+        while loading is when the film was asked for, which says nothing once
+        the film is running. The player's own position is the honest number --
+        it is the same one a seek changes -- and it is read from the http
+        interface rather than the cli, which is the one that stops answering
+        when it is asked too often. See VlcProcess._status_snapshot.
+
+        Stalled is the pairing of two clocks. The picture clock is the player's
+        own position: if it has not moved in fifteen seconds with the film
+        neither paused nor followed, nothing is coming through and the screen
+        is frozen. The source clock is the swarm's -- no peers and pieces still
+        missing -- and it fires earlier, while the picture is still fine,
+        because that is when there is still time to do something about it.
+        """
+        playback = pipe.playback() if hasattr(pipe, "playback") else {}
+        position = playback.get("position")
+        if position is not None:
+            status["Position"] = int(position)
+            length = playback.get("length")
+            if length:
+                status["Length"] = int(length)
+            self._note_position(position)
+        stalled, reason = self._stalled(pipe)
+        if stalled:
+            status["Stalled"] = stalled
+            status["StallReason"] = reason
+
+    def _note_position(self, position):
+        now = time.time()
+        if self._pos_last is None or int(position) != int(self._pos_last):
+            self._pos_last = position
+            self._pos_changed_at = now
+
+    def _stalled(self, pipe):
+        """(seconds, reason) if something is stuck, else (0, "")."""
+        if self.paused:
+            # A paused film looks exactly like a frozen one, and is not.
+            return 0, ""
+        if self._pos_changed_at is not None:
+            frozen = int(time.time() - self._pos_changed_at)
+            if frozen >= _STALL_PICTURE_AFTER:
+                return frozen, "picture"
+        worst = 0
+        for proc in getattr(pipe, "procs", []):
+            ask = getattr(proc, "stalled_for", None)
+            if callable(ask):
+                try:
+                    worst = max(worst, int(ask() or 0))
+                except Exception:
+                    continue
+        if worst >= _STALL_SOURCE_AFTER:
+            return worst, "source"
+        return 0, ""
+
+    def debug(self):
+        """
+        Everything that might explain what is happening, for the panel.
+
+        Only what is cheap and local: two http interfaces that are already
+        open, /proc, and the last lines each stage wrote. Nothing here waits on
+        a network or on a player that is busy, because the panel is opened when
+        something is already wrong.
+        """
+        status = self.status()
+        pipe = self.play_pipe
+        out = {
+            "Playback": {
+                "title": status["Title"],
+                "state": status["State"],
+                "paused": status["Paused"],
+                "waiting": status["Waiting"],
+                "elapsed": status["Elapsed"],
+                "position": status.get("Position"),
+                "length": status.get("Length"),
+                "stalled": status.get("Stalled", 0),
+                "stall_reason": status.get("StallReason", ""),
+                "error": status["Msg"],
+            },
+            "Source": None,
+            "Player": None,
+            "Pipeline": [],
+            "Machine": _machine(),
+            "Log": {},
+        }
+        if pipe is None:
+            return out
+        try:
+            pipe_debug = pipe.debug()
+        except Exception as exc:
+            pipe_debug = {"title": "", "stages": [], "error": str(exc)}
+        for stage in pipe_debug.get("stages") or []:
+            name = stage.get("name") or "stage"
+            out["Pipeline"].append(
+                {
+                    "name": name,
+                    "pid": stage.get("pid"),
+                    "running": stage.get("running"),
+                    "ready_after": stage.get("ready_after"),
+                }
+            )
+            log = stage.get("log") or []
+            if log:
+                out["Log"][name] = log
+            if name == "peerflix":
+                out["Source"] = stage
+            elif name == "vlc":
+                out["Player"] = stage
+        return out
 
     def control(self, action):
         if action == "stop":
@@ -483,6 +613,54 @@ class _Player:
                 # what happened -- and it is what decides which button is drawn
                 # and what the spacebar sends next.
                 self.paused = not self.paused
+
+
+def _machine():
+    """
+    The readings that explain a display failure, from /proc.
+
+    Video memory is here because it is the one number that has repeatedly
+    explained a play that decodes and shows nothing: the decoder works, the
+    picture is never committed, and the log says "Atomic commit failed: No
+    space left on device" -- which is the display, not the disk. The rest is
+    what a Pi running out of something looks like: RAM, cache, load, and room
+    left for the buffer.
+    """
+    out = {}
+    keys = {
+        "CmaTotal": "cma_total_mb",
+        "CmaFree": "cma_free_mb",
+        "MemAvailable": "mem_available_mb",
+        "Cached": "cached_mb",
+    }
+    try:
+        with open("/proc/meminfo") as fh:
+            mem = {}
+            for line in fh:
+                key, _, rest = line.partition(":")
+                mem[key] = rest.strip()
+    except OSError:
+        mem = {}
+    for key, name in keys.items():
+        parts = mem.get(key, "").split()
+        try:
+            out[name] = int(parts[0]) // 1024
+        except (ValueError, IndexError):
+            continue
+    total = out.get("cma_total_mb")
+    free = out.get("cma_free_mb")
+    if total and free is not None:
+        out["cma_free_percent"] = int(free * 100 / total)
+    try:
+        out["load"] = "%.2f %.2f %.2f" % os.getloadavg()
+    except OSError:
+        pass
+    try:
+        usage = os.statvfs(DATA_PATH)
+        out["disk_free_mb"] = usage.f_bavail * usage.f_frsize // (1024 * 1024)
+    except OSError:
+        pass
+    return out
 
 
 Player = _Player()

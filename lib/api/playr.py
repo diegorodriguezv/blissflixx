@@ -102,6 +102,11 @@ def status():
     return Player.status()
 
 
+def debug():
+    """Everything the panel shows: playback, source, player, machine."""
+    return Player.debug()
+
+
 def backend(name=None):
     """
     Describe one backend, or the one that is active.

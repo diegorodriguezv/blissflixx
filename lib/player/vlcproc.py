@@ -338,6 +338,95 @@ def _format_clock(value):
 _TRACK_DISABLED = -1
 
 
+def _number(value):
+    """One number out of VLC's json, or None. Its lua tables mix strings in."""
+    try:
+        if value is None or value == "":
+            return None
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _normalize_status(data):
+    """
+    VLC's status.json, flattened to what the bar and the panel ask of it.
+
+    Its shape is the lua interface's: `stats` is a flat table of counters, and
+    `information.category` holds the stream list under names like "Stream 0",
+    with the codec facts as human text ("H264 - MPEG-4 AVC (part 10)",
+    "1920x1080"). Kept as it comes, with the numbers pulled out, so the panel
+    can show the player's own words rather than a translation that could be
+    wrong.
+    """
+    stats = data.get("stats") if isinstance(data.get("stats"), dict) else {}
+    categories = {}
+    info = data.get("information")
+    if isinstance(info, dict):
+        found = info.get("category") or {}
+        if isinstance(found, dict):
+            categories = found
+        elif isinstance(found, list):
+            for entry in found:
+                if isinstance(entry, dict) and entry.get("name"):
+                    categories[entry["name"]] = entry.get("info") or entry
+    streams = []
+    for name in sorted(categories, key=lambda n: (n != "meta", n)):
+        if not str(name).startswith("Stream"):
+            continue
+        fields = categories[name]
+        if not isinstance(fields, dict):
+            continue
+        streams.append({str(k): str(v) for k, v in fields.items()})
+    return {
+        "state": str(data.get("state") or ""),
+        "position": _number(data.get("time")),
+        "length": _number(data.get("length")),
+        "volume": _number(data.get("volume")),
+        "stats": {str(k): _number(v) for k, v in stats.items()},
+        "meta": {
+            str(k): str(v)
+            for k, v in (categories.get("meta") or {}).items()
+            if isinstance(categories.get("meta"), dict)
+        },
+        "streams": streams,
+    }
+
+
+def _track_list(playlist):
+    """
+    The ES entries VLC knows about, from playlist.json.
+
+    Everything it is playing is a tree; the tracks are the leaves that carry an
+    id and a type. The current one is marked, which is what "STREAMS" in the
+    panel shows beside the codec -- the track listing the cli commands print
+    says the same thing, but asking the cli is what the http channel exists to
+    avoid.
+    """
+    tracks = []
+
+    def walk(node):
+        if not isinstance(node, dict):
+            return
+        for child in node.get("children") or []:
+            if not isinstance(child, dict):
+                continue
+            if "id" in child and child.get("type"):
+                tracks.append(
+                    {
+                        "id": child.get("id"),
+                        "type": str(child.get("type")),
+                        "name": str(child.get("name") or ""),
+                        "current": str(child.get("current") or "") in ("1", "true", "True"),
+                    }
+                )
+            else:
+                walk(child)
+
+    walk(playlist if isinstance(playlist, dict) else {})
+    return tracks
+
+
 def _summarise_reply(lines):
     """
     Render collected reply lines for the log.
@@ -677,6 +766,10 @@ class VlcProcess(PlayerBackend):
         #: Whether VLC has said it has something to decode. False while the
         #: source is connected and silent; see waiting().
         self._media_seen = False
+        #: When the picture appeared, for the panel's "picture after" reading.
+        self._media_at = None
+        #: The cached status.json reading, (when, snapshot). See _status_snapshot.
+        self._snapshot = None
         self._startup_errors = []
         # Last track id chosen per interface verb, so stepping does not have to
         # re-read the listing every time. See _step_track.
@@ -994,6 +1087,79 @@ class VlcProcess(PlayerBackend):
             return False
         return r.status_code < 300
 
+    def _http_get(self, name, timeout=2):
+        """
+        One request to the player's own http interface, or None.
+
+        This is the diagnostics channel, not the control one. The cli is a
+        single reply queue that everything shares, and polling get_time through
+        it every second is what once made the player stop answering anything
+        at all. The http interface is a separate one, is already open for
+        subtitles, and is what VLC's own web UI polls twice a second without
+        trouble.
+
+        Never raises: a player that is stopping, or an interface that is not up
+        yet, is an empty answer rather than a failure to handle.
+        """
+        port = getattr(self, "_http_port", None)
+        if port is None:
+            return None
+        try:
+            r = requests.get(
+                "http://127.0.0.1:%d/requests/%s" % (port, name),
+                auth=("", self._http_password),
+                timeout=timeout,
+            )
+        except Exception:
+            return None
+        if r.status_code >= 300:
+            return None
+        try:
+            return r.json()
+        except ValueError:
+            return None
+
+    def _status_snapshot(self):
+        """
+        VLC's own account of what it is doing, at most a second old.
+
+        Cached because every open tab asks the server for the status once a
+        second, and each of those asks this: without the cache ten tabs would
+        be ten requests a second to the player for one number. The cache is
+        shared between the status bar and the diagnostics panel on purpose --
+        they want the same reading, and two readings would disagree at the
+        second boundary.
+        """
+        now = time.time()
+        cached = getattr(self, "_snapshot", None)
+        if cached is not None and now - cached[0] < 1.0:
+            return cached[1]
+        data = self._http_get("status.json")
+        snapshot = _normalize_status(data) if isinstance(data, dict) else None
+        self._snapshot = (now, snapshot)
+        return snapshot
+
+    def playback(self):
+        """
+        The numbers the bar needs: where we are, how long the film is, whether
+        the picture is moving. Empty when the player cannot say.
+        """
+        snapshot = self._status_snapshot()
+        if not snapshot:
+            return {}
+        return snapshot
+
+    def debug(self):
+        base = super().debug()
+        snapshot = self._status_snapshot() or {}
+        tracks = self._http_get("playlist.json")
+        base["playback"] = snapshot
+        base["tracks"] = _track_list(tracks)
+        base["http_port"] = getattr(self, "_http_port", None)
+        if self._media_at and getattr(self, "_spawned_at", None):
+            base["picture_after"] = round(self._media_at - self._spawned_at, 1)
+        return base
+
     def _wait_for_media(self):
         """
         Wait until the player has actually decoded something.
@@ -1018,6 +1184,7 @@ class VlcProcess(PlayerBackend):
                 return
             if self._frames_seen():
                 self._media_seen = True
+                self._media_at = time.time()
                 cherrypy.log("media decoded: the picture has started")
                 return
             time.sleep(_FRAME_POLL)

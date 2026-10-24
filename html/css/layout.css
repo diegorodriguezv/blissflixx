@@ -257,6 +257,50 @@ ul.navitems-left>li {
   font-size: 20px;
   background-color: #dbe7f2;
   color: #2A435A;
+  cursor: pointer;
+}
+
+/* The warning states of the pill: the source has gone quiet but the picture is
+ * still running (amber), and the picture itself has stopped (red). Colour is
+ * the whole of the warning -- the clock stays where it is, because it is the
+ * one reading that says how long this has been going on. */
+.starting-time.warn {
+  background-color: #fcf1cd;
+  color: #7a5b00;
+}
+
+.starting-time.stalled {
+  background-color: #f6d4d4;
+  color: #8a1f1f;
+}
+
+.starting-time .fa {
+  margin-left: 6px;
+}
+
+/* The diagnostics panel. Sized for a television rather than a laptop: a
+ * monospace block at reading size, and its own scroll so the bar behind it
+ * never moves. */
+.debug-dialog {
+  width: 92%;
+  max-width: 1200px;
+}
+
+.debug-body {
+  padding: 0 18px 18px 18px;
+}
+
+.debug-pre {
+  margin: 0;
+  max-height: 72vh;
+  overflow-y: auto;
+  overflow-x: hidden;
+  font-family: Menlo, Consolas, "DejaVu Sans Mono", monospace;
+  font-size: 19px;
+  line-height: 1.4;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: #22333f;
 }
 
 /*

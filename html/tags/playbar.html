@@ -9,7 +9,10 @@
             <i show={ starting } class="fa fa-circle-o-notch fa-spin"></i>
             <i show={ !starting } class="fa fa-play"></i>
             <span class="truncate">{ status.Title }</span>
-            <span show={ pill } class="starting-time">{ pill }</span>
+            <span show={ pill } class="starting-time { pillClass }" onclick={ showDebug } title={ pillTitle }>
+              { pill }
+              <i show={ warning } class="fa fa-exclamation-triangle"></i>
+            </span>
           </span>
         </li>
       </ul>
@@ -27,6 +30,19 @@
           <a href="" onclick={ showRemote }><i class="fa fa-ellipsis-h"></i></a>
         </li>
       </ul>
+    </div>
+  </div>
+
+  <div class="modal" id="debugModal" tabindex="-1">
+    <div class="modal-dialog debug-dialog">
+      <div class="modal-content">
+        <div class="modal-header">
+          <button type="button" class="close" onclick={ hideDebug }>&nbsp;&nbsp;X&nbsp;&nbsp;</button>
+        </div>
+        <div class="modal-body debug-body">
+          <pre class="debug-pre">{ debugText }</pre>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -113,6 +129,15 @@
     //: to sit on the bar while the film plays.
     var PILL_LINGER = 5000
 
+    //: How far the clock may run ahead of the last position the server read.
+    //:
+    //: The position is sampled once a second, so showing the raw number makes
+    //: the clock tick unevenly. Interpolating smooths it, but only a little:
+    //: if the picture has actually stopped, the position stops changing and
+    //: the clock has to look stopped too, not invent the seconds the player
+    //: is not producing. One and a half seconds covers a poll and a half.
+    var CLOCK_LEAD = 1.5
+
     this.on('mount', function() {
       self.powerMsg = powerStore.getMsg()
       self.silentPolls = 0
@@ -121,10 +146,21 @@
       self.updateStatus()
       RiotControl.on('se_status_changed', self.updateStatus)
       RiotControl.on('se_power_changed', self.updatePower)
+      // Separate from the poll: the poll carries the sample, this makes the
+      // clock between samples look like a clock.
+      self.clockTimer = setInterval(function() {
+        if (!self.status || self.status.State != 3) return
+        var text = self.clockText()
+        if (!text || text === self.pill) return
+        self.pill = text
+        self.update()
+      }, 250)
     })
 
     this.on('unmount', function() {
       if (self.lingerTimer) clearTimeout(self.lingerTimer)
+      if (self.clockTimer) clearInterval(self.clockTimer)
+      self.stopDebugPolling()
       RiotControl.off('se_status_changed')
       RiotControl.off('se_power_changed')
     })
@@ -155,7 +191,37 @@
         }, PILL_LINGER)
       }
       if (!self.starting && !self.lingering) self.lastCount = ''
-      self.pill = self.starting || self.lingering ? self.lastCount : ''
+      // The sample the clock runs from, and when it was taken. The ticker adds
+      // the time since then; see clockText.
+      if (typeof self.status.Position === 'number') {
+        self.posBase = self.status.Position
+        self.posAt = Date.now()
+      } else {
+        self.posBase = null
+      }
+      // Stalled is two different problems and two different colours: the
+      // picture not moving is happening now, the swarm going quiet is going to
+      // happen. A film that is not on screen yet is neither -- it is loading,
+      // and the detail line already says what it is waiting for.
+      var stalled = self.starting ? 0 : (self.status.Stalled || 0)
+      var reason = self.status.StallReason || ''
+      self.warning = stalled > 0
+      self.pillClass = stalled ? (reason == 'picture' ? 'stalled' : 'warn') : ''
+      if (stalled) {
+        self.pillTitle = (reason == 'picture'
+          ? 'The picture has not moved for ' + stalled + ' seconds.'
+          : 'Nothing has arrived from the torrent for ' + stalled + ' seconds.') +
+          ' Click for details.'
+      } else {
+        self.pillTitle = 'Click for details'
+      }
+      if (self.starting || self.lingering) {
+        self.pill = self.lastCount
+      } else if (self.status.State == 3) {
+        self.pill = self.clockText()
+      } else {
+        self.pill = ''
+      }
       // What the source is doing. Only while the film is not on screen: once it
       // plays, the picture says more than a percentage can.
       self.detail = self.starting ? (self.status.Detail || '') : ''
@@ -171,6 +237,195 @@
     updatePower() {
       self.powerMsg = powerStore.getMsg()
       self.update()
+    }
+
+    //: Where the film is, as a clock. See CLOCK_LEAD.
+    clockText() {
+      if (self.posBase === null || self.posBase === undefined) return ''
+      var lead = self.status && self.status.Paused
+        ? 0
+        : Math.min((Date.now() - self.posAt) / 1000, CLOCK_LEAD)
+      return self.formatClock(self.posBase + lead)
+    }
+
+    formatClock(seconds) {
+      var total = Math.max(0, Math.floor(seconds))
+      var h = Math.floor(total / 3600)
+      var m = Math.floor((total % 3600) / 60)
+      var s = total % 60
+      var mm = h ? ('0' + m).slice(-2) : String(m)
+      return (h ? h + ':' : '') + mm + ':' + ('0' + s).slice(-2)
+    }
+
+    showDebug() {
+      self.debugText = 'reading…'
+      self.update()
+      $('#debugModal').modal('show')
+      $('#debugModal').on('hide.bs.modal', self.removeDebugStyle)
+      self.fetchDebug()
+      self.stopDebugPolling()
+      self.debugTimer = setInterval(self.fetchDebug, 1000)
+    }
+
+    hideDebug() {
+      $('#debugModal').modal('hide')
+    }
+
+    removeDebugStyle(e) {
+      $('#debugModal').removeAttr('style')
+      self.stopDebugPolling()
+    }
+
+    stopDebugPolling() {
+      if (self.debugTimer) {
+        clearInterval(self.debugTimer)
+        self.debugTimer = null
+      }
+    }
+
+    fetchDebug() {
+      Utils.rpc('playr', 'debug', null, function(err, data) {
+        if (err) {
+          self.debugText = 'could not read: ' + err
+        } else {
+          self.debugText = self.renderDebug(data)
+        }
+        self.update()
+      })
+    }
+
+    pad(text, width) {
+      var s = String(text === null || text === undefined ? '' : text)
+      while (s.length < width) s += ' '
+      return s + ' '
+    }
+
+    bytes(value) {
+      var n = Number(value) || 0
+      if (n >= 1024 * 1024 * 1024) return (n / 1024 / 1024 / 1024).toFixed(2) + ' GB'
+      if (n >= 1024 * 1024) return (n / 1024 / 1024).toFixed(1) + ' MB'
+      if (n >= 1024) return (n / 1024).toFixed(0) + ' kB'
+      return n + ' B'
+    }
+
+    num(value) {
+      return value === null || value === undefined ? '—' : String(value)
+    }
+
+    stateName(state) {
+      if (state == 3) return 'playing'
+      if (state == 1) return 'starting'
+      return 'stopped'
+    }
+
+    //: The panel. Everything the server could say, laid out to be read from a
+    //: sofa: one section per question, in the order they are asked when
+    //: something goes wrong -- where is it, is anything arriving, is the
+    //: player alive, what is it decoding, and what does the machine have left.
+    renderDebug(d) {
+      var p = d.Playback || {}
+      var src = d.Source || {}
+      var swarm = src.swarm || {}
+      var file = src.file || {}
+      var player = d.Player || {}
+      var pb = player.playback || {}
+      var stats = pb.stats || {}
+      var out = []
+      var line = function(key, value) {
+        out.push('  ' + self.pad(key, 13) +
+          (value === null || value === undefined || value === '' ? '—' : value))
+      }
+      out.push('NOW')
+      line('title', p.title)
+      line('state', self.stateName(p.state) +
+        (p.paused ? ' · paused' : '') + (p.waiting ? ' · waiting for picture' : ''))
+      var pos = p.position === null || p.position === undefined ? '—' : self.formatClock(p.position)
+      if (p.length) pos += ' / ' + self.formatClock(p.length) +
+        ' (' + Math.floor(p.position * 100 / p.length) + '%)'
+      line('position', pos)
+      line('asked for', p.elapsed + 's ago')
+      line('stalled', p.stalled ? p.stalled + 's · ' + p.stall_reason : 'no')
+      if (p.error) line('error', p.error)
+      out.push('')
+      out.push('SOURCE')
+      line('file', file.name)
+      line('on disk', file.length
+        ? self.bytes(file.present) + ' of ' + self.bytes(file.length) + ' (' + file.percent + '%)'
+        : '—')
+      line('speed', self.bytes(sw.downloadSpeed || 0) + '/s')
+      line('peers', (sw.peers || 0) + ' connected, ' + (sw.active_peers || 0) + ' active')
+      line('this run', self.bytes(sw.downloaded || 0) + ' down · ' + self.bytes(sw.uploaded || 0) + ' up')
+      line('verify', src.verifying === null || src.verifying === undefined ? 'not running' : src.verifying + '%')
+      line('served in', src.serve_after === null || src.serve_after === undefined
+        ? '—' : src.serve_after + 's' + (src.cache_hit ? ' · from verify cache' : ''))
+      line('movie missing', src.stalled_for ? src.stalled_for + 's with no peers' : 'no')
+      out.push('')
+      out.push('PLAYER')
+      line('state', pb.state)
+      line('picture in', player.picture_after === null || player.picture_after === undefined
+        ? '—' : player.picture_after + 's')
+      line('input read', stats.readbytes === undefined ? '—' : self.bytes(stats.readbytes))
+      line('demux read', stats.demuxreadbytes === undefined ? '—' : self.bytes(stats.demuxreadbytes))
+      line('demux rate', stats.demuxbitrate === undefined ? '—' : stats.demuxbitrate + '× realtime')
+      line('video', 'decoded ' + self.num(stats.decodedvideo) +
+        ' · shown ' + self.num(stats.displayedpictures) +
+        ' · lost ' + self.num(stats.lostpictures))
+      line('audio', 'decoded ' + self.num(stats.decodedaudio) +
+        ' · played ' + self.num(stats.playedabuffers) +
+        ' · lost ' + self.num(stats.lostabuffers))
+      out.push('')
+      out.push('STREAMS')
+      var streams = pb.streams || []
+      if (!streams.length) out.push('  —')
+      streams.forEach(function(stream) {
+        var bits = []
+        var kind = stream['Type'] || 'stream'
+        var codec = stream['Codec'] || ''
+        var detail = []
+        if (stream['Video resolution']) detail.push(stream['Video resolution'])
+        if (stream['Frame rate']) detail.push(stream['Frame rate'] + ' fps')
+        if (stream['Sample rate']) detail.push(stream['Sample rate'] + ' Hz')
+        if (stream['Channels']) detail.push(stream['Channels'] + ' ch')
+        if (stream['Language']) detail.push(stream['Language'])
+        line(kind, codec + (detail.length ? ' · ' + detail.join(' · ') : ''))
+      })
+      var tracks = player.tracks || []
+      tracks.forEach(function(track) {
+        line('track ' + track.id, track.type + ' · ' + track.name +
+          (track.current ? ' · playing' : ''))
+      })
+      out.push('')
+      out.push('PIPELINE')
+      ;(d.Pipeline || []).forEach(function(stage) {
+        line(stage.name, 'pid ' + self.num(stage.pid) +
+          (stage.running ? ' · up' : ' · gone') +
+          (stage.ready_after === null || stage.ready_after === undefined
+            ? '' : ' · ready after ' + stage.ready_after + 's'))
+      })
+      out.push('')
+      out.push('MACHINE')
+      var machine = d.Machine || {}
+      line('video mem', machine.cma_total_mb
+        ? self.bytes(machine.cma_free_mb * 1024 * 1024) + ' free of ' +
+          self.bytes(machine.cma_total_mb * 1024 * 1024) +
+          ' (' + machine.cma_free_percent + '%)'
+        : '—')
+      line('ram', self.bytes(machine.mem_available_mb * 1024 * 1024) + ' available · ' +
+        self.bytes(machine.cached_mb * 1024 * 1024) + ' cached')
+      line('disk', self.bytes(machine.disk_free_mb * 1024 * 1024) + ' free')
+      line('load', machine.load)
+      var logs = d.Log || {}
+      var names = Object.keys(logs)
+      if (names.length) {
+        out.push('')
+        names.forEach(function(name) {
+          out.push('LOG · ' + name)
+          logs[name].slice(-15).forEach(function(row) {
+            out.push('  ' + String(row).replace(/^\s+/, '').slice(0, 200))
+          })
+        })
+      }
+      return out.join('\n')
     }
 
     closeError() {
