@@ -3427,19 +3427,23 @@ class TestADisplayThatCannotCommit:
     """
     The screen going black while the film decodes is not the torrent.
 
-    The Pi's contiguous video memory is 256MB, shared by the display and the
-    decoder. A box that has played a lot can run out: frames decode, nothing
-    reaches the screen, and every commit fails. Left unsaid it looks exactly
-    like a slow source, and the only cure is a restart.
+    The kernel's reason is "Failed to allocate LBM entry: -28" -- the display
+    controller's line-buffer pool -- and VLC reports it as an atomic commit
+    failure. Frames decode, nothing reaches the screen, every commit fails,
+    and the only cure is a restart.
+
+    One line is not the failure, though: a burst of them at the start of a
+    film is survivable and has been measured. The watchdog is what decides,
+    and TestDisplayWatchdog covers it; here only that the line is counted
+    rather than announced.
     """
 
-    def test_it_says_the_pi_is_out_of_video_memory(self):
+    def test_a_refusal_is_counted_not_announced(self):
         proc = VlcProcess({"osd_overlay": "0"})
         proc._ready_seen = True
         proc._observe_output(
             "[74800ef0] drm_vout vout display error: [0]: Atomic commit failed: "
             "No space left on device"
         )
-        errors = proc.get_errors()
-        assert len(errors) == 1
-        assert "video memory" in errors[0]
+        assert proc.get_errors() == []
+        assert proc._display_failures == 1
