@@ -54,10 +54,36 @@ _PROGRESS_FOR = 300
 _STALLED_AFTER = 20
 
 #: How often, in progress-watch ticks, the buffer's page cache is dropped while
-#: the film starts. The watch ticks every _PROGRESS_EVERY seconds, so 30 is
-#: about once a minute: often enough that the verifier's one-pass reads never
-#: accumulate beside the film, seldom enough that the walk is noise.
-_CACHE_DROP_EVERY = 30
+#: the film starts. The watch ticks every _PROGRESS_EVERY seconds, so 5 is
+#: about once every ten seconds. Once a minute was the first guess and it was
+#: too slow: a local file failed at 0:30 from the same pressure, so the window
+#: a play has to survive is tens of seconds, not a minute.
+_CACHE_DROP_EVERY = 5
+
+
+def drop_file_cache(path):
+    """
+    Evict one file's pages, or say zero. Never raises.
+
+    The single-file form of drop_buffer_cache, for a film being read from the
+    card: VLC reads its own media through the same page cache, and those pages
+    land in the display memory's region just as the verifier's do. Measured on
+    rpi with a 1080p file, the same play failed at 0:30 without this and ran
+    past 1:35 with it, CmaFree steady at 64MB either way until the failure.
+    """
+    try:
+        fadvise = getattr(os, "posix_fadvise", None)
+        dontneed = getattr(os, "POSIX_FADV_DONTNEED", None)
+        if fadvise is None or dontneed is None or not path:
+            return 0
+        fd = os.open(path, os.O_RDONLY)
+        try:
+            fadvise(fd, 0, 0, dontneed)
+        finally:
+            os.close(fd)
+        return 1
+    except OSError:
+        return 0
 
 
 def drop_buffer_cache():

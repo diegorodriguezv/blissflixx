@@ -473,6 +473,66 @@ class TestInputIdle:
         assert fourth["read_idle"] >= 2
 
 
+class TestDropFileCache:
+    def test_one_file_is_evicted(self, tmp_path):
+        path = tmp_path / "film.mkv"
+        path.write_bytes(b"x" * 4096)
+        assert pflix.drop_file_cache(str(path)) == 1
+
+    def test_a_missing_file_is_not_an_error(self, tmp_path):
+        assert pflix.drop_file_cache(str(tmp_path / "absent.mkv")) == 0
+
+    def test_no_path_drops_nothing(self):
+        assert pflix.drop_file_cache(None) == 0
+        assert pflix.drop_file_cache("") == 0
+
+
+class TestLocalFileEviction:
+    def test_only_a_local_file_gets_evicted(self, tmp_path, monkeypatch):
+        """
+        A stream never touches this filesystem, and a torrent's buffer is the
+        source stage's job. Evicting what is not being read would be a syscall
+        per play for nothing.
+        """
+        calls = []
+        monkeypatch.setattr(vlcproc, "drop_file_cache", lambda p: calls.append(p))
+        monkeypatch.setattr(vlcproc, "_EVICT_EVERY", 0)
+
+        local = tmp_path / "film.mkv"
+        local.write_bytes(b"x")
+        proc = vlcproc.VlcProcess()
+        proc._input_url = str(local)
+        proc.killing = True
+        proc._evict_input()
+        assert calls == []
+
+        proc = vlcproc.VlcProcess()
+        proc._input_url = "http://192.168.1.119:9696"
+        proc.killing = True
+        proc._evict_input()
+        assert calls == []
+
+    def test_it_drops_the_file_while_it_runs(self, tmp_path, monkeypatch):
+        calls = []
+        monkeypatch.setattr(vlcproc, "drop_file_cache", lambda p: calls.append(p))
+        monkeypatch.setattr(vlcproc, "_EVICT_EVERY", 0)
+        local = tmp_path / "film.mkv"
+        local.write_bytes(b"x")
+
+        proc = vlcproc.VlcProcess()
+        proc._input_url = str(local)
+        proc.killing = False
+
+        def stop_after_one(seconds):
+            # After the first eviction, the next sleep's tick stops the loop.
+            if calls:
+                proc.killing = True
+
+        monkeypatch.setattr(vlcproc.time, "sleep", stop_after_one)
+        proc._evict_input()
+        assert calls == [str(local)]
+
+
 class _Stage:
     def __init__(self, name, **extra):
         self._name = name

@@ -47,7 +47,7 @@ from .backend import (
     PlayerBackend,
 )
 from .processpipe import _TERMINATE_GRACE, TMP_DIR, ProcessException, _start_thread
-from .pflixproc import drop_buffer_cache
+from .pflixproc import drop_buffer_cache, drop_file_cache
 
 VLC_BIN = "cvlc"
 _START_TIMEOUT = 30
@@ -344,9 +344,14 @@ def _format_clock(value):
 #: VLC's id for "no subtitles", as printed in the listing.
 _TRACK_DISABLED = -1
 
-#: How long the panel keeps a track listing. See VlcProcess._tracks_for_panel:
+#: How often the panel keeps a track listing. See VlcProcess._tracks_for_panel:
 #: the answer costs three cli commands and does not change while a film plays.
 _TRACKS_EVERY = 30
+
+#: How often a local film's own file pages are evicted while it plays. Short
+#: enough to stay ahead of the pressure that broke a play at 0:30, long enough
+#: not to matter. See VlcProcess._evict_input.
+_EVICT_EVERY = 10
 
 
 def _number(value):
@@ -1211,6 +1216,31 @@ class VlcProcess(PlayerBackend):
         self._panel_tracks = (now, tracks)
         return tracks
 
+    def _evict_input(self):
+        """
+        Keep a local film's own pages out of the cache it is read through.
+
+        VLC reads the media file itself, and those pages land in the display
+        memory's region exactly as the verifier's do. Measured on rpi with a
+        1080p file: without this the same play failed at 0:30 with "Atomic
+        commit failed", with it the film ran past 1:35 with CmaFree steady at
+        64MB until the point where it used to fail. The player reads each page
+        once, so telling the kernel it may forget them costs a re-read only if
+        a seek goes back.
+
+        Nothing to do for a stream: its bytes never touch this filesystem, and
+        a torrent's buffer is evicted by the source stage. See
+        drop_file_cache and drop_buffer_cache.
+        """
+        path = getattr(self, "_input_url", None)
+        if not path or "://" in path or not os.path.isfile(path):
+            return
+        while not self.killing:
+            time.sleep(_EVICT_EVERY)
+            if self.killing:
+                return
+            drop_file_cache(path)
+
     def _wait_for_media(self):
         """
         Wait until the player has actually decoded something.
@@ -1506,6 +1536,7 @@ class VlcProcess(PlayerBackend):
                 self._enable_embedded_subtitles()
                 _start_thread(self._wait_for_media)
                 _start_thread(self._show_opening_title)
+                _start_thread(self._evict_input)
                 if getattr(self, "_subtitles_wanted", None):
                     _start_thread(self._add_torrent_subtitles)
                 return
