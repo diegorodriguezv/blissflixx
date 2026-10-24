@@ -353,9 +353,15 @@ _TRACKS_EVERY = 30
 #: not to matter. See VlcProcess._evict_input.
 _EVICT_EVERY = 10
 
-#: How long the display is given to show a decoded frame before the play is
-#: declared unwatchable. See VlcProcess._watch_display.
-_DISPLAY_WAIT = 15
+#: When frames are being refused by the display, how many refusals and how long
+#: they must keep arriving before the play is declared unwatchable. A burst of
+#: about eighty over three seconds is survivable and has been measured; the
+#: same thing still arriving after ten seconds is not. See _watch_display.
+_DISPLAY_FAILURES = 5
+_DISPLAY_FAILING_FOR = 10
+#: How long the watch runs. Past this, the film is playing or it is some other
+#: problem entirely.
+_DISPLAY_WATCH_FOR = 60
 
 
 def _number(value):
@@ -781,6 +787,11 @@ class VlcProcess(PlayerBackend):
         self._media_at = None
         #: The cached status.json reading, (when, snapshot). See _status_snapshot.
         self._snapshot = None
+        #: Frames the display refused, when the first and last of them arrived.
+        #: See _watch_display.
+        self._display_failures = 0
+        self._display_first = None
+        self._display_last = None
         self._startup_errors = []
         # Last track id chosen per interface verb, so stepping does not have to
         # re-read the listing every time. See _step_track.
@@ -911,12 +922,16 @@ class VlcProcess(PlayerBackend):
         says the same thing about a slave stream, and the second half of a
         two-stream source failing is not the film failing.
         """
-        if self._ready_seen and self._NO_DISPLAY in line and not self.has_error():
-            self._set_error(
-                "The display could not keep up with the film: the Pi is out of "
-                "video memory. Restarting it clears this."
-            )
-            self._failure_reported = True
+        if self._ready_seen and self._NO_DISPLAY in line:
+            # Counted, not acted on. A burst of these at the start of a film is
+            # survivable -- measured, eighty-four of them over three seconds
+            # and the picture then plays -- so a single line is not the
+            # failure. The failure is the same thing still happening fifteen
+            # seconds later; see _watch_display.
+            now = time.time()
+            self._display_failures += 1
+            self._display_first = self._display_first or now
+            self._display_last = now
         elif (
             self._ready_seen
             and self._CANNOT_OPEN in line
@@ -1251,33 +1266,38 @@ class VlcProcess(PlayerBackend):
         The failure has no line of its own in the interface: the demuxer opens,
         frames are decoded -- so "waiting for the picture" ends -- and the
         screen stays black because every commit is rejected. Measured on rpi,
-        the kernel says why and VLC says why, but the page showed a film that
-        looked merely slow, for as long as anyone was willing to wait.
+        the kernel says why ("Failed to allocate LBM entry: -28") and VLC says
+        why ("Atomic commit failed"), but the page showed a film that looked
+        merely slow for as long as anyone was willing to wait.
 
-        Decoded frames with none displayed is the distinction that matters:
-        the decoder working and the display not. Fifteen seconds of it is not
-        a slow start, and a restart is the only thing that clears it, so the
-        play is ended with that said rather than left running.
+        A burst of those lines is not the failure. Measured on rpi, eighty-four
+        of them over three seconds at the start of a film, after which the
+        picture played. The failure is the same lines still arriving ten
+        seconds after the first one with nothing having changed, which is what
+        an unwatchable film looks like -- and a restart is the only cure, so it
+        is worth saying rather than waiting behind.
         """
-        deadline = time.time() + _DISPLAY_WAIT
+        deadline = time.time() + _DISPLAY_WATCH_FOR
         while time.time() < deadline:
             if self.killing:
                 return
             proc = getattr(self, "proc", None)
             if proc is None or proc.poll() is not None:
                 return
-            snapshot = self._status_snapshot() or {}
-            stats = snapshot.get("stats") or {}
-            shown = stats.get("displayedpictures") or 0
-            decoded = stats.get("decodedvideo") or 0
-            if shown > 0:
-                return
-            if decoded > 0:
+            now = time.time()
+            if (
+                self._display_failures >= _DISPLAY_FAILURES
+                and self._display_first is not None
+                and now - self._display_first >= _DISPLAY_FAILING_FOR
+                and self._display_last is not None
+                and now - self._display_last <= _DISPLAY_FAILING_FOR
+            ):
+                seconds = int(now - self._display_first)
                 self._set_error(
                     "The TV would not take the picture: the display rejected "
-                    "every frame. Restarting the Pi clears it; if it comes "
-                    "back, set the TV to the film's resolution or turn the "
-                    "on-screen text off."
+                    "every frame for %ds. Restarting the Pi clears it; if it "
+                    "comes back, set the TV to the film's resolution or turn "
+                    "the on-screen text off." % seconds
                 )
                 self._failure_reported = True
                 cherrypy.log("display is refusing frames; ending the play")

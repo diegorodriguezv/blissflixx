@@ -534,16 +534,12 @@ class TestLocalFileEviction:
 
 
 class TestDisplayWatchdog:
-    def _proc(self, monkeypatch, snapshots):
+    def _proc(self, monkeypatch):
         proc = vlcproc.VlcProcess()
-        values = list(snapshots)
         proc.proc = type("P", (), {"poll": lambda self: None})()
-        monkeypatch.setattr(proc, "_status_snapshot", lambda: values.pop(0) if values else {})
         quit_calls = []
         monkeypatch.setattr(proc, "_force_quit", lambda: quit_calls.append(1))
         monkeypatch.setattr(vlcproc.time, "sleep", lambda seconds: None)
-        # A clock that advances a second per reading, so the loop's deadline is
-        # reached without sleeping.
         state = {"now": 0.0}
 
         def tick():
@@ -553,38 +549,67 @@ class TestDisplayWatchdog:
         monkeypatch.setattr(vlcproc.time, "time", tick)
         return proc, quit_calls
 
-    def test_a_decoded_film_with_no_picture_ends_the_play(self, monkeypatch):
+    def _refuse(self, proc, times):
+        for _ in range(times):
+            proc._observe_output("drm_vout vout display error: Atomic commit failed: No space left on device")
+
+    def test_a_burst_that_stops_is_not_a_failure(self, monkeypatch):
         """
-        The screen is black, the demuxer is open, frames are decoded -- so the
-        bar stops waiting -- and nothing says why. This is the one failure the
-        viewer cannot tell from a slow stream, so it is ended with the reason.
+        Measured on rpi: eighty-four refusals over three seconds at the start
+        of a film, and then the picture plays. Ending that play would be worse
+        than the black screen it is trying to save.
         """
-        proc, quits = self._proc(
-            monkeypatch,
-            [{"stats": {"decodedvideo": 5, "displayedpictures": 0}}] * 5,
-        )
+        proc, quits = self._proc(monkeypatch)
+        proc._ready_seen = True
+        self._refuse(proc, 84)
+        assert proc._display_failures == 84
+        # They arrived in a burst three seconds long, and then stopped.
+        proc._display_first = 0.0
+        proc._display_last = 3.0
+        state = {"now": 100.0}
+
+        def tick():
+            state["now"] += 1.0
+            return state["now"]
+
+        monkeypatch.setattr(vlcproc.time, "time", tick)
+        proc._watch_display()
+        assert quits == []
+        assert not proc.has_error()
+
+    def test_refusals_that_keep_arriving_end_the_play(self, monkeypatch):
+        proc, quits = self._proc(monkeypatch)
+        proc._ready_seen = True
+        calls = {"n": 0}
+
+        def keep_refusing(seconds):
+            # Every loop iteration the display refuses again.
+            calls["n"] += 1
+            self._refuse(proc, 1)
+
+        monkeypatch.setattr(vlcproc.time, "sleep", keep_refusing)
         proc._watch_display()
         assert quits == [1]
         assert proc.has_error()
+        assert "would not take" in proc.errors[0]
 
-    def test_a_displayed_frame_ends_the_watch(self, monkeypatch):
-        proc, quits = self._proc(
-            monkeypatch,
-            [{"stats": {"decodedvideo": 5, "displayedpictures": 3}}],
-        )
+    def test_nothing_refused_is_not_a_failure(self, monkeypatch):
+        proc, quits = self._proc(monkeypatch)
+        proc._ready_seen = True
         proc._watch_display()
         assert quits == []
         assert not proc.has_error()
 
-    def test_nothing_decoded_yet_is_not_a_display_failure(self, monkeypatch):
-        """A torrent with no peers decodes nothing; that is not this."""
-        proc, quits = self._proc(
-            monkeypatch,
-            [{"stats": {"decodedvideo": 0, "displayedpictures": 0}}] * 4,
-        )
+    def test_the_message_says_how_long(self, monkeypatch):
+        proc, quits = self._proc(monkeypatch)
+        proc._ready_seen = True
+        self._refuse(proc, 6)
+        proc._display_first = 0.0
+        monkeypatch.setattr(vlcproc.time, "time", lambda: 60.0)
+        proc._display_last = 59.0
         proc._watch_display()
-        assert quits == []
-        assert not proc.has_error()
+        assert quits == [1]
+        assert "for 60s" in proc.errors[0]
 
 
 class TestSourceModeset:
