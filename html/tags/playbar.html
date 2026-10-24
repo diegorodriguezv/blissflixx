@@ -148,8 +148,15 @@
       RiotControl.on('se_power_changed', self.updatePower)
       // Separate from the poll: the poll carries the sample, this makes the
       // clock between samples look like a clock.
+      //
+      // It must not touch the pill while the count is up. The count is the
+      // answer to "how long did that take" and it stays for PILL_LINGER after
+      // the picture starts; a ticker that wrote the clock over it in the
+      // meantime produced both numbers in the same place, flickering once a
+      // second as each overwrote the other.
       self.clockTimer = setInterval(function() {
         if (!self.status || self.status.State != 3) return
+        if (self.starting || self.lingering) return
         var text = self.clockText()
         if (!text || text === self.pill) return
         self.pill = text
@@ -187,6 +194,10 @@
         self.lingerTimer = setTimeout(function() {
           self.lingering = false
           self.lastCount = ''
+          // Hand the pill over to the clock here rather than on the next poll,
+          // which can be up to a second away: without this the count sat there
+          // for a moment with the film already running under it.
+          self.pill = self.clockText() || ''
           self.update()
         }, PILL_LINGER)
       }
