@@ -337,6 +337,10 @@ def _format_clock(value):
 #: VLC's id for "no subtitles", as printed in the listing.
 _TRACK_DISABLED = -1
 
+#: How long the panel keeps a track listing. See VlcProcess._tracks_for_panel:
+#: the answer costs three cli commands and does not change while a film plays.
+_TRACKS_EVERY = 30
+
 
 def _number(value):
     """One number out of VLC's json, or None. Its lua tables mix strings in."""
@@ -392,39 +396,6 @@ def _normalize_status(data):
         "streams": streams,
     }
 
-
-def _track_list(playlist):
-    """
-    The ES entries VLC knows about, from playlist.json.
-
-    Everything it is playing is a tree; the tracks are the leaves that carry an
-    id and a type. The current one is marked, which is what "STREAMS" in the
-    panel shows beside the codec -- the track listing the cli commands print
-    says the same thing, but asking the cli is what the http channel exists to
-    avoid.
-    """
-    tracks = []
-
-    def walk(node):
-        if not isinstance(node, dict):
-            return
-        for child in node.get("children") or []:
-            if not isinstance(child, dict):
-                continue
-            if "id" in child and child.get("type"):
-                tracks.append(
-                    {
-                        "id": child.get("id"),
-                        "type": str(child.get("type")),
-                        "name": str(child.get("name") or ""),
-                        "current": str(child.get("current") or "") in ("1", "true", "True"),
-                    }
-                )
-            else:
-                walk(child)
-
-    walk(playlist if isinstance(playlist, dict) else {})
-    return tracks
 
 
 def _summarise_reply(lines):
@@ -1152,13 +1123,55 @@ class VlcProcess(PlayerBackend):
     def debug(self):
         base = super().debug()
         snapshot = self._status_snapshot() or {}
-        tracks = self._http_get("playlist.json")
         base["playback"] = snapshot
-        base["tracks"] = _track_list(tracks)
+        base["tracks"] = self._tracks_for_panel()
         base["http_port"] = getattr(self, "_http_port", None)
         if self._media_at and getattr(self, "_spawned_at", None):
             base["picture_after"] = round(self._media_at - self._spawned_at, 1)
         return base
+
+    def _tracks_for_panel(self):
+        """
+        The tracks the player knows, which of them is playing, and their names.
+
+        The http interface reports the stream list and its codecs but not which
+        track is selected; the cli's listings do, marking the current one with
+        an asterisk. Asking it costs three commands, so the answer is kept for
+        half a minute: the panel refreshes once a second and the cli is the
+        interface this whole feature refuses to poll -- it is what stopped
+        answering when it was asked for the time every second.
+
+        Empty list on any failure: a diagnostics panel that cannot read one
+        section still has the others.
+        """
+        now = time.time()
+        cached = getattr(self, "_panel_tracks", None)
+        if cached is not None and now - cached[0] < _TRACKS_EVERY:
+            return cached[1]
+        tracks = []
+        for kind, command in (
+            ("video", "vtrack"),
+            ("audio", "atrack"),
+            ("subtitle", "strack"),
+        ):
+            for line in self._send_and_collect(command) or []:
+                found = _TRACK_LINE.match(line.strip())
+                if not found:
+                    continue
+                track_id = int(found.group(1))
+                if track_id < 0:
+                    continue
+                title, language = _track_parts(line)
+                tracks.append(
+                    {
+                        "kind": kind,
+                        "id": track_id,
+                        "name": _track_display(title, language),
+                        "current": bool(found.group(3)),
+                    }
+                )
+        self._panel_tracks = (now, tracks)
+        return tracks
 
     def _wait_for_media(self):
         """

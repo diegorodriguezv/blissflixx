@@ -376,24 +376,56 @@
       out.push('')
       out.push('STREAMS')
       var streams = pb.streams || []
-      if (!streams.length) out.push('  —')
-      streams.forEach(function(stream) {
-        var bits = []
-        var kind = stream['Type'] || 'stream'
-        var codec = stream['Codec'] || ''
-        var detail = []
-        if (stream['Video resolution']) detail.push(stream['Video resolution'])
-        if (stream['Frame rate']) detail.push(stream['Frame rate'] + ' fps')
-        if (stream['Sample rate']) detail.push(stream['Sample rate'] + ' Hz')
-        if (stream['Channels']) detail.push(stream['Channels'] + ' ch')
-        if (stream['Language']) detail.push(stream['Language'])
-        line(kind, codec + (detail.length ? ' · ' + detail.join(' · ') : ''))
-      })
+      var ofType = function(kind) {
+        return streams.filter(function(s) { return s['Type'] == kind })
+      }
+      var describe = function(stream) {
+        var bits = [stream['Codec'] || '?']
+        if (stream['Video resolution']) bits.push(stream['Video resolution'])
+        if (stream['Frame rate']) bits.push(stream['Frame rate'] + ' fps')
+        if (stream['Sample rate']) bits.push(stream['Sample rate'])
+        if (stream['Channels']) bits.push(stream['Channels'] + ' ch')
+        if (stream['Language']) bits.push(stream['Language'])
+        if (stream['Description']) bits.push('(' + stream['Description'] + ')')
+        return bits.join(' · ')
+      }
+      var videos = ofType('Video')
+      var audios = ofType('Audio')
+      var subs = ofType('Subtitle')
       var tracks = player.tracks || []
-      tracks.forEach(function(track) {
-        line('track ' + track.id, track.type + ' · ' + track.name +
-          (track.current ? ' · playing' : ''))
+      var playing = function(kind) {
+        return tracks.filter(function(t) { return t.kind == kind && t.current })[0]
+      }
+      var marker = function(track) { return track ? ' · playing ' + track.name : '' }
+      if (!videos.length && !audios.length) line('streams', '—')
+      videos.forEach(function(stream, i) {
+        line('video' + (videos.length > 1 ? ' ' + (i + 1) : ''), describe(stream))
       })
+      audios.forEach(function(stream, i) {
+        line('audio' + (audios.length > 1 ? ' ' + (i + 1) : ''), describe(stream))
+      })
+      var subPlaying = playing('subtitle')
+      line('subtitles', subs.length + ' tracks' +
+        (subPlaying ? ' · playing ' + subPlaying.name : ' · none playing'))
+      var languages = []
+      subs.forEach(function(stream) {
+        var label = stream['Language'] || ''
+        if (stream['Description']) label += ' (' + stream['Description'] + ')'
+        if (label && languages.indexOf(label) < 0) languages.push(label)
+      })
+      if (languages.length) {
+        line('languages', languages.slice(0, 10).join(', ') +
+          (languages.length > 10 ? ' … +' + (languages.length - 10) : ''))
+      }
+      if (tracks.length) {
+        out.push('')
+        out.push('TRACKS')
+        tracks.forEach(function(track) {
+          // Subtitle tracks are usually dozens; only the one showing matters.
+          if (track.kind == 'subtitle' && !track.current) return
+          line(track.kind + ' ' + track.id, track.name + (track.current ? ' · playing' : ''))
+        })
+      }
       out.push('')
       out.push('PIPELINE')
       ;(d.Pipeline || []).forEach(function(stage) {

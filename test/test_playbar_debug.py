@@ -201,27 +201,53 @@ class TestNormalizeStatus:
         assert snapshot["streams"] == [{"Type": "Audio", "Codec": "A52"}]
 
 
-class TestTrackList:
-    def test_tracks_are_taken_from_the_playlist_leaves(self):
-        playlist = {
-            "children": [
-                {
-                    "name": "film",
-                    "children": [
-                        {"id": 0, "type": "Video", "name": "Video", "current": "true"},
-                        {"id": 1, "type": "Audio", "name": "English", "current": "false"},
-                    ],
-                }
-            ]
-        }
-        tracks = vlcproc._track_list(playlist)
-        assert [t["id"] for t in tracks] == [0, 1]
-        assert tracks[0]["current"] is True
-        assert tracks[1]["current"] is False
+class TestTrackListing:
+    def _proc(self, monkeypatch, replies):
+        proc = vlcproc.VlcProcess()
+        proc._http_port = 1234
+        proc._http_password = "secret"
 
-    def test_garbage_is_empty(self):
-        assert vlcproc._track_list(None) == []
-        assert vlcproc._track_list({"children": "nope"}) == []
+        def fake_collect(command):
+            return replies.get(command, [])
+
+        monkeypatch.setattr(proc, "_send_and_collect", fake_collect)
+        return proc
+
+    def test_the_current_track_is_marked(self, monkeypatch):
+        proc = self._proc(
+            monkeypatch,
+            {
+                "vtrack": ["+----[ Stream 0 ]", "|  1 - Video - [English] *", "+----"],
+                "atrack": ["|  2 - English - [English]", "|  3 - Japanese - [Japanese] *"],
+                "strack": ["|  4 - SDH - [English]", "| -1 - Disable"],
+            },
+        )
+        tracks = proc.debug()["tracks"]
+        assert [(t["kind"], t["id"], t["current"]) for t in tracks] == [
+            ("video", 1, True),
+            ("audio", 2, False),
+            ("audio", 3, True),
+            ("subtitle", 4, False),
+        ]
+
+    def test_disable_is_not_a_track(self, monkeypatch):
+        proc = self._proc(monkeypatch, {"strack": ["| -1 - Disable"]})
+        assert proc.debug()["tracks"] == []
+
+    def test_the_listing_is_kept_for_half_a_minute(self, monkeypatch):
+        """Three cli commands a second is exactly what this feature avoids."""
+        calls = []
+        proc = self._proc(monkeypatch, {"atrack": ["|  1 - A - [English]"]})
+        proc._send_and_collect = lambda command: (calls.append(command), ["|  1 - A - [English]"])[1]
+        proc.debug()
+        proc.debug()
+        proc.debug()
+        assert calls.count("atrack") == 1
+
+    def test_a_player_that_will_not_answer_is_empty(self, monkeypatch):
+        proc = vlcproc.VlcProcess()
+        proc._http_port = None
+        assert proc.debug()["tracks"] == []
 
 
 class TestPeerflixDisk:

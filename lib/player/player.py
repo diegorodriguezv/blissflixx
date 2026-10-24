@@ -505,7 +505,10 @@ class _Player:
         if position is not None:
             status["Position"] = int(position)
             length = playback.get("length")
-            if length:
+            # VLC answers -1 for a stream whose length it does not know, which
+            # is not a length: a bar reading "0:00 / -0:01" is worse than one
+            # that leaves it out.
+            if length and length > 0:
                 status["Length"] = int(length)
             self._note_position(position)
         stalled, reason = self._stalled(pipe)
