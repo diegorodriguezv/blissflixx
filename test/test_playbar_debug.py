@@ -325,6 +325,32 @@ class TestPeerflixDisk:
         assert proc.stalled_for() == 0
 
 
+class TestDiskFallback:
+    def _proc(self, tmp_path, monkeypatch, total):
+        monkeypatch.setattr(pflix, "BUFFER_DIR", str(tmp_path))
+        proc = pflix.PeerflixProcess("magnet:?xt=urn:btih:abc", None)
+        proc._progress = {"total": total, "downloaded": 0, "percent": 0,
+                          "speed": 0, "peers": 0, "files": []}
+        return proc
+
+    def test_without_a_file_list_the_buffer_is_measured(self, tmp_path, monkeypatch):
+        """
+        A poll can land before peerflix has parsed the metadata, with totals
+        and no files. The panel used to show "-" for the one number that says
+        whether waiting is worth anything.
+        """
+        film = tmp_path / "film.mp4"
+        film.write_bytes(b"x" * (2 * 1024 * 1024))
+        proc = self._proc(tmp_path, monkeypatch, 8 * 1024 * 1024)
+        info = proc.served_file()
+        assert info["percent"] == 25
+        assert info["name"] == "film.mp4"
+
+    def test_an_empty_buffer_is_still_unknown(self, tmp_path, monkeypatch):
+        proc = self._proc(tmp_path, monkeypatch, 8 * 1024 * 1024)
+        assert proc.served_file() is None
+
+
 class TestPlayerDebug:
     def test_the_panel_gets_every_section(self):
         pl = _player(_Pipe(playback={"position": 10, "length": 100}))

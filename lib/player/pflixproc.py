@@ -319,7 +319,23 @@ class PeerflixProcess(ExternalProcess):
         """
         files = (self._progress or {}).get("files") or []
         if not files:
-            return None
+            # The file list can be missing even while the swarm is answering
+            # -- peerflix only sends it once the metadata is parsed, and a
+            # poll that lands before that has the totals and nothing else.
+            # Fall back to what is on the card: for the single-file torrents
+            # this box plays, the largest file under the buffer is the film.
+            found = self._largest_buffered_file()
+            if found is None:
+                return None
+            total = int((self._progress or {}).get("total") or 0)
+            present = found[1]
+            return {
+                "name": os.path.basename(found[0]),
+                "path": found[0],
+                "length": total or present,
+                "present": present,
+                "percent": min(100, int(present * 100 / total)) if total else 0,
+            }
         # peerflix serves index 0 when no -i was given, so an unset index is
         # index 0 and not "unknown": this used to return nothing at all for a
         # magnet that carried no file index, which is most of them, and the one
@@ -353,6 +369,26 @@ class PeerflixProcess(ExternalProcess):
             "present": present,
             "percent": percent,
         }
+
+    def _largest_buffered_file(self):
+        """The biggest file in the buffer, with its allocated bytes, or None."""
+        best = None
+        try:
+            for root, _dirs, names in os.walk(BUFFER_DIR):
+                for name in names:
+                    if name.startswith("."):
+                        continue
+                    path = os.path.join(root, name)
+                    try:
+                        st = os.stat(path)
+                    except OSError:
+                        continue
+                    present = min(st.st_blocks * 512, st.st_size)
+                    if best is None or present > best[1]:
+                        best = (path, present)
+        except OSError:
+            return None
+        return best
 
     def _resolve(self, name):
         """Where a torrent-relative file name is on disk, or None."""
@@ -457,6 +493,7 @@ class PeerflixProcess(ExternalProcess):
             self._progress = {
                 "downloaded": downloaded,
                 "percent": percent,
+                "total": total,
                 "speed": int(stats.get("downloadSpeed") or 0),
                 "uploaded": int(stats.get("uploaded") or 0),
                 "upload_speed": int(stats.get("uploadSpeed") or 0),
