@@ -653,6 +653,17 @@ class VlcProcess(PlayerBackend):
         # film's mode falls back to its preferred one, and _watch_display()
         # catches the case that follows.
         "source_modeset": "1",
+        # Fill the screen rather than placing a window on it.
+        #
+        # VLC's drm_vout has its own idea of the display window -- what the
+        # option calls "Display window for Rpi fullscreen" -- and it is not
+        # fullscreen by default: measured on rpi, the video plane was placed
+        # at 1365x768 inside a 1920x1080 mode and scaled into it. That scaling
+        # is what competes with the overlay for the display controller's line
+        # buffers, and with a long film title the overlay lost: hundreds of
+        # failed commits, and sometimes a black screen that never recovers.
+        # The film is the screen; there is nothing else on this display.
+        "fill_screen": "1",
         # Keyframe seeking, on by default here and off in VLC.
         #
         # Two seeks in quick succession -- pressing +30 twice -- stopped the film
@@ -1517,6 +1528,10 @@ class VlcProcess(PlayerBackend):
             # the film, the scaling uses the HVS line buffers, and the overlay
             # plane then cannot get one -- a black screen with a decoded film.
             cmd.append("--drm-vout-source-modeset")
+        if str(self.opt("fill_screen")).lower() not in ("0", "false", "", "none"):
+            # See the note on fill_screen: a window inside the mode is scaled
+            # into it, which costs the same line buffers the overlay needs.
+            cmd.append("--drm-vout-window=fullscreen")
         if self._http_port is not None:
             cmd.append("--extraintf=http")
             cmd.append("--http-host=127.0.0.1")

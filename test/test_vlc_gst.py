@@ -122,6 +122,9 @@ class TestVlcCommand:
             # the scaling is what ran the display controller out of line
             # buffers. See the note on source_modeset in vlcproc.
             "--drm-vout-source-modeset",
+            # The film fills the screen; a window inside the mode is scaled
+            # into it, at the same cost in line buffers the overlay needs.
+            "--drm-vout-window=fullscreen",
             FILE_OUT,
         ]
 
