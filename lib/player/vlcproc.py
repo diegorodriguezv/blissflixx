@@ -772,9 +772,11 @@ class VlcProcess(PlayerBackend):
         #:     main decoder error: buffer deadlock prevented
         #:     main decoder error: Timestamp conversion failed
         #:
-        #: Four seconds of 1080p is a few megabytes and rides out a card
-        #: service time that the verifier's reads make lumpy.
-        "network_caching": "4000",
+        #: Eight seconds of 1080p is a handful of megabytes and rides out a
+        #: card service time that the verifier's reads make lumpy; four was
+        #: enough to stop the drops over two minutes, eight leaves room for a
+        #: slower stretch without the picture ever noticing.
+        "network_caching": "8000",
         "start_timeout": _START_TIMEOUT,
         # As a percentage of VLC's own 100%, not a number of its units: the step
         # used to be 5, which was 5 of 512 -- about one percent, so the button

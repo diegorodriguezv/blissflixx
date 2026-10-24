@@ -98,7 +98,7 @@ class TestVlcCommand:
             "--drm-vout-module=vc4",
             # Seconds of stream kept ahead of the picture; VLC's one second
             # could not ride out a verifier reading the same file.
-            "--network-caching=4000",
+            "--network-caching=8000",
             "--sub-text-scale=95",
             # Lifts the subtitles off the bottom edge so the overlay can sit
             # just above them instead of over them.
