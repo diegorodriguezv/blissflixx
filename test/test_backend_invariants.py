@@ -362,6 +362,7 @@ class TestReadmeMatchesTheCode:
             "video_output_module",
             "source_modeset",
             "fill_screen",
+            "network_caching",
             "fast_seek",
             "subtitle_text_scale",
             "start_timeout",

@@ -760,6 +760,21 @@ class VlcProcess(PlayerBackend):
         # same size whatever they are watching.
         "osd_size": "0",
         "osd_opacity": "220",
+        #: Seconds of stream the player keeps ahead of the picture.
+        #:
+        #: VLC's default is one second, which is not enough on this box while
+        #: the source is doing something else: measured while peerflix was
+        #: hashing the same 5.3GB file it was serving, the picture froze every
+        #: 30-60 seconds, the decoder was rebuilt four times, and 2,847 of
+        #: 10,352 frames were dropped -- with the log saying why:
+        #:
+        #:     main input error: ES_OUT_SET_(GROUP_)PCR is called too late
+        #:     main decoder error: buffer deadlock prevented
+        #:     main decoder error: Timestamp conversion failed
+        #:
+        #: Four seconds of 1080p is a few megabytes and rides out a card
+        #: service time that the verifier's reads make lumpy.
+        "network_caching": "4000",
         "start_timeout": _START_TIMEOUT,
         # As a percentage of VLC's own 100%, not a number of its units: the step
         # used to be 5, which was 5 of 512 -- about one percent, so the button
@@ -1481,6 +1496,7 @@ class VlcProcess(PlayerBackend):
             "--alsa-audio-device=" + self.opt("audio_device"),
             "--vout=" + self.opt("video_output"),
             "--drm-vout-module=" + self.opt("video_output_module"),
+            "--network-caching=" + str(self.opt("network_caching")),
             "--sub-text-scale=" + self.opt("subtitle_text_scale"),
             "--sub-margin=" + self.opt("sub_margin"),            # A run that must not stop on its own.
             # OSD is what tells the user their action landed. Without it a
