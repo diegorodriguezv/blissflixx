@@ -70,6 +70,20 @@ CACHE_OFF = "BF_VERIFY_CACHE"
 #: two hunks in place; fresh trees already have the fixed text.
 CACHE_FIX_MARK = "blissflixx:verify-cache-tolerates-missing"
 
+#: A range that cannot be satisfied must be answered 416, not with the file.
+#:
+#: VLC asks "Range: bytes=<length>-" -- a request that starts exactly at the
+#: end of the file -- to learn how large the stream is. A server that answers
+#: 416 with "Content-Range: bytes */<size>" has told it, and VLC goes on to
+#: seek where it needs (an MP4's index, which this box's films often keep at
+#: the end). peerflix passed the unsatisfiable range to range-parser, got -1,
+#: and fell through to the "no range" branch: it answered 200 with the entire
+#: file. VLC then concluded the stream could not be seeked at all, and read it
+#: linearly instead -- 320MB of a 3GB film, waiting for an index it would
+#: reach in half an hour, while the download ran on. Measured on rpi with two
+#: fresh films; both stalled the same way, both had asked for bytes=<length>-.
+RANGE_MARK = "blissflixx:unsatisfiable-range-416"
+
 #: A read that is parked on a piece the swarm does not have yet takes priority
 #: over the download's own order. Measured on rpi: a 5.3GB MP4 whose index sits
 #: at the end of the file -- VLC asks for "bytes=5314433909-" before it will
@@ -250,6 +264,30 @@ def patch(path, pairs, mark=MARK):
     print("  %s: patched" % path.name)
     return True
 
+
+#: peerflix's range handling, as installed: parse, take the first range, and
+#: fall through to the whole file when there is none.
+RANGE_PARSE = """    var range = request.headers.range
+    range = range && rangeParser(file.length, range)[0]
+"""
+
+RANGE_PARSE_NEW = (
+    """    var range = request.headers.range
+    if (range) {
+      // %s -- see the note above. An unsatisfiable range is answered as such,
+      // because the question it usually is is "how big is this file?".
+      var parsed = rangeParser(file.length, range)
+      if (parsed === -1 || !parsed || !parsed.length) {
+        response.statusCode = 416
+        response.setHeader('Content-Range', 'bytes */' + file.length)
+        response.end()
+        return
+      }
+      range = parsed[0]
+    }
+"""
+    % RANGE_MARK
+)
 
 VERIFY_LOOP = """    if (opts.verify === false) return onready()
 
@@ -471,6 +509,8 @@ def main():
         ],
         mark=WAKE_MARK,
     )
+    print("and to answer an impossible range as impossible:")
+    patch(PEERFLIX, [(RANGE_PARSE, RANGE_PARSE_NEW)], mark=RANGE_MARK)
     print("and to put a waiting read at the front of the queue:")
     # Anchored on the wakeup patch's own text, so it applies to trees that
     # already have it (every box) and skips cleanly if it is absent.

@@ -58,7 +58,7 @@ def pristine_tree(mod, root):
     return make_tree(
         root,
         mod.FILES_END + mod.LATE_EMIT + mod.VERIFY_LOOP + LOOP_BODY,
-        mod.SETUP_ON_READY + mod.LISTEN_ON_READY,
+        mod.SETUP_ON_READY + mod.LISTEN_ON_READY + mod.RANGE_PARSE,
         mod.STOP_VERIFYING,
         mod.FSTREAM_CTOR + mod.FSTREAM_PARK + mod.FSTREAM_DESTROY,
     )
@@ -122,7 +122,11 @@ class TestPatchScript:
         assert mod.MARK in tstream
         assert mod.SWARM_MARK in tstream
         assert mod.CACHE_MARK in tstream
-        assert (tmp_path / "index.js").read_text().count(mod.MARK) == 2
+        index = (tmp_path / "index.js").read_text()
+        assert index.count(mod.MARK) == 2
+        assert mod.RANGE_MARK in index
+        assert "416" in index
+        assert "bytes */" in index
         assert mod.SWARM_MARK in (tmp_path / "app.js").read_text()
         fstream = (
             tmp_path / "node_modules" / "torrent-stream" / "lib" / "file-stream.js"
