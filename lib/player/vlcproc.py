@@ -791,7 +791,7 @@ class VlcProcess(PlayerBackend):
         #: file and same server: with the threshold raised there is no seek
         #: error at all and the film plays. Eight gigabytes covers any film
         #: this box will ever be given.
-        "prefetch_seek_threshold": "8589934592",
+        "prefetch_seek_threshold": "0",
         "start_timeout": _START_TIMEOUT,
         # As a percentage of VLC's own 100%, not a number of its units: the step
         # used to be 5, which was 5 of 512 -- about one percent, so the button
@@ -1514,7 +1514,6 @@ class VlcProcess(PlayerBackend):
             "--vout=" + self.opt("video_output"),
             "--drm-vout-module=" + self.opt("video_output_module"),
             "--network-caching=" + str(self.opt("network_caching")),
-            "--prefetch-seek-threshold=" + str(self.opt("prefetch_seek_threshold")),
             "--sub-text-scale=" + self.opt("subtitle_text_scale"),
             "--sub-margin=" + self.opt("sub_margin"),            # A run that must not stop on its own.
             # OSD is what tells the user their action landed. Without it a
@@ -1555,6 +1554,13 @@ class VlcProcess(PlayerBackend):
         # decoder. Added here rather than in the list above because it is the
         # one flag that is genuinely optional -- the rest are this box's
         # measured working invocation.
+        if str(self.opt("prefetch_seek_threshold")) not in ("0", "", "off"):
+            # Off unless asked for. Raising it silenced VLC's "cannot seek"
+            # messages, but the film then sat at full CPU without reading, so
+            # it was not the cure it looked like; see the note on the option.
+            cmd.append(
+                "--prefetch-seek-threshold=" + str(self.opt("prefetch_seek_threshold"))
+            )
         if str(self.opt("fast_seek")).lower() not in ("0", "false", "", "none"):
             cmd.append("--input-fast-seek")
         if str(self.opt("source_modeset")).lower() not in ("0", "false", "", "none"):
