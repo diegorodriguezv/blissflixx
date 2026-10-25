@@ -155,7 +155,14 @@ else
                        gstreamer1.0-plugins-good \
                        gstreamer1.0-plugins-bad \
                        gstreamer1.0-libav
-        stage "vlc and gstreamer"
+        # VLC 3.0.24, which the archive moved to on 24 Oct 2026, does not work on
+    # this box: the player starts, spins at 100 per cent CPU, never reads its
+    # input and shows nothing -- on a torrent and on a local file alike.
+    # 3.0.23 plays. Pinned here so an upgrade button press cannot bring the
+    # broken one back.
+    apt-mark hold vlc vlc-bin vlc-data vlc-l10n vlc-plugin-base \
+        vlc-plugin-access-extra libvlc5 libvlccore9 libvlc-bin > /dev/null 2>&1 || true
+    stage "vlc and gstreamer"
     fi
 
     # Install version control software for updates and to install other packages like

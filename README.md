@@ -402,6 +402,11 @@ of its own. With a 1080p film on a 1366x768 mode the pool ran out and every fram
 was rejected -- a decoded film and a black screen. Matching the mode costs a
 flicker at the start of a film and removes the scaling entirely.
 
+VLC is pinned to 3.0.23 by `configure.sh`. Version 3.0.24 (the archive's
+current one as of October 2026) starts, spins at 100 per cent CPU, never
+reads its input and shows nothing — on torrents and local files alike. If
+VLC is upgraded, hold it back or expect a black screen.
+
 `fast_seek` is on here and off in VLC. It seeks to the nearest keyframe, which
 costs a little precision — up to a GOP — and buys a picture that keeps moving
 when two seeks arrive in quick succession. Without it the decoder wedges
