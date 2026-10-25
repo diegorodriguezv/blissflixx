@@ -70,6 +70,16 @@ CACHE_OFF = "BF_VERIFY_CACHE"
 #: two hunks in place; fresh trees already have the fixed text.
 CACHE_FIX_MARK = "blissflixx:verify-cache-tolerates-missing"
 
+#: Trace what the player asks for and where a stream stops.
+#:
+#: Two lines, because the failures this box has been chasing are invisible
+#: from both ends: VLC reports "end of playlist" with nothing before it, and
+#: peerflix prints only its verification percent. With these, the log says
+#: which range was requested, what was answered, and when a read stream
+#: decided it had finished -- which is the difference between "the player
+#: stopped asking" and "the server stopped answering".
+TRACE_MARK = "blissflixx:trace-requests"
+
 #: A range that cannot be satisfied must be answered 416, not with the file.
 #:
 #: VLC asks "Range: bytes=<length>-" -- a request that starts exactly at the
@@ -101,6 +111,9 @@ STREAM_MARK = "blissflixx:stream-survives-read-error"
 #: The retry timer added to that patch after rpitv showed why the event alone
 #: is not enough; trees patched before it get the block replaced in place.
 STREAM_RETRY_MARK = "blissflixx:stream-retry-timer"
+
+#: Where a read stream ends, said out loud. See TRACE_MARK.
+STREAM_END_MARK = "blissflixx:trace-stream-end"
 
 #: Waking reads as pieces verify. Serving before verifying exposed a race the
 #: stock order never hit: a read for an unverified piece parks on
@@ -560,11 +573,47 @@ def main():
         ],
         mark=WAKE_MARK,
     )
+    print("and to trace what the player asks for:")
+    try:
+        peerflix_text = PEERFLIX.read_text()
+    except OSError:
+        peerflix_text = ""
+    if RANGE_MARK in peerflix_text and TRACE_MARK not in peerflix_text:
+        patch(
+            PEERFLIX,
+            [
+                (
+                    "    var range = request.headers.range\n    if (range) {",
+                    "    // %s -- what was asked for, before answering it.\n"
+                    "    if (typeof console !== 'undefined') console.log('bf-http: ' + request.method + ' ' + u.pathname + ' range=' + request.headers.range)\n"
+                    "    var range = request.headers.range\n    if (range) {" % TRACE_MARK,
+                )
+            ],
+            mark=TRACE_MARK,
+        )
+    try:
+        fstream_text = FSTREAM.read_text()
+    except OSError:
+        fstream_text = ""
+    if WAKE_MARK in fstream_text and STREAM_END_MARK not in fstream_text:
+        patch(
+            FSTREAM,
+            [
+                (
+                    "    if (!self._missing) {\n      self.push(buffer)\n      self.push(null)",
+                    "    if (!self._missing) {\n"
+                    "      // %s -- the stream is ending; say where and how much was asked for.\n"
+                    "      if (typeof console !== 'undefined') console.log('bf-stream: end at piece ' + (self._piece - 1) + ' after ' + self.length + ' bytes')\n"
+                    "      self.push(buffer)\n      self.push(null)" % STREAM_END_MARK,
+                )
+            ],
+            mark=STREAM_END_MARK,
+        )
     print("and to answer an impossible range as impossible:")
     patch(PEERFLIX, [(RANGE_PARSE, RANGE_PARSE_NEW)], mark=RANGE_MARK)
     print("and to keep a stream alive when a piece read fails:")
     before = FSTREAM.read_text() if FSTREAM.exists() else ""
-    if STREAM_MARK in before and STREAM_RETRY_MARK not in before:
+    if FSTREAM_ERROR_OLD in before and STREAM_RETRY_MARK not in before:
         print("and to retry that read on a timer too:")
         patch(FSTREAM, [(FSTREAM_ERROR_OLD, FSTREAM_ERROR_NEW)], mark=STREAM_RETRY_MARK)
     elif WAKE_MARK in before:
