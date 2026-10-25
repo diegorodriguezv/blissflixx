@@ -32,6 +32,16 @@ LOOP_BODY = """      engine.store.get(i, function (_, buf) {
 """
 
 
+#: The end-of-range branch of notify(), verbatim upstream. The trace patch
+#: anchors on it, so a fake tree without it reports "not patching".
+FSTREAM_END_READ = """    if (!self._missing) {
+      self.push(buffer)
+      self.push(null)
+      return
+    }
+"""
+
+
 def load_script(monkeypatch, tree):
     """Import the script fresh with BF_PEERFLIX_TREE pointed at the fake tree."""
     monkeypatch.setenv("BF_PEERFLIX_TREE", str(tree))
@@ -60,7 +70,11 @@ def pristine_tree(mod, root):
         mod.FILES_END + mod.LATE_EMIT + mod.VERIFY_LOOP + LOOP_BODY,
         mod.SETUP_ON_READY + mod.LISTEN_ON_READY + mod.RANGE_PARSE,
         mod.STOP_VERIFYING,
-        mod.FSTREAM_CTOR + mod.FSTREAM_PARK + mod.FSTREAM_ERROR + mod.FSTREAM_DESTROY,
+        mod.FSTREAM_CTOR
+        + mod.FSTREAM_PARK
+        + FSTREAM_END_READ
+        + mod.FSTREAM_ERROR
+        + mod.FSTREAM_DESTROY,
     )
 
 

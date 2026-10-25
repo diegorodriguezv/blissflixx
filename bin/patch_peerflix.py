@@ -573,6 +573,8 @@ def main():
         ],
         mark=WAKE_MARK,
     )
+    print("and to answer an impossible range as impossible:")
+    patch(PEERFLIX, [(RANGE_PARSE, RANGE_PARSE_NEW)], mark=RANGE_MARK)
     print("and to trace what the player asks for:")
     try:
         peerflix_text = PEERFLIX.read_text()
@@ -609,8 +611,6 @@ def main():
             ],
             mark=STREAM_END_MARK,
         )
-    print("and to answer an impossible range as impossible:")
-    patch(PEERFLIX, [(RANGE_PARSE, RANGE_PARSE_NEW)], mark=RANGE_MARK)
     print("and to keep a stream alive when a piece read fails:")
     before = FSTREAM.read_text() if FSTREAM.exists() else ""
     if FSTREAM_ERROR_OLD in before and STREAM_RETRY_MARK not in before:
