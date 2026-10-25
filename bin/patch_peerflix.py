@@ -643,7 +643,7 @@ def main():
         cache_text = TSTREAM.read_text()
     except OSError:
         cache_text = ""
-    if CACHE_MARK in cache_text and CACHE_V2_MARK not in cache_text:
+    if CACHE_MARK in cache_text and "version: 2" not in cache_text:
         patch(
             TSTREAM,
             [
