@@ -127,6 +127,52 @@ CACHE_V2_MARK = "blissflixx:verify-cache-complete-only"
 #: every play of a 99 per cent complete film.
 LOOK_MARK = "blissflixx:look-at-the-piece"
 
+#: _look() must never throw; see the body for why. Trees that got the first
+#: version get the safe one under this marker.
+LOOK_FIX_MARK = "blissflixx:look-never-throws"
+
+#: The first version's callback, as installed.
+LOOK_OLD_BODY = """    this._engine.store.get(index, function (err, buffer) {
+      if (err || !buffer) {
+        self._engine.critical(index, self._critical)
+        return
+      }
+      var hash = require('crypto').createHash('sha1').update(buffer).digest()
+      var want = self._engine.torrent && self._engine.torrent.pieces[index]
+      if (!want || !hash.equals(want)) {
+        self._engine.critical(index, self._critical)
+        return
+      }
+      if (typeof console !== 'undefined') console.log('bf-stream: piece ' + index + ' was on disk after all')
+      self._engine.bitfield.set(index, true)
+      self.notify()
+    })"""
+
+LOOK_SAFE_BODY = """    this._engine.store.get(index, function (err, buffer) {
+      // %s -- never throw from here: it runs on a read the player is waiting
+      // for, and an exception takes the whole server down. It did, comparing
+      // the hash against a piece hash that is not a Buffer, and the player was
+      // left spinning against a dead stream.
+      try {
+        if (err || !buffer) {
+          self._engine.critical(index, self._critical)
+          return
+        }
+        var hash = require('crypto').createHash('sha1').update(buffer).digest('hex')
+        var want = self._engine.torrent && self._engine.torrent.pieces[index]
+        if (!want || hash !== Buffer.from(want).toString('hex')) {
+          self._engine.critical(index, self._critical)
+          return
+        }
+        if (typeof console !== 'undefined') console.log('bf-stream: piece ' + index + ' was on disk after all')
+        self._engine.bitfield.set(index, true)
+        self.notify()
+      } catch (e) {
+        if (typeof console !== 'undefined') console.log('bf-stream: look failed for piece ' + index + ': ' + e)
+        self._engine.critical(index, self._critical)
+      }
+    })""" % LOOK_FIX_MARK
+
 #: Waking reads as pieces verify. Serving before verifying exposed a race the
 #: stock order never hit: a read for an unverified piece parks on
 #: engine.critical() and nothing wakes it, because selections advance through
@@ -198,19 +244,29 @@ FSTREAM_CTOR_NEW = (
     if (this._looked[index] && now - this._looked[index] < 2000) return
     this._looked[index] = now
     this._engine.store.get(index, function (err, buffer) {
-      if (err || !buffer) {
+      // Never let this path throw: it runs on a read the player is waiting
+      // for, and an exception here takes the whole server down. It did --
+      // "The otherBuffer argument must be an instance of Buffer", from
+      // comparing the hash against a piece hash that is not a Buffer -- and
+      // the player was left spinning at full CPU against a dead stream.
+      try {
+        if (err || !buffer) {
+          self._engine.critical(index, self._critical)
+          return
+        }
+        var hash = require('crypto').createHash('sha1').update(buffer).digest('hex')
+        var want = self._engine.torrent && self._engine.torrent.pieces[index]
+        if (!want || hash !== Buffer.from(want).toString('hex')) {
+          self._engine.critical(index, self._critical)
+          return
+        }
+        if (typeof console !== 'undefined') console.log('bf-stream: piece ' + index + ' was on disk after all')
+        self._engine.bitfield.set(index, true)
+        self.notify()
+      } catch (e) {
+        if (typeof console !== 'undefined') console.log('bf-stream: look failed for piece ' + index + ': ' + e)
         self._engine.critical(index, self._critical)
-        return
       }
-      var hash = require('crypto').createHash('sha1').update(buffer).digest()
-      var want = self._engine.torrent && self._engine.torrent.pieces[index]
-      if (!want || !hash.equals(want)) {
-        self._engine.critical(index, self._critical)
-        return
-      }
-      if (typeof console !== 'undefined') console.log('bf-stream: piece ' + index + ' was on disk after all')
-      self._engine.bitfield.set(index, true)
-      self.notify()
     })
   }
 
@@ -738,6 +794,7 @@ def main():
                     "  this._promote = function () {",
                     "  // %s -- one piece at a time, at most every two seconds.\n"
                     "  this._look = function () {\n"
+                    "    // Never throw from here: it runs on a read the player waits for.\n"
                     "    var self = this\n"
                     "    var index = this._piece\n"
                     "    var now = Date.now()\n"
@@ -749,9 +806,9 @@ def main():
                     "        self._engine.critical(index, self._critical)\n"
                     "        return\n"
                     "      }\n"
-                    "      var hash = require('crypto').createHash('sha1').update(buffer).digest()\n"
+                    "      var hash = require('crypto').createHash('sha1').update(buffer).digest('hex')\n"
                     "      var want = self._engine.torrent && self._engine.torrent.pieces[index]\n"
-                    "      if (!want || !hash.equals(want)) {\n"
+                    "      if (!want || hash !== Buffer.from(want).toString('hex')) {\n"
                     "        self._engine.critical(index, self._critical)\n"
                     "        return\n"
                     "      }\n"
@@ -765,6 +822,13 @@ def main():
             ],
             mark=LOOK_MARK,
         )
+    print("and to keep that check from throwing:")
+    try:
+        look_now = FSTREAM.read_text()
+    except OSError:
+        look_now = ""
+    if LOOK_OLD_BODY in look_now:
+        patch(FSTREAM, [(LOOK_OLD_BODY, LOOK_SAFE_BODY)], mark=LOOK_FIX_MARK)
     print("and to put a waiting read at the front of the queue:")
     # Anchored on the wakeup patch's own text, so it applies to trees that
     # already have it (every box) and skips cleanly if it is absent.
