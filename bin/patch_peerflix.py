@@ -94,6 +94,10 @@ RANGE_MARK = "blissflixx:unsatisfiable-range-416"
 #: seconds; the download resumes its own order afterwards.
 PARKED_MARK = "blissflixx:parked-read-priority"
 
+#: A store error on a read is retried rather than ending the response; see
+#: FSTREAM_ERROR below.
+STREAM_MARK = "blissflixx:stream-survives-read-error"
+
 #: Waking reads as pieces verify. Serving before verifying exposed a race the
 #: stock order never hit: a read for an unverified piece parks on
 #: engine.critical() and nothing wakes it, because selections advance through
@@ -175,6 +179,30 @@ FSTREAM_CTOR_NEW = (
 
 #: The parked branch of notify(), which is where a reader discovers that the
 #: piece it wants is not there.
+#: A failed piece read must not end the stream.
+#:
+#: file-stream answers a store error by destroying itself, which closes the
+#: HTTP response; VLC reads a closed response as the end of the film and, with
+#: --play-and-exit, stops. Measured on rpi watching a torrent at 3%: the
+#: picture played 43 seconds, VLC said "end of playlist, exiting" with no error
+#: before it, and the app reported nothing playing. A piece that cannot be
+#: read yet is not the end of a film -- wait for the next verify event and ask
+#: again, which is what the same stream does when a piece is simply missing.
+FSTREAM_ERROR = """    if (err) return self.destroy(err)
+"""
+
+FSTREAM_ERROR_NEW = (
+    """    if (err) {
+      // %s -- retry when the piece arrives instead of closing the response.
+      self._piece--
+      if (typeof console !== 'undefined') console.log('bf-stream: read failed for piece ' + self._piece + ': ' + err)
+      self._engine.critical(self._piece, self._critical)
+      return
+    }
+"""
+    % STREAM_MARK
+)
+
 FSTREAM_PARK = """  if (!this._engine.bitfield.get(this._piece)) return this._engine.critical(this._piece, this._critical)
 """
 
@@ -511,6 +539,10 @@ def main():
     )
     print("and to answer an impossible range as impossible:")
     patch(PEERFLIX, [(RANGE_PARSE, RANGE_PARSE_NEW)], mark=RANGE_MARK)
+    print("and to keep a stream alive when a piece read fails:")
+    before = FSTREAM.read_text() if FSTREAM.exists() else ""
+    if WAKE_MARK in before:
+        patch(FSTREAM, [(FSTREAM_ERROR, FSTREAM_ERROR_NEW)], mark=STREAM_MARK)
     print("and to put a waiting read at the front of the queue:")
     # Anchored on the wakeup patch's own text, so it applies to trees that
     # already have it (every box) and skips cleanly if it is absent.
