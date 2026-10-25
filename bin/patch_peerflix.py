@@ -115,6 +115,11 @@ STREAM_RETRY_MARK = "blissflixx:stream-retry-timer"
 #: Where a read stream ends, said out loud. See TRACE_MARK.
 STREAM_END_MARK = "blissflixx:trace-stream-end"
 
+#: The cache only remembers a complete torrent, and says so with a version so
+#: that flags written before this rule are ignored rather than trusted. Trees
+#: installed before it get the three hunks below.
+CACHE_V2_MARK = "blissflixx:verify-cache-complete-only"
+
 #: Waking reads as pieces verify. Serving before verifying exposed a race the
 #: stock order never hit: a read for an unverified piece parks on
 #: engine.critical() and nothing wakes it, because selections advance through
@@ -426,7 +431,8 @@ VERIFY_CACHED_LOOP_NEW = (
       try {
         cached = JSON.parse(fs.readFileSync(bfVerifyCachePath()))
       } catch (e) { return false }
-      if (!cached || cached.infoHash !== infoHash) return false
+      if (!cached || cached.version !== 2) return false
+      if (cached.infoHash !== infoHash) return false
       if (cached.pieces !== torrent.pieces.length) return false
       if (!cached.files || cached.files.length !== torrent.files.length) return false
       var i
@@ -461,8 +467,22 @@ VERIFY_CACHED_LOOP_NEW = (
 
     var bfVerifyCacheSave = function () {
       try {
+        // Only a complete torrent may be remembered.
+        //
+        // A partial verification records which pieces are *not* there, and
+        // that answer goes stale: the swarm fills a hole minutes later, the
+        // next play loads the old bitfield, and the server now refuses to
+        // serve bytes it has on disk. Measured on rpi: an episode that was 96 per cent complete
+        // sat at "waiting for picture" with five megabytes of its first
+        // pieces on the card, because the cached bitfield said piece zero was
+        // missing and there were no peers left to fetch it. Verifying again is
+        // slow; serving nothing is worse.
+        for (var c = 0; c < torrent.pieces.length; c++) {
+          if (!engine.bitfield.get(c)) return
+        }
         fs.mkdirSync(path.dirname(bfVerifyCachePath()), { recursive: true })
         fs.writeFileSync(bfVerifyCachePath(), JSON.stringify({
+          version: 2,
           infoHash: infoHash,
           pieces: torrent.pieces.length,
           bitfield: engine.bitfield.buffer.toString('base64'),
@@ -618,6 +638,38 @@ def main():
         patch(FSTREAM, [(FSTREAM_ERROR_OLD, FSTREAM_ERROR_NEW)], mark=STREAM_RETRY_MARK)
     elif WAKE_MARK in before:
         patch(FSTREAM, [(FSTREAM_ERROR, FSTREAM_ERROR_NEW)], mark=STREAM_MARK)
+    print("and to remember only complete torrents:")
+    try:
+        cache_text = TSTREAM.read_text()
+    except OSError:
+        cache_text = ""
+    if CACHE_MARK in cache_text and CACHE_V2_MARK not in cache_text:
+        patch(
+            TSTREAM,
+            [
+                (
+                    "    var bfVerifyCacheSave = function () {\n      try {",
+                    "    // %s -- a partial verification records which pieces are\n"
+                    "    // absent, and that answer goes stale when the swarm fills the\n"
+                    "    // hole: the next play then refuses to serve bytes it has.\n"
+                    "    var bfVerifyCacheSave = function () {\n"
+                    "      try {\n"
+                    "        for (var c = 0; c < torrent.pieces.length; c++) {\n"
+                    "          if (!engine.bitfield.get(c)) return\n"
+                    "        }" % CACHE_V2_MARK,
+                ),
+                (
+                    "        fs.writeFileSync(bfVerifyCachePath(), JSON.stringify({\n          infoHash: infoHash,",
+                    "        fs.writeFileSync(bfVerifyCachePath(), JSON.stringify({\n          version: 2,\n          infoHash: infoHash,",
+                ),
+                (
+                    "      if (!cached || cached.infoHash !== infoHash) return false",
+                    "      if (!cached || cached.version !== 2) return false\n"
+                    "      if (cached.infoHash !== infoHash) return false",
+                ),
+            ],
+            mark=CACHE_V2_MARK,
+        )
     print("and to put a waiting read at the front of the queue:")
     # Anchored on the wakeup patch's own text, so it applies to trees that
     # already have it (every box) and skips cleanly if it is absent.
