@@ -317,8 +317,12 @@ class PeerflixProcess(ExternalProcess):
 
         None until the swarm has answered once.
         """
-        files = (self._progress or {}).get("files") or []
+        files = [f for f in ((self._progress or {}).get("files") or []) if isinstance(f, dict)]
         if not files:
+            cherrypy.log(
+                "bf-disk: no file list from the swarm (progress has %d keys)"
+                % len(self._progress or {})
+            )
             # The file list can be missing even while the swarm is answering
             # -- peerflix only sends it once the metadata is parsed, and a
             # poll that lands before that has the totals and nothing else.
@@ -326,7 +330,9 @@ class PeerflixProcess(ExternalProcess):
             # this box plays, the largest file under the buffer is the film.
             found = self._largest_buffered_file()
             if found is None:
+                cherrypy.log("bf-disk: nothing found under " + BUFFER_DIR)
                 return None
+            cherrypy.log("bf-disk: measured " + found[0])
             total = int((self._progress or {}).get("total") or 0)
             present = found[1]
             return {
@@ -342,11 +348,8 @@ class PeerflixProcess(ExternalProcess):
         # reading that says how much of the film is on the card disappeared
         # exactly when a stall made it worth looking at.
         index = self.idx if isinstance(self.idx, int) else 0
-        entry = None
-        if 0 <= index < len(files):
-            entry = files[index]
-        if not isinstance(entry, dict):
-            return None
+        entry = files[index] if 0 <= index < len(files) else files[0]
+        cherrypy.log("bf-disk: file list has %d entries, using %r" % (len(files), entry.get("name")))
         name = str(entry.get("name") or "")
         length = int(entry.get("length") or 0)
         path = self._resolve(name)
