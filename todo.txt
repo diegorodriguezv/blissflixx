@@ -56,3 +56,7 @@ the default icon should also be different, it would be nice something that looks
 46s already played
 16s new (should add a 5 sec wait to fill the buffer)
 49s replay
+brought instability along speed
+
+# qa
+iron out all problems

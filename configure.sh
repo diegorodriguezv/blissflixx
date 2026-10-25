@@ -68,6 +68,16 @@ if [ "$(id -u)" != "0" ]; then
     exit 1
 fi
 
+# The person this is being installed for.
+#
+# logname asks the terminal, and there is not always one: run through
+# systemd-run or any other detached shell it prints nothing, and an empty name
+# was written into the unit as "User=" -- which means root -- while
+# "sudo -u ./configure_py.sh" failed with "unknown user". SUDO_USER is
+# whatever sudo was told to become, which is exactly the person who typed the
+# password, and it does not need a terminal.
+BF_USER="${SUDO_USER:-$(logname 2>/dev/null || whoami)}"
+
 if [[ $@ == *-only* ]] ; then
     echo running only optional arguments
 else
@@ -186,6 +196,7 @@ else
     #
     # Falls back to the distribution's npm if the download failed, so a box
     # without a working nodejs.org still ends up with a working peerflix.
+    rm -rf /usr/local/lib/node_modules/peerflix
     if [ -x data/node/bin/npm ]; then
         PATH="$(pwd)/data/node/bin:$PATH" npm install -g peerflix --prefix /usr/local
     else
@@ -202,11 +213,9 @@ else
     python3 ./bin/patch_peerflix.py || true
     stage "peerflix"
     
-    # The user that started the command (since sudo was used, root is the active user)
-    user=$(logname)
-    
-    # Configure python dependencies as a normal user
-    sudo -u $user ./configure_py.sh
+    # Configure python dependencies as the person the install is for: they own
+    # the checkout, and a virtualenv built by root is not theirs to run.
+    sudo -u "$BF_USER" ./configure_py.sh
     stage "python virtual environment"
 
     # Report what is actually usable. Installing a player is not the same as
@@ -238,7 +247,7 @@ After=network-online.target
 [Service]
 Type=simple
 Restart=always
-User=$(logname)
+User=$(BF_USER)
 WorkingDirectory=$(pwd)
 ExecStart='$(pwd)/run.sh'
 
@@ -251,6 +260,9 @@ CapabilityBoundingSet=CAP_NET_BIND_SERVICE
 [Install]
 WantedBy=default.target
 _contents
+    # systemd execs this directly; a checkout without the bit fails with
+    # status 126 and a service that will not start.
+    chmod +x run.sh
     systemctl daemon-reload
     systemctl enable blissflixx.service
     # Started, not just enabled. The unit was stopped at the top of this block,
