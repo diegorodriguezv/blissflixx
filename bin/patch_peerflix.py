@@ -120,6 +120,13 @@ STREAM_END_MARK = "blissflixx:trace-stream-end"
 #: installed before it get the three hunks below.
 CACHE_V2_MARK = "blissflixx:verify-cache-complete-only"
 
+#: A piece the cached bitfield calls missing is hashed before the read waits
+#: for the swarm. See the parked branch below: without it, a bitfield written
+#: before the data arrived refuses bytes that are on the disk, and the old cure
+#: -- refusing to cache partial torrents -- cost three minutes of re-hashing on
+#: every play of a 99 per cent complete film.
+LOOK_MARK = "blissflixx:look-at-the-piece"
+
 #: Waking reads as pieces verify. Serving before verifying exposed a race the
 #: stock order never hit: a read for an unverified piece parks on
 #: engine.critical() and nothing wakes it, because selections advance through
@@ -181,6 +188,32 @@ FSTREAM_CTOR_NEW = (
   // subscribe to the event both verifications and downloads emit.
   this._onverify = this.notify.bind(this)
   engine.on('verify', this._onverify)
+  // %s -- one piece at a time, at most every two seconds, so a read parked on
+  // something genuinely absent does not re-hash it on every retry.
+  this._look = function () {
+    var self = this
+    var index = this._piece
+    var now = Date.now()
+    this._looked = this._looked || {}
+    if (this._looked[index] && now - this._looked[index] < 2000) return
+    this._looked[index] = now
+    this._engine.store.get(index, function (err, buffer) {
+      if (err || !buffer) {
+        self._engine.critical(index, self._critical)
+        return
+      }
+      var hash = require('crypto').createHash('sha1').update(buffer).digest()
+      var want = self._engine.torrent && self._engine.torrent.pieces[index]
+      if (!want || !hash.equals(want)) {
+        self._engine.critical(index, self._critical)
+        return
+      }
+      if (typeof console !== 'undefined') console.log('bf-stream: piece ' + index + ' was on disk after all')
+      self._engine.bitfield.set(index, true)
+      self.notify()
+    })
+  }
+
   // %s -- a read waiting on a piece takes the front of the queue. Without
   // this its range is just one more selection, and the download's own order
   // wins: measured, a 5.3GB MP4 whose index is at the end of the file left
@@ -196,7 +229,7 @@ FSTREAM_CTOR_NEW = (
   }
 }
 """
-    % (WAKE_MARK, PARKED_MARK)
+    % (WAKE_MARK, LOOK_MARK, PARKED_MARK)
 )
 
 #: The parked branch of notify(), which is where a reader discovers that the
@@ -252,10 +285,16 @@ FSTREAM_PARK_NEW = (
     // %s -- the piece this read is waiting on is fetched ahead of the
     // download's own order; see _promote.
     this._promote()
+    // %s -- and before waiting for anyone, look at the piece itself. The
+    // cached bitfield records what was absent when it was written, and the
+    // swarm fills holes afterwards; a stale "missing" then refuses bytes that
+    // are on the disk. Hashing one piece costs a third of a second, where
+    // re-verifying the film to discover the same thing cost three minutes.
+    this._look()
     return this._engine.critical(this._piece, this._critical)
   }
 """
-    % PARKED_MARK
+    % (PARKED_MARK, LOOK_MARK)
 )
 
 FSTREAM_DESTROY = """FileStream.prototype.destroy = function () {
@@ -467,19 +506,10 @@ VERIFY_CACHED_LOOP_NEW = (
 
     var bfVerifyCacheSave = function () {
       try {
-        // Only a complete torrent may be remembered.
-        //
-        // A partial verification records which pieces are *not* there, and
-        // that answer goes stale: the swarm fills a hole minutes later, the
-        // next play loads the old bitfield, and the server now refuses to
-        // serve bytes it has on disk. Measured on rpi: an episode that was 96 per cent complete
-        // sat at "waiting for picture" with five megabytes of its first
-        // pieces on the card, because the cached bitfield said piece zero was
-        // missing and there were no peers left to fetch it. Verifying again is
-        // slow; serving nothing is worse.
-        for (var c = 0; c < torrent.pieces.length; c++) {
-          if (!engine.bitfield.get(c)) return
-        }
+        // Partial torrents may be remembered too: the bitfield's *absent*
+        // entries are re-checked one at a time when a read needs them (see
+        // the parked branch of file-stream), so a stale "missing" costs a
+        // single piece hash instead of hashing the whole film again.
         fs.mkdirSync(path.dirname(bfVerifyCachePath()), { recursive: true })
         fs.writeFileSync(bfVerifyCachePath(), JSON.stringify({
           version: 2,
@@ -669,6 +699,71 @@ def main():
                 ),
             ],
             mark=CACHE_V2_MARK,
+        )
+    print("and to look at a piece before waiting for the swarm:")
+    try:
+        tuned = TSTREAM.read_text()
+    except OSError:
+        tuned = ""
+    try:
+        fstream_now = FSTREAM.read_text()
+    except OSError:
+        fstream_now = ""
+    if CACHE_V2_MARK in tuned and LOOK_MARK not in fstream_now:
+        patch(
+            TSTREAM,
+            [
+                (
+                    "        for (var c = 0; c < torrent.pieces.length; c++) {\n"
+                    "          if (!engine.bitfield.get(c)) return\n"
+                    "        }\n",
+                    "        // Partial torrents may be remembered too: absent entries are\n"
+                    "        // re-checked one at a time when a read needs them.\n",
+                )
+            ],
+            mark=LOOK_MARK + "-cache",
+        )
+        patch(
+            FSTREAM,
+            [
+                (
+                    "    this._promote()\n"
+                    "    return this._engine.critical(this._piece, this._critical)",
+                    "    this._promote()\n"
+                    "    // %s -- before waiting for anyone, look at the piece itself.\n"
+                    "    this._look()\n"
+                    "    return this._engine.critical(this._piece, this._critical)" % LOOK_MARK,
+                ),
+                (
+                    "  this._promote = function () {",
+                    "  // %s -- one piece at a time, at most every two seconds.\n"
+                    "  this._look = function () {\n"
+                    "    var self = this\n"
+                    "    var index = this._piece\n"
+                    "    var now = Date.now()\n"
+                    "    this._looked = this._looked || {}\n"
+                    "    if (this._looked[index] && now - this._looked[index] < 2000) return\n"
+                    "    this._looked[index] = now\n"
+                    "    this._engine.store.get(index, function (err, buffer) {\n"
+                    "      if (err || !buffer) {\n"
+                    "        self._engine.critical(index, self._critical)\n"
+                    "        return\n"
+                    "      }\n"
+                    "      var hash = require('crypto').createHash('sha1').update(buffer).digest()\n"
+                    "      var want = self._engine.torrent && self._engine.torrent.pieces[index]\n"
+                    "      if (!want || !hash.equals(want)) {\n"
+                    "        self._engine.critical(index, self._critical)\n"
+                    "        return\n"
+                    "      }\n"
+                    "      if (typeof console !== 'undefined') console.log('bf-stream: piece ' + index + ' was on disk after all')\n"
+                    "      self._engine.bitfield.set(index, true)\n"
+                    "      self.notify()\n"
+                    "    })\n"
+                    "  }\n\n"
+                    "  this._promote = function () {" % LOOK_MARK,
+                ),
+            ],
+            mark=LOOK_MARK,
         )
     print("and to put a waiting read at the front of the queue:")
     # Anchored on the wakeup patch's own text, so it applies to trees that
