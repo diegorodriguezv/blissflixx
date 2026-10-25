@@ -363,6 +363,7 @@ class TestReadmeMatchesTheCode:
             "source_modeset",
             "fill_screen",
             "network_caching",
+            "prefetch_seek_threshold",
             "fast_seek",
             "subtitle_text_scale",
             "start_timeout",

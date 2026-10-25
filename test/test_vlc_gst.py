@@ -99,6 +99,9 @@ class TestVlcCommand:
             # Seconds of stream kept ahead of the picture; VLC's one second
             # could not ride out a verifier reading the same file.
             "--network-caching=8000",
+            # Forward seeks allowed: the mkv index lives at the end of the
+            # file, and VLC's prefetch filter refuses to jump that far.
+            "--prefetch-seek-threshold=8589934592",
             "--sub-text-scale=95",
             # Lifts the subtitles off the bottom edge so the overlay can sit
             # just above them instead of over them.

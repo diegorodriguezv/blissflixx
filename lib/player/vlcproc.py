@@ -777,6 +777,21 @@ class VlcProcess(PlayerBackend):
         #: enough to stop the drops over two minutes, eight leaves room for a
         #: slower stretch without the picture ever noticing.
         "network_caching": "8000",
+        #: How far forward the prefetch filter may seek, in bytes.
+        #:
+        #: VLC reads an mkv's index (cues) from the *end* of the file, and the
+        #: prefetch filter refuses a forward seek beyond a small threshold --
+        #: so on a 1.9GB episode it logged
+        #:
+        #:     prefetch stream error: cannot seek (to offset 1924932914)
+        #:     mkv demux error: cannot load some cues/chapters/tags etc.
+        #:
+        #: and then ended the playlist, picture never appearing. That is the
+        #: "plays for a few seconds then dies" report. Measured on rpi, same
+        #: file and same server: with the threshold raised there is no seek
+        #: error at all and the film plays. Eight gigabytes covers any film
+        #: this box will ever be given.
+        "prefetch_seek_threshold": "8589934592",
         "start_timeout": _START_TIMEOUT,
         # As a percentage of VLC's own 100%, not a number of its units: the step
         # used to be 5, which was 5 of 512 -- about one percent, so the button
@@ -1499,6 +1514,7 @@ class VlcProcess(PlayerBackend):
             "--vout=" + self.opt("video_output"),
             "--drm-vout-module=" + self.opt("video_output_module"),
             "--network-caching=" + str(self.opt("network_caching")),
+            "--prefetch-seek-threshold=" + str(self.opt("prefetch_seek_threshold")),
             "--sub-text-scale=" + self.opt("subtitle_text_scale"),
             "--sub-margin=" + self.opt("sub_margin"),            # A run that must not stop on its own.
             # OSD is what tells the user their action landed. Without it a
