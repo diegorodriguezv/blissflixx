@@ -436,9 +436,14 @@ class PeerflixProcess(ExternalProcess):
     def debug(self):
         base = super().debug()
         swarm = {k: v for k, v in (self._progress or {}).items() if k != "files"}
+        try:
+            buffered = sum(len(names) for _root, _dirs, names in os.walk(BUFFER_DIR))
+        except OSError:
+            buffered = -1
         base.update(
             {
                 "swarm": swarm,
+                "buffer": {"dir": BUFFER_DIR, "files": buffered},
                 "file": self.served_file(),
                 "stalled_for": self.stalled_for(),
                 "verifying": self._verifying,
