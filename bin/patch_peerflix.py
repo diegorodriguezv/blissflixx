@@ -98,6 +98,10 @@ PARKED_MARK = "blissflixx:parked-read-priority"
 #: FSTREAM_ERROR below.
 STREAM_MARK = "blissflixx:stream-survives-read-error"
 
+#: The retry timer added to that patch after rpitv showed why the event alone
+#: is not enough; trees patched before it get the block replaced in place.
+STREAM_RETRY_MARK = "blissflixx:stream-retry-timer"
+
 #: Waking reads as pieces verify. Serving before verifying exposed a race the
 #: stock order never hit: a read for an unverified piece parks on
 #: engine.critical() and nothing wakes it, because selections advance through
@@ -193,15 +197,34 @@ FSTREAM_ERROR = """    if (err) return self.destroy(err)
 
 FSTREAM_ERROR_NEW = (
     """    if (err) {
+      // %s -- retry instead of closing the response.
+      //
+      // Twice over: on the next verify event, and on a timer. The event alone
+      // is not enough -- a piece can already have been verified when the read
+      // fails for another reason ("Not opened" while the store is still
+      // starting), and then no event ever comes for it and the read waits for
+      // ever. Measured on rpitv: a first play sat sixteen minutes with the
+      // picture never arriving, and the same play after a stop started in
+      // twenty seconds.
+      self._piece--
+      if (typeof console !== 'undefined') console.log('bf-stream: read failed for piece ' + self._piece + ': ' + err)
+      self._engine.critical(self._piece, self._critical)
+      setTimeout(self._onverify, 250)
+      return
+    }
+"""
+    % STREAM_MARK
+)
+
+#: The first version of the block above, as installed, for the upgrade.
+FSTREAM_ERROR_OLD = """    if (err) {
       // %s -- retry when the piece arrives instead of closing the response.
       self._piece--
       if (typeof console !== 'undefined') console.log('bf-stream: read failed for piece ' + self._piece + ': ' + err)
       self._engine.critical(self._piece, self._critical)
       return
     }
-"""
-    % STREAM_MARK
-)
+""" % STREAM_MARK
 
 FSTREAM_PARK = """  if (!this._engine.bitfield.get(this._piece)) return this._engine.critical(this._piece, this._critical)
 """
@@ -541,7 +564,10 @@ def main():
     patch(PEERFLIX, [(RANGE_PARSE, RANGE_PARSE_NEW)], mark=RANGE_MARK)
     print("and to keep a stream alive when a piece read fails:")
     before = FSTREAM.read_text() if FSTREAM.exists() else ""
-    if WAKE_MARK in before:
+    if STREAM_MARK in before and STREAM_RETRY_MARK not in before:
+        print("and to retry that read on a timer too:")
+        patch(FSTREAM, [(FSTREAM_ERROR_OLD, FSTREAM_ERROR_NEW)], mark=STREAM_RETRY_MARK)
+    elif WAKE_MARK in before:
         patch(FSTREAM, [(FSTREAM_ERROR, FSTREAM_ERROR_NEW)], mark=STREAM_MARK)
     print("and to put a waiting read at the front of the queue:")
     # Anchored on the wakeup patch's own text, so it applies to trees that

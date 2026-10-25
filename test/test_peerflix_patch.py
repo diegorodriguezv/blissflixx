@@ -137,6 +137,7 @@ class TestPatchScript:
         assert "_promote()" in fstream
         assert mod.STREAM_MARK in fstream
         assert "self.destroy(err)" not in fstream
+        assert "setTimeout(self._onverify" in fstream
 
     def test_second_run_is_a_noop(self, tmp_path, monkeypatch):
         mod = load_script(monkeypatch, tmp_path)
