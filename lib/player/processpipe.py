@@ -1,4 +1,5 @@
 import os
+import re
 import shutil
 import signal
 import subprocess
@@ -9,6 +10,17 @@ from queue import Empty, Queue
 from threading import Thread
 
 import cherrypy
+
+#: Terminal colour, as clivas writes it: ESC [ ... m.
+_COLOUR = re.compile("\x1b\\[[0-9;]*[A-Za-z]")
+
+
+def _without_colour(line):
+    """A stage's line with its terminal decorations removed. See _observe_line."""
+    if "\x1b" not in line:
+        return line
+    return _COLOUR.sub("", line)
+
 
 MSG_PROCESS_READY = 1
 MSG_PROCESS_HALTED = 2
@@ -694,7 +706,15 @@ class ExternalProcess(Process):
         here, once per line, because the copier is the only thing that reads the
         process's output. A stage's observer is called last so that a stage which
         consumes lines cannot lose one before it is logged.
+
+        Colour is stripped first. peerflix prints its progress through clivas,
+        which decorates it for a terminal --
+        "\x1b[33mVerifying downloaded:\x1b[39m 27%" -- and none of that means
+        anything in a log file or in the panel: it arrives as "[33m" beside the
+        text. The escape sequences are the terminal's, and there is no terminal
+        here.
         """
+        line = _without_colour(line)
         cherrypy.log("LINE(" + self.name() + "): " + line)
         self.log_tail.append(line)
         self._lines.put(line)

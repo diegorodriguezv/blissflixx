@@ -1509,3 +1509,33 @@ class TestTheKillIsNotSkippedWhenTheGroupIsMissing:
         with m.patch("os.killpg", side_effect=group_gone):
             stage._terminate()
         assert real.poll() is not None, "the process outlived the stop"
+
+
+class TestColourInStageOutput:
+    """
+    peerflix decorates its progress for a terminal, and there is none here.
+
+    Its output arrived in the log and in the diagnostics panel with the escape
+    sequences intact -- "Verifying downloaded:" printed as "[33mVerifying
+    downloaded:[39m 27%" -- because clivas writes colour for a tty and the log
+    is not one.
+    """
+
+    def test_colour_is_removed(self):
+        from lib.player.processpipe import _without_colour
+
+        assert (
+            _without_colour("\x1b[33mVerifying downloaded:\x1b[39m 27%")
+            == "Verifying downloaded: 27%"
+        )
+
+    def test_cursor_and_bold_sequences_go_too(self):
+        from lib.player.processpipe import _without_colour
+
+        assert _without_colour("\x1b[H\x1b[2J\x1b[32mopen\x1b[39m \x1b[1mvlc\x1b[22m") == "open vlc"
+
+    def test_a_plain_line_is_untouched(self):
+        from lib.player.processpipe import _without_colour
+
+        line = "server is listening on http://192.168.1.119:9696/"
+        assert _without_colour(line) is line
