@@ -1,6 +1,7 @@
 import os
 import re
 import subprocess
+import urllib.parse
 
 from ..chanutils import byte_size
 
@@ -8,14 +9,26 @@ from ..chanutils import byte_size
 from ..playitem import FileItem, PlayItem, PlayItemList
 from .common import ApiError
 
+#: Where to ask for peers, beside whatever the torrent itself names.
+#:
+#: The old list here was demonii, istole, eddie4, coppersurfer and btzoo, all
+#: of which have been gone for years: a .torrent turned into a magnet carried
+#: nothing but dead addresses, and a magnet from a channel carried only its
+#: own -- often equally dead -- so a busy film could sit at "0 peers" with
+#: nobody to ask. These are the ones that answer; see tracker_lines() in the
+#: diagnostics for what each of them says about a given torrent.
 TRACKERS = (
-    "udp://open.demonii.com:1337/announce",
-    "udp://tracker.istole.it:6969/announce",
-    "udp://www.eddie4.nl:6969/announce",
-    "udp://coppersurfer.tk:6969/announce",
-    "udp://tracker.btzoo.eu:80/announce",
-    "http://explodie.org:6969/announce",
-    "udp://9.rarbg.me:2710/announce",
+    "udp://tracker.opentrackr.org:1337/announce",
+    "udp://open.stealth.si:80/announce",
+    "udp://tracker.torrent.eu.org:451/announce",
+    "udp://exodus.desync.com:6969/announce",
+    "udp://tracker.openbittorrent.com:6969/announce",
+    "udp://opentracker.i2p.rocks:6969/announce",
+    "udp://tracker.tiny-vps.com:6969/announce",
+    "udp://explodie.org:6969/announce",
+    "udp://tracker.dler.org:6969/announce",
+    "udp://tracker.internetwarriors.net:1337/announce",
+    "http://tracker.openbittorrent.com:80/announce",
 )
 HASH_RE = re.compile("[A-F0-9]{40}")
 
@@ -36,14 +49,34 @@ class TorrentPlayItem(PlayItem):
         PlayItem.__init__(self, title, img, url, subtitle, synopsis, subs)
 
 
+def _with_more_trackers(magnet):
+    """
+    The magnet with any of ours it does not already name.
+
+    A magnet from a channel carries the trackers its uploader chose, which are
+    frequently dead, and peerflix will ask only those. Adding ours costs a
+    handful of announces and is the difference between "0 peers" on a popular
+    film and finding it.
+    """
+    missing = [
+        t for t in TRACKERS if urllib.parse.quote(t, safe="") not in magnet
+    ]
+    if not missing:
+        return magnet
+    joiner = "&" if "?" in magnet else "?"
+    return magnet + "".join(
+        joiner + "tr=" + urllib.parse.quote(t, safe="") for t in missing
+    )
+
+
 def torrent2magnet(torrent):
     if torrent.startswith("magnet"):
-        return torrent
+        return _with_more_trackers(torrent)
     matches = HASH_RE.search(torrent.upper())
     if not matches:
         return torrent
-    magnet = "magnet:?xt=urn:btih:" + matches.group(0) + "&tr="
-    return magnet + "&tr=".join(TRACKERS)
+    magnet = "magnet:?xt=urn:btih:" + matches.group(0)
+    return _with_more_trackers(magnet)
 
 
 def peerflix_metadata(link):

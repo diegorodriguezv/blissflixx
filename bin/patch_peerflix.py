@@ -80,6 +80,14 @@ CACHE_FIX_MARK = "blissflixx:verify-cache-tolerates-missing"
 #: stopped asking" and "the server stopped answering".
 TRACE_MARK = "blissflixx:trace-requests"
 
+#: What discovery is doing, so "0 peers" can be read rather than guessed.
+#:
+#: peerflix prints a peer count and nothing else: a tracker that refused, a
+#: DHT that never started, and a swarm with nobody in it all look the same from
+#: the outside. Two lines fix that -- one per tracker announce, one every
+#: fifteen seconds with the DHT and swarm state.
+DISCOVERY_MARK = "blissflixx:discovery-log"
+
 #: A range that cannot be satisfied must be answered 416, not with the file.
 #:
 #: VLC asks "Range: bytes=<length>-" -- a request that starts exactly at the
@@ -693,6 +701,41 @@ def main():
     )
     print("and to answer an impossible range as impossible:")
     patch(PEERFLIX, [(RANGE_PARSE, RANGE_PARSE_NEW)], mark=RANGE_MARK)
+    print("and to say what peer discovery is doing:")
+    try:
+        disc_text = TSTREAM.read_text()
+    except OSError:
+        disc_text = ""
+    if DISCOVERY_MARK not in disc_text:
+        patch(
+            TSTREAM,
+            [
+                (
+                    "  var exchange = exchangeMetadata(engine, function (metadata) {",
+                    "  // %s -- one line per tracker answer, one line of state.\n"
+                    "  discovery.on('trackerAnnounce', function (data) {\n"
+                    "    if (typeof console === 'undefined') return\n"
+                    "    var peers = (data && data.peers) ? data.peers.length : 0\n"
+                    "    console.log('bf-tracker: ' + (data && data.url ? data.url : '?') +\n"
+                    "      ' peers=' + peers + (data && data.failure ? ' failure=' + data.failure : ''))\n"
+                    "  })\n"
+                    "  discovery.on('warning', function (e) {\n"
+                    "    if (typeof console !== 'undefined') console.log('bf-tracker: warning ' + (e && e.message))\n"
+                    "  })\n"
+                    "  discovery.on('error', function (e) {\n"
+                    "    if (typeof console !== 'undefined') console.log('bf-tracker: error ' + (e && e.message))\n"
+                    "  })\n"
+                    "  setInterval(function () {\n"
+                    "    if (typeof console === 'undefined') return\n"
+                    "    console.log('bf-swarm: dht=' + (discovery.dht ? 'on' : 'off') +\n"
+                    "      ' peers=' + engine.swarm.wires.length +\n"
+                    "      ' downloaded=' + engine.swarm.downloaded)\n"
+                    "  }, 15000).unref()\n\n"
+                    "  var exchange = exchangeMetadata(engine, function (metadata) {" % DISCOVERY_MARK,
+                )
+            ],
+            mark=DISCOVERY_MARK,
+        )
     print("and to trace what the player asks for:")
     try:
         peerflix_text = PEERFLIX.read_text()

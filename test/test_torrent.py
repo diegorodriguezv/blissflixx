@@ -239,9 +239,23 @@ class TestFileList:
 
 
 class TestTorrent2Magnet:
-    def test_leaves_magnet_untouched(self):
-        magnet = "magnet:?xt=urn:btih:" + HASH
-        assert torrent2magnet(magnet) == magnet
+    def test_keeps_a_magnets_own_trackers_and_gains_ours(self):
+        """
+        The magnet's trackers are the uploader's, not necessarily the working
+        ones; both sets are kept, and a second conversion adds nothing.
+        """
+        from urllib.parse import quote
+
+        from lib.api.torrent import TRACKERS
+
+        own = "udp://old.example:1/announce"
+        magnet = "magnet:?xt=urn:btih:" + HASH + "&tr=" + quote(own, safe="")
+        result = torrent2magnet(magnet)
+        assert result.startswith(magnet)
+        assert quote(own, safe="") in result
+        for tracker in TRACKERS:
+            assert "tr=" + quote(tracker, safe="") in result
+        assert torrent2magnet(result) == result
 
     def test_builds_magnet_from_hash_with_trackers(self):
         magnet = torrent2magnet(HASH)

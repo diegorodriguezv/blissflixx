@@ -379,10 +379,26 @@ class TestPeerflix:
         cmd = PeerflixProcess(HASH, None)._get_cmd({})
         assert cmd[3].startswith("magnet:?xt=urn:btih:")
 
-    def test_magnet_url_left_alone(self):
-        magnet = "magnet:?xt=urn:btih:" + "B" * 40
+    def test_magnet_url_keeps_its_own_trackers_and_gains_ours(self):
+        """
+        A magnet from a channel names the trackers its uploader chose, and
+        they are frequently dead. Ours are appended rather than replacing
+        them, so the film gets both sets to ask.
+        """
+        from urllib.parse import quote
+
+        from lib.api.torrent import TRACKERS
+
+        own = "udp://old.example:1/announce"
+        magnet = "magnet:?xt=urn:btih:" + "B" * 40 + "&tr=" + quote(own, safe="")
         cmd = PeerflixProcess(magnet, None)._get_cmd({})
-        assert cmd[3] == magnet
+        assert cmd[3].startswith(magnet)
+        assert own in cmd[3] or quote(own, safe="") in cmd[3]
+        for tracker in TRACKERS:
+            assert "tr=" + quote(tracker, safe="") in cmd[3]
+        # Running it through twice must not add the same tracker twice.
+        again = PeerflixProcess(cmd[3], None)._get_cmd({})
+        assert again[3] == cmd[3]
 
     def test_file_index_only_when_non_negative(self):
         cmd = PeerflixProcess("http://x/y.torrent", 2)._get_cmd({})
