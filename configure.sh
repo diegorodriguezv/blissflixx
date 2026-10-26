@@ -254,7 +254,7 @@ After=network-online.target
 [Service]
 Type=simple
 Restart=always
-User=$(BF_USER)
+User=${BF_USER}
 WorkingDirectory=$(pwd)
 ExecStart='$(pwd)/run.sh'
 
@@ -435,7 +435,7 @@ Description=Blank screen after boot
 
 [Service]
 Type=simple
-User=$(logname)
+User=${BF_USER}
 ExecStart=$(pwd)/blank_screen.sh
 ExecStartPre=/bin/sleep 15
 
@@ -458,7 +458,7 @@ After=network-online.target
 [Service]
 Type=simple
 Restart=always
-User=$(logname)
+User=${BF_USER}
 WorkingDirectory=$(pwd)
 ExecStart='$(pwd)/rejoin.sh'
 
