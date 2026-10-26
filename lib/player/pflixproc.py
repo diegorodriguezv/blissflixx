@@ -516,7 +516,11 @@ class PeerflixProcess(ExternalProcess):
                 time.sleep(_PROGRESS_EVERY)
                 continue
             percent = int(downloaded * 100 / total)
-            if self._progress is None or percent != self._progress["percent"]:
+            # Bytes, not percent: one percent of a 3.2GB film is 32MB, so on a
+            # slow swarm the rounded figure stands still for a minute while
+            # data is plainly arriving, and the bar warned "nothing arriving"
+            # beside a 500 kB/s figure.
+            if self._progress is None or downloaded != self._progress["downloaded"]:
                 self._moved_at = time.time()
             self._progress = {
                 "downloaded": downloaded,

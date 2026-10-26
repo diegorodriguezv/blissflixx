@@ -22,13 +22,12 @@ TRACKERS = (
     "udp://open.stealth.si:80/announce",
     "udp://tracker.torrent.eu.org:451/announce",
     "udp://exodus.desync.com:6969/announce",
-    "udp://tracker.openbittorrent.com:6969/announce",
-    "udp://opentracker.i2p.rocks:6969/announce",
-    "udp://tracker.tiny-vps.com:6969/announce",
     "udp://explodie.org:6969/announce",
     "udp://tracker.dler.org:6969/announce",
     "udp://tracker.internetwarriors.net:1337/announce",
-    "http://tracker.openbittorrent.com:80/announce",
+    "udp://open.demonii.si:1337/announce",
+    "udp://tracker.cyberia.is:6969/announce",
+    "udp://tracker.qu.ax:6969/announce",
 )
 HASH_RE = re.compile("[A-F0-9]{40}")
 
