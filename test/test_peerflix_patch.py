@@ -34,8 +34,11 @@ LOOP_BODY = """      engine.store.get(i, function (_, buf) {
 
 #: The end-of-range branch of notify(), verbatim upstream. The trace patch
 #: anchors on it, so a fake tree without it reports "not patching".
-#: The metadata-exchange anchor the discovery-log patch hangs on, verbatim
-#: upstream. It sits after the verification block, which LOOP_BODY ends.
+#: The anchors the discovery patches hang on, verbatim upstream. ontorrent is
+#: where the file list is built -- and where the magnet's trackers are merged
+#: back into replayed metadata; exchange sits after the verification block,
+#: which LOOP_BODY ends.
+ONTORRENT_ANCHOR = "  var ontorrent = function (torrent) {\n"
 EXCHANGE_ANCHOR = "  var exchange = exchangeMetadata(engine, function (metadata) {\n"
 
 
@@ -76,6 +79,7 @@ def pristine_tree(mod, root):
         + mod.LATE_EMIT
         + mod.VERIFY_LOOP
         + LOOP_BODY
+        + ONTORRENT_ANCHOR
         + EXCHANGE_ANCHOR,
         mod.SETUP_ON_READY + mod.LISTEN_ON_READY + mod.RANGE_PARSE,
         mod.STOP_VERIFYING,

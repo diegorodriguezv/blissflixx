@@ -88,6 +88,72 @@ TRACE_MARK = "blissflixx:trace-requests"
 #: fifteen seconds with the DHT and swarm state.
 DISCOVERY_MARK = "blissflixx:discovery-log"
 
+#: A replay from the .torrent cache asked no tracker at all.
+#:
+#: The metadata fetched from the swarm is saved with 'announce-list': [], so
+#: parsing it back gives a torrent with no announce list, and discovery is
+#: built from that torrent -- zero trackers. A fresh play, whose metadata is
+#: not on disk yet, is built from the magnet and does have them, which is why
+#: "0 peers" happened on replays of films that worked the first time. The
+#: magnet's announce list is the only surviving record of where to look, so it
+#: is merged into every torrent handed to discovery.
+KEEP_TRACKERS_MARK = "blissflixx:keep-magnet-trackers"
+
+#: The DHT is asked for peers before it has finished bootstrapping.
+#:
+#: bittorrent-dht answers "No nodes to query" on that first announce and
+#: discovery waits its normal interval -- a quarter of an hour -- before
+#: asking again. Retrying in fifteen seconds until it answers costs nothing
+#: and turns the DHT from something that may help later into a peer source
+#: for the first read.
+DHT_RETRY_MARK = "blissflixx:dht-retry-until-bootstrapped"
+
+#: How many trackers discovery actually has, in the state line.
+SWARM_TRACKERS_MARK = "blissflixx:swarm-tracker-count"
+
+#: torrent-discovery 5.4.0's announce, verbatim.
+DHT_ANNOUNCE = """  self.dht.announce(self.infoHash, self.port, function (err) {
+    self._dhtAnnouncing = false
+    debug('dht announce complete')
+
+    if (err) self.emit('warning', err)
+    self.emit('dhtAnnounce')
+
+    if (!self.destroyed) {
+      self._dhtTimeout = setTimeout(function () {
+        self._dhtAnnounce()
+      }, getRandomTimeout())
+    }
+  })
+"""
+
+DHT_ANNOUNCE_NEW = """  self.dht.announce(self.infoHash, self.port, function (err) {
+    self._dhtAnnouncing = false
+    debug('dht announce complete')
+
+    if (err) {
+      // %s -- "No nodes to query" is the DHT before it has bootstrapped, not
+      // an empty swarm. Waiting the normal interval leaves discovery blind
+      // for a quarter of an hour, so retry soon until it answers.
+      self.emit('warning', err)
+      if (!self.destroyed) {
+        self._dhtTimeout = setTimeout(function () {
+          self._dhtAnnounce()
+        }, 15000)
+        return
+      }
+    }
+
+    self.emit('dhtAnnounce')
+
+    if (!self.destroyed) {
+      self._dhtTimeout = setTimeout(function () {
+        self._dhtAnnounce()
+      }, getRandomTimeout())
+    }
+  })
+""" % DHT_RETRY_MARK
+
 #: A range that cannot be satisfied must be answered 416, not with the file.
 #:
 #: VLC asks "Range: bytes=<length>-" -- a request that starts exactly at the
@@ -225,6 +291,7 @@ TSTREAM = TREE / "node_modules" / "torrent-stream" / "index.js"
 PEERFLIX = TREE / "index.js"
 APP = TREE / "app.js"
 FSTREAM = TREE / "node_modules" / "torrent-stream" / "lib" / "file-stream.js"
+TDISCOVERY = TREE / "node_modules" / "torrent-discovery" / "index.js"
 
 #: The end of the file list, which is the first moment either the server or the
 #: player can be told which files exist.
@@ -735,6 +802,61 @@ def main():
                 )
             ],
             mark=DISCOVERY_MARK,
+        )
+    print("and to keep the magnet's trackers when metadata is replayed:")
+    try:
+        keep_text = TSTREAM.read_text()
+    except OSError:
+        keep_text = ""
+    if KEEP_TRACKERS_MARK not in keep_text:
+        patch(
+            TSTREAM,
+            [
+                (
+                    "  var ontorrent = function (torrent) {",
+                    "  var ontorrent = function (torrent) {\n"
+                    "    // %s -- metadata from the swarm is saved with an empty\n"
+                    "    // announce list, so a replay from the .torrent cache was\n"
+                    "    // built with no trackers and asked nobody for peers. The\n"
+                    "    // magnet still names them.\n"
+                    "    if (link && link.announce && link.announce.length) {\n"
+                    "      torrent.announce = torrent.announce || []\n"
+                    "      for (var ai = 0; ai < link.announce.length; ai++) {\n"
+                    "        if (torrent.announce.indexOf(link.announce[ai]) === -1) {\n"
+                    "          torrent.announce.push(link.announce[ai])\n"
+                    "        }\n"
+                    "      }\n"
+                    "    }\n" % KEEP_TRACKERS_MARK,
+                )
+            ],
+            mark=KEEP_TRACKERS_MARK,
+        )
+    print("and to retry the DHT until it has nodes:")
+    if TDISCOVERY.exists():
+        patch(TDISCOVERY, [(DHT_ANNOUNCE, DHT_ANNOUNCE_NEW)], mark=DHT_RETRY_MARK)
+    print("and to count the trackers in the state line:")
+    try:
+        swarm_text = TSTREAM.read_text()
+    except OSError:
+        swarm_text = ""
+    if SWARM_TRACKERS_MARK not in swarm_text:
+        patch(
+            TSTREAM,
+            [
+                (
+                    "    console.log('bf-swarm: dht=' + (discovery.dht ? 'on' : 'off') +\n"
+                    "      ' peers=' + engine.swarm.wires.length +\n"
+                    "      ' downloaded=' + engine.swarm.downloaded)",
+                    "    var bfTrackers = 0\n"
+                    "    try { bfTrackers = discovery.tracker._trackers.length } catch (e) {}\n"
+                    "    // %s -- zero here is why a replay can sit at 0 peers.\n"
+                    "    console.log('bf-swarm: dht=' + (discovery.dht ? 'on' : 'off') +\n"
+                    "      ' trackers=' + bfTrackers +\n"
+                    "      ' peers=' + engine.swarm.wires.length +\n"
+                    "      ' downloaded=' + engine.swarm.downloaded)" % SWARM_TRACKERS_MARK,
+                )
+            ],
+            mark=SWARM_TRACKERS_MARK,
         )
     print("and to trace what the player asks for:")
     try:
