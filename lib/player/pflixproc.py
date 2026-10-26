@@ -140,6 +140,9 @@ class PeerflixProcess(ExternalProcess):
         super().__init__()
         #: The last "Verifying downloaded: N%" seen, or None.
         self._verifying = None
+        #: The last percentage seen, kept for the timing line after verification
+        #: has ended and _verifying has been cleared.
+        self._verified = None
         #: Whether this run reused a previous verification instead of hashing.
         #: A hit emits no verifying/verify lines, so without this the TIMING
         #: line would read "verified None%".
@@ -213,9 +216,18 @@ class PeerflixProcess(ExternalProcess):
             line = self._readline()
             found = _VERIFYING_RE.search(line)
             if found:
-                self._verifying = int(found.group(1))
+                percent = int(found.group(1))
+                self._verified = percent
+                # 100% is the end of it. Holding the last number left the
+                # panel saying "verify 0%" for the whole of a film whose
+                # verification had stopped at its first piece, and "verify
+                # 100%" on one that had finished -- neither is a thing the
+                # player is doing.
+                self._verifying = None if percent >= 100 else percent
             if line.startswith("bf-verify-cache: hit"):
                 self._cache_hit = True
+                # Nothing was hashed at all this run.
+                self._verifying = None
             if line.startswith("Bad Response"):
                 raise ProcessException(line)
             # Get this error if site down/blocked
@@ -232,7 +244,7 @@ class PeerflixProcess(ExternalProcess):
                 else:
                     cherrypy.log(
                         "TIMING peerflix %.1fs to serve (verified %s%%)"
-                        % (time.time() - self._started_at, self._verifying)
+                        % (time.time() - self._started_at, self._verified)
                     )
                 from .processpipe import _start_thread
 

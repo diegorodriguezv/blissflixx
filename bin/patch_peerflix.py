@@ -127,6 +127,9 @@ CACHE_V2_MARK = "blissflixx:verify-cache-complete-only"
 #: every play of a 99 per cent complete film.
 LOOK_MARK = "blissflixx:look-at-the-piece"
 
+#: A cached file that has grown is still a valid cache; one that shrank is not.
+CACHE_GROWTH_MARK = "blissflixx:verify-cache-accepts-growth"
+
 #: _look() must never throw; see the body for why. Trees that got the first
 #: version get the safe one under this marker.
 LOOK_FIX_MARK = "blissflixx:look-never-throws"
@@ -537,7 +540,16 @@ VERIFY_CACHED_LOOP_NEW = (
           st = fs.statSync(path.join(opts.path, torrent.files[i].path))
         } catch (e) { st = null }
         var actual = (st && st.isFile()) ? st.size : -1
-        if (actual !== cached.files[i].size) return false
+        // Growth is expected and must not throw the cache away: a play that
+        // starts while the file is still being written sees it grow, rejected
+        // the cache, re-verified 1.8GB -- and that verification then wedged at
+        // its first piece for an hour, which is a bug of its own. Pieces the
+        // file has gained are simply absent from the bitfield, and the
+        // per-piece check in file-stream vouches for them when a read needs
+        // them. A file that shrank, or has gone, is a different matter: the
+        // pieces recorded as present may no longer be.
+        if (actual === -1 ? cached.files[i].size !== -1
+                          : actual < cached.files[i].size) return false
       }
       var have
       try {
@@ -829,6 +841,35 @@ def main():
         look_now = ""
     if LOOK_OLD_BODY in look_now:
         patch(FSTREAM, [(LOOK_OLD_BODY, LOOK_SAFE_BODY)], mark=LOOK_FIX_MARK)
+    print("and to keep the cache when the file grows:")
+    try:
+        grown = TSTREAM.read_text()
+    except OSError:
+        grown = ""
+    # Trees installed before this rule compare sizes for equality.
+    try:
+        if "cached.files[i].size) return false" in grown and "actual < cached.files[i].size" not in grown:
+            patch(
+                TSTREAM,
+                [
+                    (
+                        "        if (actual !== cached.files[i].size) return false",
+                        "        // Growth is expected and must not throw the cache away: a play that\n"
+                        "        // starts while the file is still being written sees it grow, rejected\n"
+                        "        // the cache, re-verified 1.8GB -- and that verification then wedged at\n"
+                        "        // its first piece for an hour, which is a bug of its own. Pieces the\n"
+                        "        // file has gained are simply absent from the bitfield, and the\n"
+                        "        // per-piece check in file-stream vouches for them when a read needs\n"
+                        "        // them. A file that shrank, or has gone, is a different matter: the\n"
+                        "        // pieces recorded as present may no longer be.\n"
+                        "        if (actual === -1 ? cached.files[i].size !== -1\n"
+                        "                          : actual < cached.files[i].size) return false",
+                    )
+                ],
+                mark=CACHE_GROWTH_MARK,
+            )
+    except Exception:
+        pass
     print("and to put a waiting read at the front of the queue:")
     # Anchored on the wakeup patch's own text, so it applies to trees that
     # already have it (every box) and skips cleanly if it is absent.

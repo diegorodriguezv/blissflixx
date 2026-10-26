@@ -485,3 +485,46 @@ class TestSubtitlesReady:
     def test_status_message_is_shown_while_fetching(self):
         proc = SubtitlesProcess({"lang": "eng", "title": "M"})
         assert proc.status_msg() == "FETCHING SUBTITLES"
+
+
+class TestVerifyingState:
+    """
+    "verify N%" is a thing the source is doing, or it is nothing.
+
+    Holding the last number left the diagnostics panel saying "verify 0%" for
+    the whole of a film whose verification had stopped at its first piece, and
+    "verify 100%" on one that had finished. Reported from rpitv, beside a
+    complete film.
+    """
+
+    def _ready(self, lines):
+        from lib.player.pflixproc import PeerflixProcess
+
+        proc = PeerflixProcess("http://x/y.torrent", 0)
+        proc.args = {"outfile": "http://127.0.0.1:9696"}
+        proc.proc = type("P", (), {"poll": lambda self: None})()
+        proc._readline = lambda timeout=None: lines.pop(0)
+        proc._ready()
+        return proc
+
+    def test_a_percentage_is_kept_while_verification_runs(self):
+        proc = self._ready(
+            ["Verifying downloaded: 27%", "server is listening on http://127.0.0.1:9696/"]
+        )
+        assert proc._verified == 27
+        # The port opens before hashing finishes, so 27% is still true here.
+        assert proc._verifying == 27
+
+    def test_hundred_per_cent_ends_it(self):
+        proc = self._ready(
+            ["Verifying downloaded: 100%", "server is listening on http://127.0.0.1:9696/"]
+        )
+        assert proc._verifying is None
+        assert proc._verified == 100
+
+    def test_a_cache_hit_means_nothing_was_hashed(self):
+        proc = self._ready(
+            ["bf-verify-cache: hit abc123", "server is listening on http://127.0.0.1:9696/"]
+        )
+        assert proc._verifying is None
+        assert proc._cache_hit is True

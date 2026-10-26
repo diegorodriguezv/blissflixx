@@ -87,7 +87,8 @@ FIXED_LOAD_CHECK = """      for (i = 0; i < torrent.files.length; i++) {
           st = fs.statSync(path.join(opts.path, torrent.files[i].path))
         } catch (e) { st = null }
         var actual = (st && st.isFile()) ? st.size : -1
-        if (actual !== cached.files[i].size) return false
+        if (actual === -1 ? cached.files[i].size !== -1
+                          : actual < cached.files[i].size) return false
       }
 """
 
@@ -116,7 +117,17 @@ def rewind_to_buggy(mod, root):
     """Put the fake tree back to the first-deployed cache text."""
     p = root / "node_modules" / "torrent-stream" / "index.js"
     text = p.read_text()
-    text = text.replace(FIXED_LOAD_CHECK, mod.BUGGY_LOAD_CHECK)
+    # By pattern, not by literal: the block carries comments that change as the
+    # rule changes, and the rewind only needs the loop itself.
+    import re as _re
+
+    text = _re.sub(
+        r"      for \(i = 0; i < torrent\.files\.length; i\+\+\) \{.*?\n      \}\n",
+        mod.BUGGY_LOAD_CHECK,
+        text,
+        count=1,
+        flags=_re.S,
+    )
     text = text.replace(FIXED_SAVE_MAP, mod.BUGGY_SAVE_SIZES)
     text = text.replace(FIXED_SIZE_DEF, mod.BUGGY_SAVE_DEF)
     assert mod.BUGGY_LOAD_CHECK in text
@@ -141,6 +152,8 @@ class TestPatchScript:
         assert mod.RANGE_MARK in index
         assert "416" in index
         assert "bytes */" in index
+        # A grown file is still a valid cache; a shrunken one is not.
+        assert mod.CACHE_GROWTH_MARK or "actual < cached.files[i].size" in index
         assert mod.SWARM_MARK in (tmp_path / "app.js").read_text()
         fstream = (
             tmp_path / "node_modules" / "torrent-stream" / "lib" / "file-stream.js"
