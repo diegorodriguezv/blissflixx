@@ -187,7 +187,28 @@ class TestWhatTheBarSaysWhileATorrentStarts:
             "peers": 6,
         }
         proc._moved_at = time.time()
-        assert proc.detail() == "12% · 1.4 MB/s · 6 peers"
+        # No file to measure, so the run's own bytes, labelled as such: an
+        # unlabelled percentage reads as "how much of the film is here" and
+        # stops short of 100% on a film that is entirely here.
+        assert proc.detail() == "12% downloaded · 1.4 MB/s · 6 peers"
+
+    def test_the_detail_says_the_share_on_disk(self, tmp_path, monkeypatch):
+        import lib.player.pflixproc as pflix
+
+        monkeypatch.setattr(pflix, "BUFFER_DIR", str(tmp_path))
+        film = tmp_path / "film.mkv"
+        film.write_bytes(b"x" * (2 * 1024 * 1024))
+        proc = PeerflixProcess("http://x/y.torrent", 0)
+        proc._progress = {
+            "downloaded": 250,
+            "percent": 12,
+            "speed": 0,
+            "peers": 6,
+            "total": 8 * 1024 * 1024,
+            "files": [],
+        }
+        proc._moved_at = time.time()
+        assert proc.detail().startswith("25% on disk · 0 B/s · 6 peers")
 
     def test_it_says_when_nothing_is_arriving(self):
         """

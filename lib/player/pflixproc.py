@@ -274,22 +274,30 @@ class PeerflixProcess(ExternalProcess):
         """
         if self._progress is None:
             return ""
-        # The percentage is the swarm's bytes for *this* run, not the share of
-        # the film on disk: a film already buffered reads 0% while needing
-        # nothing. So it is shown only when this run has downloaded something,
-        # and the speed and peers -- which are always true -- carry the line.
+        # The share of the film that is *on the card*, said as such.
+        #
+        # It used to be the swarm's bytes for this run, unlabelled, and that
+        # number stops short of 100% on a film that is entirely here: pieces
+        # already on disk never have to be downloaded again, so a finished film
+        # reads "83%" for ever and looks stuck. Reported from rpitv at 130
+        # peers: "stuck at 97%", on a file that was complete and playing. The
+        # speed and peers carry what the swarm is doing; the percentage has to
+        # say what it is a percentage of.
         parts = []
         if self._verifying:
             # The hashing is still running beside the film, now that the port
             # opens before it finishes. Nothing is said at 0%: the film is
             # playing, and "verifying 0%" beside "0%" reads as two failures.
             parts.append("verifying %d%%" % self._verifying)
-        if self._progress["downloaded"]:
-            parts.append("%d%%" % self._progress["percent"])
+        info = self.served_file()
+        if info is not None:
+            parts.append("%d%% on disk" % info["percent"])
+        elif self._progress["downloaded"]:
+            # No file to measure yet: this run's bytes are all there is.
+            parts.append("%d%% downloaded" % self._progress["percent"])
         parts.append("%s/s" % _size(self._progress["speed"]))
         parts.append("%d peers" % self._progress["peers"])
         text = " · ".join(parts)
-        info = self.served_file()
         if info is not None and info["percent"] >= 99:
             # Complete on disk: no peers is the normal state, not a warning.
             quiet = 0
