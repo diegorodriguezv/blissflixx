@@ -402,10 +402,12 @@ of its own. With a 1080p film on a 1366x768 mode the pool ran out and every fram
 was rejected -- a decoded film and a black screen. Matching the mode costs a
 flicker at the start of a film and removes the scaling entirely.
 
-VLC is pinned to 3.0.23 by `configure.sh`. Version 3.0.24 (the archive's
-current one as of October 2026) starts, spins at 100 per cent CPU, never
-reads its input and shows nothing — on torrents and local files alike. If
-VLC is upgraded, hold it back or expect a black screen.
+VLC is pinned to 3.0.23 by `configure.sh`, **on 32-bit installs only**. The
+armhf build of 3.0.24 starts, spins at 100 per cent CPU, never reads its
+input and shows nothing — on torrents and local files alike. The arm64
+build of the same 3.0.24, on the same Pi 3, plays normally (decoder on the
+DRM accel path, about 10 per cent CPU). So the fault is in the 32-bit
+package, not in the version.
 
 `fast_seek` is on here and off in VLC. It seeks to the nearest keyframe, which
 costs a little precision — up to a GOP — and buys a picture that keeps moving

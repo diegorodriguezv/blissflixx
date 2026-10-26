@@ -160,8 +160,15 @@ else
     # input and shows nothing -- on a torrent and on a local file alike.
     # 3.0.23 plays. Pinned here so an upgrade button press cannot bring the
     # broken one back.
-    apt-mark hold vlc vlc-bin vlc-data vlc-l10n vlc-plugin-base \
-        vlc-plugin-access-extra libvlc5 libvlccore9 libvlc-bin > /dev/null 2>&1 || true
+    # Only on 32-bit. Measured on a Pi 3: the armhf 3.0.24 build starts, spins
+    # at 100 per cent CPU, never reads its input and shows nothing, while the
+    # arm64 build of the same version on the same board plays with the decoder
+    # running (10 per cent CPU, "Using DRM Video Accel"). Holding the arm64 one
+    # would block security updates for no reason.
+    if [ "$(dpkg --print-architecture)" = "armhf" ]; then
+        apt-mark hold vlc vlc-bin vlc-data vlc-l10n vlc-plugin-base \
+            vlc-plugin-access-extra libvlc5 libvlccore9 libvlc-bin > /dev/null 2>&1 || true
+    fi
     stage "vlc and gstreamer"
     fi
 
