@@ -528,3 +528,42 @@ class TestVerifyingState:
         )
         assert proc._verifying is None
         assert proc._cache_hit is True
+
+    def test_lines_after_the_port_opens_keep_the_number_current(self):
+        """
+        The port opens before the hashing does, so _ready() returns at
+        "server is listening" and never sees the percentages. They still have
+        to reach the panel: verification that reached 100 left it at 0%.
+        """
+        proc = self._ready(["server is listening on http://127.0.0.1:9696/"])
+        proc._watch_verify("Verifying downloaded: 42%")
+        assert proc._verifying == 42
+        assert proc._verified == 42
+        proc._watch_verify("Verifying downloaded: 100%")
+        assert proc._verifying is None
+        assert proc._verified == 100
+
+    def test_a_cache_hit_after_the_port_opens_is_still_recognised(self):
+        proc = self._ready(["server is listening on http://127.0.0.1:9696/"])
+        proc._watch_verify("bf-verify-cache: hit abc123")
+        assert proc._cache_hit is True
+        assert proc._verifying is None
+
+    def test_a_piece_behind_the_front_does_not_move_it_back(self, monkeypatch):
+        """
+        The swarm emits 'verify' for pieces it downloads, and those can be
+        behind the hashing front: after 100 the line prints 99 again. That is
+        not a second verification, and must not bring the label back.
+        """
+        monkeypatch.setattr(
+            "lib.player.pflixproc.drop_buffer_cache", lambda: 0
+        )
+        proc = self._ready(["server is listening on http://127.0.0.1:9696/"])
+        proc._watch_verify("Verifying downloaded: 60%")
+        proc._watch_verify("Verifying downloaded: 99%")
+        proc._watch_verify("Verifying downloaded: 98%")
+        assert proc._verifying == 99
+        proc._watch_verify("Verifying downloaded: 100%")
+        proc._watch_verify("Verifying downloaded: 99%")
+        assert proc._verifying is None
+        assert proc._verified == 100

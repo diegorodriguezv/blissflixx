@@ -154,7 +154,7 @@ class PeerflixProcess(ExternalProcess):
         #: Two milestones: the tail (cues live at the file's end, and the
         #: setup follows the first frame) and the finish.
         self._drop_marks = set()
-        self.on_output_line = self._watch_verify_end
+        self.on_output_line = self._watch_verify
         #: The swarm's last answer: downloaded / total / speed / peers.
         self._progress = None
         self._progress_at = None
@@ -217,13 +217,17 @@ class PeerflixProcess(ExternalProcess):
             found = _VERIFYING_RE.search(line)
             if found:
                 percent = int(found.group(1))
-                self._verified = percent
+                # Same rule as the whole-run watcher: peerflix prints the
+                # latest verified piece, and the swarm's downloads can be
+                # behind the hashing front, so keep the highest seen.
+                if self._verified is None or percent > self._verified:
+                    self._verified = percent
                 # 100% is the end of it. Holding the last number left the
                 # panel saying "verify 0%" for the whole of a film whose
                 # verification had stopped at its first piece, and "verify
                 # 100%" on one that had finished -- neither is a thing the
                 # player is doing.
-                self._verifying = None if percent >= 100 else percent
+                self._verifying = None if self._verified >= 100 else self._verified
             if line.startswith("bf-verify-cache: hit"):
                 self._cache_hit = True
                 # Nothing was hashed at all this run.
@@ -551,27 +555,49 @@ class PeerflixProcess(ExternalProcess):
         cherrypy.log("peerflix listening line had no url: " + line)
         return "http://127.0.0.1:" + _PEERFLIX_PORT
 
-    def _watch_verify_end(self, line):
+    def _watch_verify(self, line):
         """
-        Evict the buffer as the hashing finishes, not after.
+        Follow the hashing for the whole run, and evict as it finishes.
 
-        Verification reads gigabytes through the page cache and the decoder
-        sets up on the first frame, which arrives with the file's tail -- the
-        cues live at its end. A drop only at the finish comes too late for a
-        setup attempted on the tail: measured on rpi, twelve "Atomic commit
-        failed" six minutes after 99% with the region never cleared in
+        The port opens before the hashing is done, so `_ready()` returns at
+        "server is listening" and never sees the percentages that follow. The
+        copier still feeds every line here, which is where they have to be
+        read: without this the panel held "verify 0%" for a verification that
+        had in fact reached 100 and saved its flag.
+
+        peerflix prints the percentage of the *latest verified piece*, not a
+        count of pieces hashed by the verification loop. The swarm also emits
+        'verify' for pieces it downloads, and those can be behind the hashing
+        front -- so after 100 the number can print 99 again. Keep the highest
+        seen, and once 100 is reached the hashing is over for this play: a
+        later 99 must not bring "verifying" back.
+
+        Eviction: verification reads gigabytes through the page cache and the
+        decoder sets up on the first frame, which arrives with the file's tail
+        -- the cues live at its end. A drop only at the finish comes too late
+        for a setup attempted on the tail: measured on rpi, twelve "Atomic
+        commit failed" six minutes after 99% with the region never cleared in
         between. So the drop fires at 90, clearing the region before the tail
         is hashed, and again at 99. The percentage rounds, so both appear for
         any torrent with more than a few hundred pieces; slightly early is
         still the cleared region, since nothing re-pollutes afterwards except
         the swarm's own downloads, which are megabytes.
         """
-        if self.killing:
+        if line.startswith("bf-verify-cache: hit"):
+            # The flag was taken and nothing was hashed; the line can arrive
+            # after the port opened, so `_ready()` may not be the one to see it.
+            self._cache_hit = True
+            self._verifying = None
             return
         found = _VERIFYING_RE.search(line)
         if not found:
             return
         percent = int(found.group(1))
+        if self._verified is None or percent > self._verified:
+            self._verified = percent
+        self._verifying = None if self._verified >= 100 else self._verified
+        if self.killing:
+            return
         for mark in (90, 99):
             if percent >= mark and mark not in self._drop_marks:
                 self._drop_marks.add(mark)
