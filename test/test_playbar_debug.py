@@ -13,6 +13,7 @@ the picture does, while there is still something to do about it).
 """
 
 import os
+import pathlib
 import time
 
 import pytest
@@ -678,3 +679,17 @@ class _FakePipe(_Pipe):
             "title": "A Film",
             "stages": [p.debug() for p in self.procs],
         }
+
+
+class TestPanelFields:
+    def test_speed_is_read_from_the_field_the_source_sends(self):
+        """
+        The panel showed 0 B/s for every play because it asked the source for
+        downloadSpeed, a name the source has never used; the bar reads the
+        same number as speed and was right. Reported from rpitv while the bar
+        said 2.3 MB/s.
+        """
+        html = pathlib.Path(__file__).resolve().parents[1] / "html" / "tags" / "playbar.html"
+        text = html.read_text()
+        assert "sw.downloadSpeed" not in text
+        assert "sw.speed" in text

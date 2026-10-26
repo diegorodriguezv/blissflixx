@@ -364,7 +364,7 @@
       line('on disk', file.length
         ? self.bytes(file.present) + ' of ' + self.bytes(file.length) + ' (' + file.percent + '%)'
         : '—')
-      line('speed', self.bytes(sw.downloadSpeed || 0) + '/s')
+      line('speed', self.bytes(sw.speed || 0) + '/s')
       line('peers', (sw.peers || 0) + ' connected, ' + (sw.active_peers || 0) + ' active')
       line('this run', self.bytes(sw.downloaded || 0) + ' down · ' + self.bytes(sw.uploaded || 0) + ' up')
       line('verify', src.verifying === null || src.verifying === undefined ? 'not running' : src.verifying + '%')
