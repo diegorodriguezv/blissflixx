@@ -204,6 +204,79 @@ LOOK_MARK = "blissflixx:look-at-the-piece"
 #: A cached file that has grown is still a valid cache; one that shrank is not.
 CACHE_GROWTH_MARK = "blissflixx:verify-cache-accepts-growth"
 
+#: A flag written before the file existed records nothing about the file that
+#: arrives afterwards.
+#:
+#: The first play of a new torrent starts verifying before any byte has been
+#: downloaded: the loop finds an empty store, sets no pieces, and saves a flag
+#: with every piece absent and the file recorded as -1. That flag is harmless
+#: while the file really is absent, but the growth rule accepted it once the
+#: file existed (a size of -1 is smaller than any real size), so the next play
+#: believed nothing was on disk and fetched the whole film again over the top
+#: of it. Measured on rpitv: 98% on the card and a replay downloading all
+#: 3.2GB. A flag that says "the file was not here" must stop being believed
+#: exactly when the file is here.
+CACHE_ABSENT_MARK = "blissflixx:verify-cache-rejects-arrived-file"
+
+#: A flag with no pieces set remembers nothing and can only go stale.
+CACHE_EMPTY_MARK = "blissflixx:verify-cache-never-empty"
+
+#: The growth rule as yesterday's patch left it. It accepted a recorded size of
+#: -1 (the file was absent) for a file that is now present, because -1 is less
+#: than any real size; that is the hole the rule above closes. Trees with this
+#: text, and fresh trees patched from this script, both get the new rule.
+CACHE_GROWTH_SOURCE = '''        // Growth is expected and must not throw the cache away: a play that
+        // starts while the file is still being written sees it grow, rejected
+        // the cache, re-verified 1.8GB -- and that verification then wedged at
+        // its first piece for an hour, which is a bug of its own. Pieces the
+        // file has gained are simply absent from the bitfield, and the
+        // per-piece check in file-stream vouches for them when a read needs
+        // them. A file that shrank, or has gone, is a different matter: the
+        // pieces recorded as present may no longer be.
+        if (actual === -1 ? cached.files[i].size !== -1
+                          : actual < cached.files[i].size) return false
+'''
+
+CACHE_ABSENT_NEW = '''        // %s -- a flag written while the file was
+        // absent recorded -1 and an empty bitfield: it vouches for nothing.
+        // Believing it once the file exists made the swarm fetch the whole
+        // film again over the bytes already here. Growth from a recorded size
+        // is fine; arrival from an absent file is not. A file that shrank, or
+        // has gone, still invalidates.
+        if (cached.files[i].size === -1) {
+          if (actual !== -1) {
+            if (typeof console !== 'undefined') {
+              console.log('bf-verify-cache: stale ' + infoHash +
+                ' (file was absent when the flag was written)')
+            }
+            return false
+          }
+        } else if (actual === -1 || actual < cached.files[i].size) {
+          return false
+        }
+''' % CACHE_ABSENT_MARK
+
+#: The save function's head, before the empty-flag guard.
+CACHE_SAVE_HEAD = '''    var bfVerifyCacheSave = function () {
+      try {
+'''
+
+CACHE_SAVE_HEAD_NEW = '''    var bfVerifyCacheSave = function () {
+      try {
+        // %s -- a flag with every piece
+        // absent remembers nothing; it is a claim that the whole film is
+        // missing. One written before the file existed made the next play
+        // re-download all of it.
+        var bfAnyPiece = false
+        for (var bfPiece = 0; bfPiece < torrent.pieces.length; bfPiece++) {
+          if (engine.bitfield.get(bfPiece)) { bfAnyPiece = true; break }
+        }
+        if (!bfAnyPiece) {
+          try { fs.unlinkSync(bfVerifyCachePath()) } catch (e) {}
+          return
+        }
+''' % CACHE_EMPTY_MARK
+
 #: _look() must never throw; see the body for why. Trees that got the first
 #: version get the safe one under this marker.
 LOOK_FIX_MARK = "blissflixx:look-never-throws"
@@ -1035,6 +1108,28 @@ def main():
             )
     except Exception:
         pass
+    print("and to refuse a flag written before the film was here:")
+    try:
+        flag_text = TSTREAM.read_text()
+    except OSError:
+        flag_text = ""
+    if CACHE_ABSENT_MARK not in flag_text:
+        patch(
+            TSTREAM,
+            [(CACHE_GROWTH_SOURCE, CACHE_ABSENT_NEW)],
+            mark=CACHE_ABSENT_MARK,
+        )
+    print("and never to write a flag with nothing in it:")
+    try:
+        flag_text = TSTREAM.read_text()
+    except OSError:
+        flag_text = ""
+    if CACHE_EMPTY_MARK not in flag_text:
+        patch(
+            TSTREAM,
+            [(CACHE_SAVE_HEAD, CACHE_SAVE_HEAD_NEW)],
+            mark=CACHE_EMPTY_MARK,
+        )
     print("and to put a waiting read at the front of the queue:")
     # Anchored on the wakeup patch's own text, so it applies to trees that
     # already have it (every box) and skips cleanly if it is absent.

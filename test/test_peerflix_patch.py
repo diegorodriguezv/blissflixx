@@ -167,6 +167,12 @@ class TestPatchScript:
         assert "bytes */" in index
         # A grown file is still a valid cache; a shrunken one is not.
         assert mod.CACHE_GROWTH_MARK or "actual < cached.files[i].size" in index
+        # A flag written before the file existed must not be believed once it
+        # does, and an empty flag is never written.
+        assert mod.CACHE_ABSENT_MARK in tstream
+        assert "cached.files[i].size === -1" in tstream
+        assert mod.CACHE_EMPTY_MARK in tstream
+        assert "bfAnyPiece" in tstream
         assert mod.SWARM_MARK in (tmp_path / "app.js").read_text()
         fstream = (
             tmp_path / "node_modules" / "torrent-stream" / "lib" / "file-stream.js"
@@ -218,6 +224,11 @@ class TestPatchScript:
         assert "bfVerifyCacheSize" in fixed
         assert mod2.BUGGY_LOAD_CHECK not in fixed
         assert mod2.BUGGY_SAVE_SIZES not in fixed
+        assert mod2.CACHE_ABSENT_MARK in fixed
+        assert "cached.files[i].size === -1" in fixed
+        assert mod2.CACHE_EMPTY_MARK in fixed
+        assert "bfAnyPiece" in fixed
+        assert mod2.CACHE_GROWTH_SOURCE not in fixed
 
     def test_fresh_and_upgraded_converge(self, tmp_path, monkeypatch):
         mod = load_script(monkeypatch, tmp_path)
