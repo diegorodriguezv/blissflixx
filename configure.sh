@@ -155,21 +155,7 @@ else
                        gstreamer1.0-plugins-good \
                        gstreamer1.0-plugins-bad \
                        gstreamer1.0-libav
-        # VLC 3.0.24, which the archive moved to on 24 Oct 2026, does not work on
-    # this box: the player starts, spins at 100 per cent CPU, never reads its
-    # input and shows nothing -- on a torrent and on a local file alike.
-    # 3.0.23 plays. Pinned here so an upgrade button press cannot bring the
-    # broken one back.
-    # Only on 32-bit. Measured on a Pi 3: the armhf 3.0.24 build starts, spins
-    # at 100 per cent CPU, never reads its input and shows nothing, while the
-    # arm64 build of the same version on the same board plays with the decoder
-    # running (10 per cent CPU, "Using DRM Video Accel"). Holding the arm64 one
-    # would block security updates for no reason.
-    if [ "$(dpkg --print-architecture)" = "armhf" ]; then
-        apt-mark hold vlc vlc-bin vlc-data vlc-l10n vlc-plugin-base \
-            vlc-plugin-access-extra libvlc5 libvlccore9 libvlc-bin > /dev/null 2>&1 || true
-    fi
-    stage "vlc and gstreamer"
+        stage "vlc and gstreamer"
     fi
 
     # Install version control software for updates and to install other packages like
@@ -277,6 +263,10 @@ _contents
     # systemd execs this directly; a checkout without the bit fails with
     # status 126 and a service that will not start.
     chmod +x run.sh
+    # The checks above run the application as root, which can leave data/ owned
+    # by root; the service then cannot create its own directories and fails at
+    # startup with a PermissionError on data/playlists.
+    chown -R "$BF_USER":"$BF_USER" "$(pwd)"
     systemctl daemon-reload
     systemctl enable blissflixx.service
     # Started, not just enabled. The unit was stopped at the top of this block,
