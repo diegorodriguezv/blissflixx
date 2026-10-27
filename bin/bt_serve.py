@@ -34,6 +34,7 @@ import signal
 import sys
 import threading
 import time
+import urllib.parse
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -120,6 +121,27 @@ def parse_range(header, size):
     return start, end
 
 
+def read_spans(file_start, file_size, piece_length, start, end):
+    """
+    The pieces a read of one file touches, and what to take from each.
+
+    Yields (piece, offset inside the piece, length). The file's own byte offset
+    is not the torrent's: in a pack, episode two starts in the middle of the
+    torrent and usually in the middle of a piece, so a read at its byte 0 is
+    somewhere else entirely in the piece map. Treating the two as the same
+    served a pack's second episode out of its first episode's pieces -- and
+    blocked for ever, because those pieces were not wanted.
+    """
+    stop = file_start + min(end, file_size - 1) + 1
+    pos = file_start + start
+    while pos < stop:
+        piece = pos // piece_length
+        piece_start = piece * piece_length
+        chunk = min(stop, piece_start + piece_length, file_start + file_size) - pos
+        yield piece, pos - piece_start, chunk
+        pos += chunk
+
+
 def window_for(piece, last_piece, width=WINDOW):
     """The pieces to keep urgent while the reader is at piece."""
     lo = max(0, min(piece, last_piece))
@@ -140,6 +162,28 @@ def pick_file(count, wanted):
     if wanted >= count:
         return 0, True
     return wanted, False
+
+
+def source_url(source):
+    """
+    The torrent URL without the application's own marker.
+
+    A .torrent URL reaches this stage as ".../film.torrent?bf_torr_idx=2": the
+    query says which file inside the torrent to play, and a plain file server
+    answers 404 to it. Only our own parameter is removed; anything else in the
+    query is the URL's business.
+    """
+    parts = urllib.parse.urlsplit(source)
+    if not parts.query:
+        return source
+    kept = [
+        (key, value)
+        for key, value in urllib.parse.parse_qsl(parts.query, keep_blank_values=True)
+        if key != "bf_torr_idx"
+    ]
+    return urllib.parse.urlunsplit(
+        (parts.scheme, parts.netloc, parts.path, urllib.parse.urlencode(kept), parts.fragment)
+    )
 
 
 def top_entry(path):
@@ -429,12 +473,16 @@ class App:
         """The buffer entry this file lives in: the film, or the pack's folder."""
         return top_entry(self.files.file_path(index))
 
-    def first_piece(self, index):
-        """The first piece a file occupies."""
+    def offset_of(self, index):
+        """Where a file starts inside the torrent's byte stream."""
         offset = 0
         for i in range(index):
             offset += self.files.file_size(i)
-        return offset // self.piece_length
+        return offset
+
+    def first_piece(self, index):
+        """The first piece a file occupies."""
+        return self.offset_of(index) // self.piece_length
 
     def last_piece_of(self, index):
         """The last piece a file occupies; before the first for an empty file."""
@@ -520,17 +568,13 @@ class App:
     def stream(self, index, start, end, write):
         """Send bytes start..end of a file, blocking until each piece is here."""
         size = self.size(index)
-        stop = min(end, size - 1) + 1
-        off = start
-        while off < stop:
-            piece = off // self.piece_length
+        base = self.offset_of(index)
+        for piece, in_piece, chunk in read_spans(
+            base, size, self.piece_length, start, end
+        ):
             self.wait(index, piece)
-            piece_end = min((piece + 1) * self.piece_length, size)
-            chunk = min(stop, piece_end) - off
             data = self.alerts.read_piece(self.handle, piece)
-            piece_start = piece * self.piece_length
-            write(data[off - piece_start:off - piece_start + chunk])
-            off += chunk
+            write(data[in_piece:in_piece + chunk])
             if self.stopping.is_set():
                 raise IOError("stopping")
 
@@ -698,7 +742,7 @@ def prepare(lt, source, buffer_dir):
         params = lt.parse_magnet_uri(source)
         info_hash = hash_text(params.info_hashes)
     else:
-        with urllib.request.urlopen(source, timeout=30) as response:
+        with urllib.request.urlopen(source_url(source), timeout=30) as response:
             data = response.read()
         params = lt.add_torrent_params()
         params.ti = lt.torrent_info(data)

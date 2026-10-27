@@ -239,3 +239,64 @@ class TestTopEntry:
 
     def test_an_empty_path_names_nothing(self):
         assert bt.top_entry("") == ""
+
+
+class TestSourceUrl:
+    def test_the_apps_marker_is_removed(self):
+        """
+        The play URL carries which file to play; a .torrent fetched with it is a
+        404 from any plain file server.
+        """
+        assert (
+            bt.source_url("http://host/film.torrent?bf_torr_idx=2")
+            == "http://host/film.torrent"
+        )
+
+    def test_other_query_parameters_are_kept(self):
+        assert (
+            bt.source_url("http://host/film.torrent?token=abc&bf_torr_idx=1")
+            == "http://host/film.torrent?token=abc"
+        )
+
+    def test_a_url_without_a_query_is_untouched(self):
+        url = "http://host/film.torrent"
+        assert bt.source_url(url) == url
+
+
+class TestReadSpans:
+    """
+    Which pieces a read touches. In a pack the file's offset and the torrent's
+    are different things, and mixing them up served one episode out of
+    another's pieces.
+    """
+
+    def spans(self, *args):
+        return list(bt.read_spans(*args))
+
+    def test_a_file_at_the_start_is_read_in_order(self):
+        assert self.spans(0, 1000, 256, 0, 999) == [
+            (0, 0, 256),
+            (1, 0, 256),
+            (2, 0, 256),
+            (3, 0, 232),
+        ]
+
+    def test_the_middle_of_a_read_is_clamped_to_the_range(self):
+        assert self.spans(0, 1000, 256, 100, 300) == [(0, 100, 156), (1, 0, 45)]
+
+    def test_a_file_starting_mid_piece_reads_from_its_own_offset(self):
+        """The second episode of a pack begins part way into a piece."""
+        spans = self.spans(151, 600, 256, 0, 599)
+        assert spans[0] == (0, 151, 105)
+        assert spans == [(0, 151, 105), (1, 0, 256), (2, 0, 239)]
+
+    def test_a_read_never_spills_into_the_next_file(self):
+        """
+        A file that ends inside a piece shares that piece with the next file;
+        the last chunk must stop at the file's last byte.
+        """
+        spans = self.spans(0, 100, 256, 0, 99)
+        assert spans == [(0, 0, 100)]
+
+    def test_a_range_past_the_end_is_clamped(self):
+        assert self.spans(0, 100, 256, 90, 99999) == [(0, 90, 10)]
