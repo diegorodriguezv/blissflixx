@@ -74,6 +74,8 @@ def _size(value):
 
 
 class LibtorrentProcess(ExternalProcess):
+    is_source = True
+
     def __init__(self, torrent, idx, subs=None):
         super().__init__()
         #: The last status line from bt_serve, already parsed.

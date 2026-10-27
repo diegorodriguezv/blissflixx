@@ -137,6 +137,8 @@ def _drop_buffer_cache():
 
 
 class PeerflixProcess(ExternalProcess):
+    is_source = True
+
     def __init__(self, torrent, idx, subs=None):
         super().__init__()
         #: The last "Verifying downloaded: N%" seen, or None.

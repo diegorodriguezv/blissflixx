@@ -654,7 +654,7 @@ class _Player:
             log = stage.get("log") or []
             if log:
                 out["Log"][name] = log
-            if name == "peerflix":
+            if stage.get("is_source"):
                 out["Source"] = stage
             elif name == "vlc":
                 out["Player"] = stage

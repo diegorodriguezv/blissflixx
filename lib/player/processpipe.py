@@ -474,6 +474,12 @@ class Process(ABC):
     implement the pipe protocol and are provided here.
     """
 
+    #: Whether this stage brings the media from somewhere -- the torrent
+    #: source. The diagnostics panel has one Source section, and there are two
+    #: engines behind it now, so it is a property of the stage rather than its
+    #: name.
+    is_source = False
+
     def __init__(self):
         self.errors = []
         #: The last lines this stage wrote, for the diagnostics panel. A ring
@@ -526,6 +532,7 @@ class Process(ABC):
         proc = getattr(self, "proc", None)
         return {
             "name": self.name(),
+            "is_source": self.is_source,
             "pid": getattr(proc, "pid", None),
             "running": bool(proc is not None and proc.poll() is None),
             "ready_after": getattr(self, "_ready_after", None),

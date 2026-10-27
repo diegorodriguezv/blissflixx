@@ -364,6 +364,20 @@ class TestPlayerDebug:
         assert "cma_free_mb" in debug["Machine"]
         assert debug["Log"]["vlc"] == ["a line"]
 
+    def test_the_source_is_whichever_engine_is_playing(self):
+        """
+        The panel used to take the stage *named* peerflix as the source, so a
+        libtorrent play left the whole Source section empty: no swarm, no
+        buffer, no space line.
+        """
+        pl = _player(_Pipe(playback={"position": 10, "length": 100}))
+        pipe = _FakePipe()
+        pipe.procs = [_Stage("libtorrent"), _Stage("vlc")]
+        pl.play_pipe = pipe
+        debug = pl.debug()
+        assert debug["Source"]["name"] == "libtorrent"
+        assert debug["Player"]["name"] == "vlc"
+
     def test_without_a_pipe_it_still_answers(self):
         pl = player_module._Player()
         debug = pl.debug()
@@ -664,6 +678,7 @@ class _Stage:
             "running": True,
             "ready_after": 1.5,
             "log": ["a line"] if self._name == "vlc" else [],
+            "is_source": self._name in ("peerflix", "libtorrent"),
         }
         base.update(self._extra)
         return base
