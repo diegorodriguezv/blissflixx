@@ -693,3 +693,20 @@ class TestPanelFields:
         text = html.read_text()
         assert "sw.downloadSpeed" not in text
         assert "sw.speed" in text
+
+
+class TestNavSlots:
+    def test_the_pause_and_remote_slots_are_reserved_while_loading(self):
+        """
+        They used to be `show`n only while the film played, so the right side
+        grew the instant the picture started and shoved the clock pill left.
+        They are always in the row now, hidden with visibility so their width
+        is kept.
+        """
+        root = pathlib.Path(__file__).resolve().parents[1]
+        bar = (root / "html" / "tags" / "playbar.html").read_text()
+        css = (root / "html" / "css" / "layout.css").read_text()
+        assert bar.count("hidden-slot") == 2
+        assert "onclick={ togglePause }" in bar
+        assert ".playnav .navitems-right > li.hidden-slot" in css
+        assert "visibility: hidden" in css

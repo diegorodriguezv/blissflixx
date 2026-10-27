@@ -20,13 +20,10 @@
         <li>
           <a href="" onclick={ stop }><i class="fa fa-stop"></i></a>
         </li>
-        <li show={ !status.Paused && status.State == 3 }>
-          <a href="" onclick={ pause }><i class="fa fa-pause"></i></a>
+        <li class={ status.State == 3 ? '' : 'hidden-slot' }>
+          <a href="" onclick={ togglePause }><i class={ status.Paused ? 'fa fa-play' : 'fa fa-pause' }></i></a>
         </li>
-        <li show={ status.Paused && status.State == 3 }>
-          <a href="" onclick={ resume }><i class="fa fa-play"></i></a>
-        </li>
-        <li show={ status.State == 3 }>
+        <li class={ status.State == 3 ? '' : 'hidden-slot' }>
           <a href="" onclick={ showRemote }><i class="fa fa-sliders"></i></a>
         </li>
       </ul>
@@ -581,6 +578,10 @@
 
     resume() {
       self.control('resume')
+    }
+
+    togglePause() {
+      self.control(self.status && self.status.Paused ? 'resume' : 'pause')
     }
 
     removeDialogStyle(e) {

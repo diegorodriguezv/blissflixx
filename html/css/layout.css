@@ -185,6 +185,18 @@ ul.navitems-left>li {
 }
 
 /*
+ * The pause and remote buttons keep their place while a film is loading.
+ *
+ * They appear the moment playback starts. Until then their <li>s are still in
+ * the row but invisible, so the flex row does not get wider on the right and
+ * push the clock pill left under the name. visibility rather than display:
+ * the width is kept, and a hidden link cannot be clicked.
+ */
+.playnav .navitems-right > li.hidden-slot {
+  visibility: hidden;
+}
+
+/*
  * What is playing, in the player's bar.
  *
  * Laid out as a row so that the name is the part that gives way: a long release
