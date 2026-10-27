@@ -175,6 +175,13 @@ else
     
     # Install XSLT package for screen scaping websites
     apt -y install libxslt1-dev
+
+    # libtorrent, for the torrent source that fetches only the pieces a play
+    # reads. It is a system package rather than a pip one, so it lives in the
+    # system python and bin/bt_serve.py is run with that interpreter; see
+    # lib/player/ltproc.py. The stage reports its absence in one line, with this
+    # command, rather than failing obscurely.
+    apt -y install python3-libtorrent
     stage "python and build libraries"
     
     # Binding port 80 needs no help here: the service unit asks for
