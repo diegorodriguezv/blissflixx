@@ -16,6 +16,7 @@ import time
 
 import pytest
 
+from lib.player import ltproc
 from lib.player import player as player_module
 from lib.player.ltproc import BT_SERVE, SYSTEM_PYTHON, LibtorrentProcess
 from lib.player.processpipe import ProcessException
@@ -24,7 +25,7 @@ from lib.player.pflixproc import BUFFER_DIR
 MAGNET = "magnet:?xt=urn:btih:" + "A" * 40
 SERVING = (
     "bf-bt: serving http://127.0.0.1:9697/ index=0 "
-    "name=Film.mkv length=1880064000 pieces=1025"
+    "name=Film.mkv length=1880064000 pieces=1025 top=Film.mkv"
 )
 
 STATUS = {
@@ -68,6 +69,10 @@ def feed(proc, *lines):
 def with_status(proc, **fields):
     stats = dict(STATUS)
     stats.update(fields)
+    # The buffer entry comes from the serving line; a test that only feeds
+    # status lines still has to name the entry the space check must not delete.
+    if proc._top is None:
+        proc._top = "Film.mkv"
     proc._watch_status("bf-status: " + json.dumps(stats))
     return proc
 
@@ -261,8 +266,75 @@ class TestDebug:
         assert debug["swarm"]["peers"] == 12
         assert debug["swarm"]["window"] == [120, 127]
         assert debug["file"]["percent"] == 34
-        assert debug["buffer"] == BUFFER_DIR
+        assert debug["buffer"]["dir"] == BUFFER_DIR
+        assert "needed" in debug["buffer"]
+        assert "free" in debug["buffer"]
         assert "bt_serve.py" in debug["command"]
+
+
+class TestBufferSpace:
+    """
+    The same rule the peerflix stage uses, applied to a libtorrent play: free
+    what the film still needs plus headroom, by deleting whole buffer entries,
+    least recently used first, and never the one being played.
+    """
+
+    def run_ready(self, proc):
+        proc.args = {}
+        return proc._ready()
+
+    def test_the_decision_is_made_once_for_the_play(self, monkeypatch):
+        calls = []
+
+        def fake_reclaim(root, needed, current=None, free=None):
+            calls.append((root, needed, current))
+            return 0, [], 10 ** 12
+
+        monkeypatch.setattr(ltproc.buffer_space, "reclaim", fake_reclaim)
+        proc = feed(LibtorrentProcess(MAGNET, 0), SERVING)
+        self.run_ready(proc)
+        with_status(proc)
+        with_status(proc, downloaded=999999)
+        assert len(calls) == 1
+        assert calls[0][0] == BUFFER_DIR
+        # the bytes still to come, plus the headroom the app leaves
+        assert calls[0][1] == (1000 - 340) + ltproc.buffer_space.HEADROOM
+
+    def test_the_entry_being_played_is_named_so_it_is_never_deleted(self, monkeypatch):
+        seen = []
+        monkeypatch.setattr(
+            ltproc.buffer_space,
+            "reclaim",
+            lambda root, needed, current=None, free=None: (
+                seen.append(current) or (0, [], 10 ** 12)
+            ),
+        )
+        proc = feed(LibtorrentProcess(MAGNET, 0), SERVING)
+        self.run_ready(proc)
+        with_status(proc)
+        assert seen == ["Film.mkv"]
+
+    def test_no_decision_before_the_size_is_known(self, monkeypatch):
+        calls = []
+        monkeypatch.setattr(
+            ltproc.buffer_space,
+            "reclaim",
+            lambda *a, **k: calls.append(1) or (0, [], 10 ** 12),
+        )
+        proc = with_status(LibtorrentProcess(MAGNET, 0), files=[])
+        assert calls == []
+        # and it tries again on the next line that does have the size
+        with_status(proc)
+        assert calls == [1]
+
+    def test_a_failure_to_free_space_does_not_break_the_play(self, monkeypatch):
+        def boom(*args, **kwargs):
+            raise OSError("no such file")
+
+        monkeypatch.setattr(ltproc.buffer_space, "reclaim", boom)
+        proc = with_status(LibtorrentProcess(MAGNET, 0))
+        assert proc._space_checked is True
+        assert proc.stalled_for() == 0
 
 
 class TestChoosingTheEngine:

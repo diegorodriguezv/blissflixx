@@ -31,6 +31,7 @@ import time
 import cherrypy
 
 from ..api.torrent import torrent2magnet
+from . import buffer as buffer_space
 from .pflixproc import BUFFER_DIR
 from .processpipe import ExternalProcess, ProcessException
 
@@ -49,7 +50,8 @@ BT_SERVE = os.path.join(
 )
 
 _SERVING_RE = re.compile(
-    r"bf-bt: serving (http://\S+) index=(-?\d+) name=(.*?) length=(\d+) pieces=(\d+)"
+    r"bf-bt: serving (http://\S+) index=(-?\d+) name=(.*?) length=(\d+) "
+    r"pieces=(\d+) top=(.*)$"
 )
 
 _STATUS_PREFIX = "bf-status: "
@@ -85,6 +87,16 @@ class LibtorrentProcess(ExternalProcess):
         self.subs = subs or []
         #: Which file inside the torrent this play asked for.
         self.idx = idx if isinstance(idx, int) and idx >= 0 else 0
+        #: The buffer entry this film occupies, from the serving line. The space
+        #: check must never delete the entry being played.
+        self._top = None
+        #: The one space decision for this play, made when the film's size and
+        #: what is already on disk are both known. In memory only; the panel
+        #: reads it and the log records it.
+        self._space_checked = False
+        self._space_needed = 0
+        self._space_freed = 0
+        self._space_removed = []
         #: Every line is offered to _watch_status: the status lines arrive
         #: after the port opens, which is when _ready() has already returned.
         self.on_output_line = self._watch_status
@@ -128,6 +140,7 @@ class LibtorrentProcess(ExternalProcess):
                     "length": int(serving.group(4)),
                     "pieces": int(serving.group(5)),
                 }
+                self._top = serving.group(6).strip()
                 cherrypy.log(
                     "TIMING libtorrent %.1fs to serve (%s, %d pieces)"
                     % (time.time() - self._started_at, info["name"], info["pieces"])
@@ -157,9 +170,56 @@ class LibtorrentProcess(ExternalProcess):
             return
         if not isinstance(stats, dict):
             return
-        if self._status is not None and stats.get("payload") != self._status.get("payload"):
+        if self._status is not None and stats.get("downloaded") != self._status.get("downloaded"):
             self._moved_at = time.time()
         self._status = stats
+        if not self._space_checked:
+            self._space_checked = self._check_buffer_space()
+
+    def _check_buffer_space(self):
+        """
+        The one space decision for this play, made when the size is known.
+
+        Same rule as the peerflix stage: free the bytes still to be written plus
+        the headroom the app leaves for the system, by removing whole buffer
+        entries, least recently used first. The film being played is never a
+        candidate. Returns False while the numbers are not here yet, so the next
+        status line tries again; never raises into the status path.
+        """
+        info = self.served_file()
+        if not info or not info["length"] or not self._top:
+            return False
+        remaining = max(0, info["length"] - info["present"])
+        self._space_needed = remaining + buffer_space.HEADROOM
+        try:
+            freed, removed, free = buffer_space.reclaim(
+                BUFFER_DIR, self._space_needed, self._top
+            )
+        except Exception as exc:
+            cherrypy.log("bf-space: could not check %s: %s" % (BUFFER_DIR, exc))
+            return True
+        self._space_freed = freed
+        self._space_removed = removed
+        if removed:
+            cherrypy.log(
+                "bf-space: needed %d MB, freed %d MB by removing %d entr%s"
+                % (
+                    self._space_needed // (1024 * 1024),
+                    freed // (1024 * 1024),
+                    len(removed),
+                    "y" if len(removed) == 1 else "ies",
+                )
+            )
+        if free + freed < self._space_needed:
+            cherrypy.log(
+                "bf-space: still short after removing %d: %d MB free, %d MB needed"
+                % (
+                    len(removed),
+                    (free + freed) // (1024 * 1024),
+                    self._space_needed // (1024 * 1024),
+                )
+            )
+        return True
 
     def status_msg(self):
         """
@@ -248,16 +308,35 @@ class LibtorrentProcess(ExternalProcess):
         return max(0, int(time.time() - since))
 
     def debug(self):
+        """
+        The panel's sections, in the shape the peerflix stage gives them.
+
+        The diagnostics panel reads swarm.speed, swarm.peers and
+        swarm.active_peers, and buffer.needed/evicted/removed/free; naming them
+        differently here would leave the panel blank rather than wrong.
+        """
         base = super().debug()
         swarm = {
             k: v for k, v in (self._status or {}).items() if k != "files"
         }
+        try:
+            buffered = sum(len(names) for _root, _dirs, names in os.walk(BUFFER_DIR))
+            free = buffer_space.free_bytes(BUFFER_DIR)
+        except OSError:
+            buffered, free = -1, -1
         base.update(
             {
                 "swarm": swarm,
                 "file": self.served_file(),
                 "stalled_for": self.stalled_for(),
-                "buffer": BUFFER_DIR,
+                "buffer": {
+                    "dir": BUFFER_DIR,
+                    "files": buffered,
+                    "free": free,
+                    "needed": self._space_needed,
+                    "evicted": self._space_freed,
+                    "removed": len(self._space_removed),
+                },
                 "command": " ".join(str(p) for p in self.cmd),
             }
         )

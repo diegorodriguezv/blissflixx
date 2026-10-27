@@ -142,6 +142,18 @@ def pick_file(count, wanted):
     return wanted, False
 
 
+def top_entry(path):
+    """
+    The buffer entry a torrent-relative path lives in.
+
+    The space check deletes whole entries and takes the one being played by
+    name, so a pack must yield the folder and not the episode: deleting the
+    folder would delete the film that is running.
+    """
+    parts = path.replace("\\", "/").split("/")
+    return parts[0] if parts else ""
+
+
 def resume_names(buffer_dir, info_hash):
     """Where the .torrent and its resume data live for one torrent."""
     base = os.path.join(buffer_dir, RESUME_DIR)
@@ -413,6 +425,10 @@ class App:
     def name(self, index):
         return os.path.basename(self.files.file_path(index))
 
+    def top_entry(self, index):
+        """The buffer entry this file lives in: the film, or the pack's folder."""
+        return top_entry(self.files.file_path(index))
+
     def first_piece(self, index):
         """The first piece a file occupies."""
         offset = 0
@@ -537,9 +553,11 @@ class App:
         return {
             "state": str(st.state),
             "peers": int(st.num_peers),
+            "active_peers": int(st.num_connections),
             "seeds": int(st.num_seeds),
             "speed": int(st.download_rate),
-            "payload": int(st.total_done),
+            "downloaded": int(st.total_done),
+            "uploaded": int(st.total_payload_upload),
             "pieces": [int(st.num_pieces), self.info.num_pieces()],
             "files": files,
             "playing": self.index,
@@ -808,9 +826,9 @@ def main(argv=None):
 
     index = app.index
     print(
-        TAG + "serving http://127.0.0.1:%d/ index=%d name=%s length=%d pieces=%d"
+        TAG + "serving http://127.0.0.1:%d/ index=%d name=%s length=%d pieces=%d top=%s"
         % (args.port, index, app.name(index), app.size(index),
-           app.info.num_pieces()),
+           app.info.num_pieces(), app.top_entry(index)),
         flush=True,
     )
     print_status(app.status())

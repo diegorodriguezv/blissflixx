@@ -9,7 +9,10 @@ nohup.out
 plugins/
 data/
 youtube-dl/
-virtualenv/
+# The checkout's venv, as a directory or as a symlink to one: a worktree links
+# it, and a trailing slash only matches a directory, so the link was committed
+# once and a deploy replaced the box's virtualenv with a dangling one.
+/virtualenv
 oldplugins/
 .vscode/
 

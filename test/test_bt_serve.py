@@ -223,3 +223,19 @@ class TestPriorities:
     def test_ranges_are_clamped_to_the_torrent(self):
         assert bt.subtitle_pieces(3, [(2, 9)]) == [0, 0, 1]
         assert bt.subtitle_pieces(3, [(-2, 0)]) == [1, 0, 0]
+
+
+class TestTopEntry:
+    def test_a_single_file_is_its_own_entry(self):
+        assert bt.top_entry("Film.mkv") == "Film.mkv"
+
+    def test_a_pack_yields_the_folder(self):
+        """Deleting the episode's name would miss the pack and delete nothing;
+        deleting the folder is right only for entries that are not playing."""
+        assert bt.top_entry("Pack/Episode1.mkv") == "Pack"
+
+    def test_windows_separators_are_understood(self):
+        assert bt.top_entry("Pack\\Episode1.mkv") == "Pack"
+
+    def test_an_empty_path_names_nothing(self):
+        assert bt.top_entry("") == ""
