@@ -300,3 +300,29 @@ class TestReadSpans:
 
     def test_a_range_past_the_end_is_clamped(self):
         assert self.spans(0, 100, 256, 90, 99999) == [(0, 90, 10)]
+
+
+class TestWindowWithinFile:
+    """
+    The window must not cross into the next episode of a pack. Measured on a
+    real 10-episode pack, it fetched 36MB of episode three while episode two
+    played.
+    """
+
+    def test_a_window_stops_at_the_files_last_piece(self):
+        """There is nothing after the file's last piece to prefetch, and the
+        pieces after it belong to the next episode."""
+        first, last = 98, 177
+        lo, hi = bt.window_within(177, first, last)
+        assert (lo, hi) == (177, 177)
+
+    def test_a_window_starts_at_the_files_first_piece(self):
+        lo, hi = bt.window_within(98, 98, 177)
+        assert (lo, hi) == (98, 105)
+
+    def test_a_read_reported_outside_the_file_is_clamped_into_it(self):
+        assert bt.window_within(10, 98, 177) == (98, 105)
+        assert bt.window_within(900, 98, 177) == (177, 177)
+
+    def test_a_single_piece_file_is_one_piece(self):
+        assert bt.window_within(5, 5, 5) == (5, 5)

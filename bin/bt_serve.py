@@ -148,6 +148,19 @@ def window_for(piece, last_piece, width=WINDOW):
     return lo, min(last_piece, lo + width - 1)
 
 
+def window_within(piece, first_piece, last_piece, width=WINDOW):
+    """
+    The pieces to keep urgent, clamped to one file.
+
+    A pack's episodes are contiguous in the piece map, so a window that runs
+    past the episode being played fetches the next one. Measured on a 10-episode
+    pack: the player read the episode's last piece, where its cues are, and the
+    window pulled 36MB of the following episode. The window belongs to the file.
+    """
+    lo = max(first_piece, min(piece, last_piece))
+    return lo, min(last_piece, lo + width - 1)
+
+
 def pick_file(count, wanted):
     """
     Which file to play, and whether the request had to be overruled.
@@ -373,8 +386,9 @@ class Alerts(threading.Thread):
 class Window:
     """The pieces the reader is at, kept urgent, and the ones behind it dropped."""
 
-    def __init__(self, handle, last_piece, width=WINDOW):
+    def __init__(self, handle, first_piece, last_piece, width=WINDOW):
         self.handle = handle
+        self.first_piece = first_piece
         self.last_piece = last_piece
         self.width = width
         self.lock = threading.Lock()
@@ -402,12 +416,14 @@ class Window:
         with self.lock:
             if self.at is None:
                 return None
-            lo, hi = window_for(self.at, self.last_piece, self.width)
+            lo, hi = window_within(
+                self.at, self.first_piece, self.last_piece, self.width
+            )
             return [lo, hi]
 
     def _slide(self, piece):
         self.at = piece
-        lo, hi = window_for(piece, self.last_piece, self.width)
+        lo, hi = window_within(piece, self.first_piece, self.last_piece, self.width)
         for p in range(lo, hi + 1):
             if p in self.asked:
                 continue
@@ -533,7 +549,9 @@ class App:
                self.last_piece_of(self.index), self.index),
             flush=True,
         )
-        self.window = Window(self.handle, self.last_piece, WINDOW)
+        self.window = Window(
+            self.handle, first, self.last_piece_of(self.index), WINDOW
+        )
 
     def prime(self):
         """
@@ -545,11 +563,15 @@ class App:
         moderate urgency it is usually there by the time the player wants it.
         """
         first = self.first_piece(self.index)
+        last = self.last_piece_of(self.index)
         for piece in (first, first + 1):
-            if piece <= self.last_piece:
+            if piece <= last:
                 self.window.ahead(piece)
-        self.handle.piece_priority(self.last_piece, 7)
-        self.handle.set_piece_deadline(self.last_piece, 3000)
+        # The index at the end of *this file*, not of the torrent: in a pack the
+        # torrent's last piece belongs to the last episode, which nobody asked
+        # for.
+        self.handle.piece_priority(last, 7)
+        self.handle.set_piece_deadline(last, 3000)
 
     def wait(self, index, piece):
         if index == self.index:
