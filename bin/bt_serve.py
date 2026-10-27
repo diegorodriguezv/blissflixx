@@ -534,6 +534,13 @@ class App:
             if self.stopping.is_set():
                 raise IOError("stopping")
 
+    def active_peers(self):
+        """Peers actually sending something, which is what the panel calls active."""
+        try:
+            return sum(1 for peer in self.handle.peer_info() if peer.down_speed > 0)
+        except Exception:
+            return 0
+
     def status(self):
         st = self.handle.status()
         progress = self.handle.file_progress()
@@ -553,10 +560,13 @@ class App:
         return {
             "state": str(st.state),
             "peers": int(st.num_peers),
-            "active_peers": int(st.num_connections),
+            "active_peers": self.active_peers(),
             "seeds": int(st.num_seeds),
             "speed": int(st.download_rate),
-            "downloaded": int(st.total_done),
+            # This run's traffic, like peerflix reports: total_done is the
+            # torrent's have-bytes, which on a rewatch is the file already on
+            # the card and would read as a download that has just happened.
+            "downloaded": int(st.total_payload_download),
             "uploaded": int(st.total_payload_upload),
             "pieces": [int(st.num_pieces), self.info.num_pieces()],
             "files": files,
