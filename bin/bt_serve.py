@@ -806,7 +806,7 @@ def main(argv=None):
     handle = add_torrent(lt, session, params, args.dir, torrent_path, resume_path)
 
     deadline = started + args.metadata_timeout
-    while not handle.has_metadata():
+    while not handle.status().has_metadata:
         session.wait_for_alert(500)
         print_status(waiting_status(handle, started))
         if time.time() > deadline:
