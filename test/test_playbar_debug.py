@@ -700,13 +700,16 @@ class TestNavSlots:
         """
         They used to be `show`n only while the film played, so the right side
         grew the instant the picture started and shoved the clock pill left.
-        They are always in the row now, hidden with visibility so their width
-        is kept.
+        They are always in the row now, painted the colour of the bar so their
+        width is kept and they invite no click until the picture is up.
         """
         root = pathlib.Path(__file__).resolve().parents[1]
         bar = (root / "html" / "tags" / "playbar.html").read_text()
         css = (root / "html" / "css" / "layout.css").read_text()
-        assert bar.count("hidden-slot") == 2
+        assert bar.count("inactive-slot") == 2
+        # Not State 3 alone: a waiting picture is State 3 and still loading.
+        assert "status.State == 3 && !starting" in bar
         assert "onclick={ togglePause }" in bar
-        assert ".playnav .navitems-right > li.hidden-slot" in css
-        assert "visibility: hidden" in css
+        assert ".playnav .navitems-right > li.inactive-slot" in css
+        assert "pointer-events: none" in css
+        assert "color: #fff" in css

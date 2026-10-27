@@ -185,15 +185,24 @@ ul.navitems-left>li {
 }
 
 /*
- * The pause and remote buttons keep their place while a film is loading.
+ * The pause and remote buttons keep their place while the film is loading, but
+ * are painted the colour of the bar until the picture is actually up.
  *
- * They appear the moment playback starts. Until then their <li>s are still in
- * the row but invisible, so the flex row does not get wider on the right and
- * push the clock pill left under the name. visibility rather than display:
- * the width is kept, and a hidden link cannot be clicked.
+ * They need their width from the first frame, or the row grows on the right
+ * when they appear and pushes the clock pill left under the name. But a
+ * visible, dark pause button during loading invites a click at the one moment
+ * the player cannot act on it: the click is ignored, and it reads as a broken
+ * control. White on the light bar makes them ghosts -- the space is kept, and
+ * the buttons are dead until the picture starts. `!starting` is the real
+ * moment: State 3 with Waiting is still loading.
  */
-.playnav .navitems-right > li.hidden-slot {
-  visibility: hidden;
+.playnav .navitems-right > li.inactive-slot {
+  pointer-events: none;
+}
+
+.playnav .navitems-right > li.inactive-slot a,
+.playnav .navitems-right > li.inactive-slot i {
+  color: #fff;
 }
 
 /*
