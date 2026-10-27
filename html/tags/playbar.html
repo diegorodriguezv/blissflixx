@@ -336,6 +336,7 @@
       var swarm = src.swarm || {}
       var sw = swarm
       var file = src.file || {}
+      var buf = src.buffer || {}
       var player = d.Player || {}
       var pb = player.playback || {}
       var stats = pb.stats || {}
@@ -361,6 +362,11 @@
       line('on disk', file.length
         ? self.bytes(file.present) + ' of ' + self.bytes(file.length) + ' (' + file.percent + '%)'
         : '—')
+      var space = []
+      if (buf.needed) space.push('needed ' + self.bytes(buf.needed))
+      if (buf.evicted) space.push('freed ' + self.bytes(buf.evicted) + ' (' + buf.removed + ')')
+      if (buf.free !== undefined && buf.free >= 0) space.push(self.bytes(buf.free) + ' free')
+      line('space', space.length ? space.join(' · ') : '—')
       line('speed', self.bytes(sw.speed || 0) + '/s')
       line('peers', (sw.peers || 0) + ' connected, ' + (sw.active_peers || 0) + ' active')
       line('this run', self.bytes(sw.downloaded || 0) + ' down · ' + self.bytes(sw.uploaded || 0) + ' up')

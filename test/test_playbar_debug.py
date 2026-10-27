@@ -717,3 +717,23 @@ class TestNavSlots:
         assert ".playnav .navitems-right > li.inactive-slot" in css
         assert "pointer-events: none" in css
         assert "color: #fff" in css
+
+    def test_the_panel_shows_the_buffer_space_decision(self):
+        root = pathlib.Path(__file__).resolve().parents[1]
+        text = (root / "html" / "tags" / "playbar.html").read_text()
+        assert "line('space'" in text
+        assert "buf.needed" in text
+        assert "buf.free" in text
+
+    def test_the_source_reports_the_buffer_space(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(pflix, "BUFFER_DIR", str(tmp_path))
+        (tmp_path / "film.mkv").write_bytes(b"x" * 10)
+        proc = pflix.PeerflixProcess("magnet:?xt=urn:btih:abc", None)
+        proc._space_needed = 1234
+        proc._space_freed = 100
+        proc._space_removed = ["a", "b"]
+        buffer = proc.debug()["buffer"]
+        assert buffer["needed"] == 1234
+        assert buffer["evicted"] == 100
+        assert buffer["removed"] == 2
+        assert buffer["free"] > 0

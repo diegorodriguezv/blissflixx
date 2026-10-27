@@ -8,6 +8,7 @@ import requests
 
 from ..api.torrent import torrent2magnet
 from ..locations import DATA_PATH
+from . import buffer as buffer_space
 from .nodejs import node_binary
 from .processpipe import TMP_DIR, ExternalProcess, ProcessException
 
@@ -160,6 +161,13 @@ class PeerflixProcess(ExternalProcess):
         self._progress_at = None
         #: When the numbers last changed, for the stalled line.
         self._moved_at = None
+        #: The one space decision for this play, once the film's size is known:
+        #: what free space it wanted, what it freed, and which entries went.
+        #: In memory only; the panel reads it and the log records it.
+        self._space_checked = False
+        self._space_needed = 0
+        self._space_freed = 0
+        self._space_removed = []
         self._started_at = None
         #: The files inside this torrent to pull out as subtitles, most
         #: probable first: [{"idx": n, "name": ".."}]. Empty when this play
@@ -440,6 +448,63 @@ class PeerflixProcess(ExternalProcess):
                 return found
         return None
 
+    def _check_buffer_space(self, files):
+        """
+        The one space decision for this play, made when the film's size is known.
+
+        peerflix reports the file list and each file's length from its metadata;
+        the progress thread is the first place both are available. Free enough
+        for the bytes still to be written plus the headroom, by removing whole
+        buffer entries, least recently used first. Returns False while the size
+        is still unknown, so the next poll tries again. Never raises into the
+        progress loop.
+        """
+        index = self.idx if isinstance(self.idx, int) and self.idx >= 0 else 0
+        entry = files[index] if index < len(files) else files[0]
+        if not isinstance(entry, dict):
+            return False
+        length = int(entry.get("length") or 0)
+        if not length:
+            return False
+        name = str(entry.get("name") or "").replace("\\", "/")
+        current = os.path.normpath(name).split(os.sep)[0] if name else None
+        if not current:
+            return False
+        info = self.served_file()
+        present = int(info.get("present") or 0) if info else 0
+        remaining = max(0, length - present)
+        self._space_needed = remaining + buffer_space.HEADROOM
+        try:
+            freed, removed, free = buffer_space.reclaim(
+                BUFFER_DIR, self._space_needed, current
+            )
+        except Exception as exc:
+            # A space check is not worth taking the play down for.
+            cherrypy.log("bf-space: could not check %s: %s" % (BUFFER_DIR, exc))
+            return True
+        self._space_freed = freed
+        self._space_removed = removed
+        if removed:
+            cherrypy.log(
+                "bf-space: needed %d MB, freed %d MB by removing %d entr%s"
+                % (
+                    self._space_needed // (1024 * 1024),
+                    freed // (1024 * 1024),
+                    len(removed),
+                    "y" if len(removed) == 1 else "ies",
+                )
+            )
+        if free + freed < self._space_needed:
+            cherrypy.log(
+                "bf-space: still short after removing %d: %d MB free, %d MB needed"
+                % (
+                    len(removed),
+                    (free + freed) // (1024 * 1024),
+                    self._space_needed // (1024 * 1024),
+                )
+            )
+        return True
+
     def stalled_for(self):
         """
         How long this torrent has been unable to bring anything new, in seconds.
@@ -467,10 +532,22 @@ class PeerflixProcess(ExternalProcess):
             buffered = sum(len(names) for _root, _dirs, names in os.walk(BUFFER_DIR))
         except OSError:
             buffered = -1
+        try:
+            st = os.statvfs(BUFFER_DIR)
+            free = st.f_bavail * st.f_frsize
+        except OSError:
+            free = -1
         base.update(
             {
                 "swarm": swarm,
-                "buffer": {"dir": BUFFER_DIR, "files": buffered},
+                "buffer": {
+                    "dir": BUFFER_DIR,
+                    "files": buffered,
+                    "free": free,
+                    "needed": self._space_needed,
+                    "evicted": self._space_freed,
+                    "removed": len(self._space_removed),
+                },
                 "file": self.served_file(),
                 "stalled_for": self.stalled_for(),
                 "verifying": self._verifying,
@@ -540,6 +617,8 @@ class PeerflixProcess(ExternalProcess):
             if self._progress["peers"]:
                 self._peers_seen_at = time.time()
             self._progress_at = time.time()
+            if not self._space_checked and files:
+                self._space_checked = self._check_buffer_space(files)
             time.sleep(_PROGRESS_EVERY)
 
     def _advertised_url(self, line):
