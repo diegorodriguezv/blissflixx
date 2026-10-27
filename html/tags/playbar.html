@@ -20,10 +20,10 @@
         <li>
           <a href="" onclick={ stop }><i class="fa fa-stop"></i></a>
         </li>
-        <li class={ status.State == 3 && !starting ? '' : 'inactive-slot' }>
+        <li class={ 'inactive-slot': status.State != 3 || starting }>
           <a href="" onclick={ togglePause }><i class={ status.Paused ? 'fa fa-play' : 'fa fa-pause' }></i></a>
         </li>
-        <li class={ status.State == 3 && !starting ? '' : 'inactive-slot' }>
+        <li class={ 'inactive-slot': status.State != 3 || starting }>
           <a href="" onclick={ showRemote }><i class="fa fa-sliders"></i></a>
         </li>
       </ul>

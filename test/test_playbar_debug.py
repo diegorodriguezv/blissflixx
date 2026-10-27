@@ -707,8 +707,12 @@ class TestNavSlots:
         bar = (root / "html" / "tags" / "playbar.html").read_text()
         css = (root / "html" / "css" / "layout.css").read_text()
         assert bar.count("inactive-slot") == 2
-        # Not State 3 alone: a waiting picture is State 3 and still loading.
-        assert "status.State == 3 && !starting" in bar
+        # Object syntax: Riot 2.0.12 mangles an empty string in a class ternary
+        # (`? '' : 'inactive-slot'`) into a subtraction, so the class never
+        # matches. Not State 3 alone either: a waiting picture is State 3 and
+        # still loading.
+        assert "'inactive-slot': status.State != 3 || starting" in bar
+        assert "? '' : 'inactive-slot'" not in bar
         assert "onclick={ togglePause }" in bar
         assert ".playnav .navitems-right > li.inactive-slot" in css
         assert "pointer-events: none" in css
