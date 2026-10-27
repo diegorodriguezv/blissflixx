@@ -29,20 +29,25 @@ def _file(path, size, when):
     return path
 
 
+def _alloc(path):
+    """What the file really occupies, which is what deleting it frees."""
+    return os.stat(path).st_blocks * 512
+
+
 class TestEntries:
     def test_a_file_is_one_entry(self, tmp_path):
         root = _root(tmp_path)
-        _file(root / "old.mkv", 100, 1000)
+        old = _file(root / "old.mkv", 100, 1000)
         found = space.entries(str(root))
         assert [e["name"] for e in found] == ["old.mkv"]
-        assert found[0]["size"] == 100
+        assert found[0]["size"] == _alloc(old)
         assert found[0]["last"] == 1000
 
     def test_a_pack_is_one_entry_and_uses_its_newest_file(self, tmp_path):
         root = _root(tmp_path)
         pack = root / "Pack"
-        _file(pack / "e01.mkv", 100, 1000)
-        _file(pack / "e02.mkv", 200, 3000)
+        e01 = _file(pack / "e01.mkv", 100, 1000)
+        e02 = _file(pack / "e02.mkv", 200, 3000)
         # The directory's own time is old; the last episode watched is what
         # makes the pack recent. Its atime is deliberately not used: the scan
         # itself lists the directory and would refresh it.
@@ -50,8 +55,18 @@ class TestEntries:
         found = space.entries(str(root))
         assert len(found) == 1
         assert found[0]["name"] == "Pack"
-        assert found[0]["size"] == 300
+        assert found[0]["size"] == _alloc(e01) + _alloc(e02)
         assert found[0]["last"] == 3000
+
+    def test_a_sparse_file_counts_only_allocated_blocks(self, tmp_path):
+        """A 41GB remux with 2GB of pieces must not claim to free 41GB."""
+        root = _root(tmp_path)
+        sparse = root / "sparse.mkv"
+        with sparse.open("wb") as handle:
+            handle.truncate(10**9)
+        _touch(sparse, 1000)
+        found = space.entries(str(root))[0]
+        assert found["size"] < 1024 * 1024
 
     def test_hidden_internal_directories_are_not_films(self, tmp_path):
         root = _root(tmp_path)
@@ -63,10 +78,11 @@ class TestEntries:
 class TestReclaim:
     def test_the_oldest_entry_goes_first(self, tmp_path):
         root = _root(tmp_path)
-        _file(root / "old.mkv", 100, 1000)
+        old = _file(root / "old.mkv", 100, 1000)
+        old_size = _alloc(old)
         _file(root / "new.mkv", 100, 2000)
-        freed, removed, free = space.reclaim(str(root), needed=100, free=0)
-        assert freed == 100
+        freed, removed, free = space.reclaim(str(root), needed=old_size, free=0)
+        assert freed == old_size
         assert removed == ["old.mkv"]
         assert free == 0
         assert not (root / "old.mkv").exists()
@@ -74,32 +90,35 @@ class TestReclaim:
 
     def test_it_stops_once_enough_is_free(self, tmp_path):
         root = _root(tmp_path)
-        _file(root / "old.mkv", 100, 1000)
+        old = _file(root / "old.mkv", 100, 1000)
+        old_size = _alloc(old)
         _file(root / "new.mkv", 100, 2000)
-        freed, removed, _ = space.reclaim(str(root), needed=100, free=0)
+        freed, removed, _ = space.reclaim(str(root), needed=old_size, free=0)
         assert removed == ["old.mkv"]
         assert (root / "new.mkv").exists()
-        assert freed >= 100
+        assert freed >= old_size
 
     def test_a_pack_is_deleted_as_a_whole(self, tmp_path):
         root = _root(tmp_path)
         pack = root / "Pack"
-        _file(pack / "e01.mkv", 100, 1000)
-        _file(pack / "e02.mkv", 200, 2000)
-        freed, removed, _ = space.reclaim(str(root), needed=300, free=0)
+        e01 = _file(pack / "e01.mkv", 100, 1000)
+        e02 = _file(pack / "e02.mkv", 200, 2000)
+        pack_size = _alloc(e01) + _alloc(e02)
+        freed, removed, _ = space.reclaim(str(root), needed=pack_size, free=0)
         assert removed == ["Pack"]
-        assert freed == 300
+        assert freed == pack_size
         assert not pack.exists()
 
     def test_the_current_entry_is_never_deleted(self, tmp_path):
         root = _root(tmp_path)
         _file(root / "current.mkv", 100, 1000)
-        _file(root / "other.mkv", 200, 2000)
+        other = _file(root / "other.mkv", 200, 2000)
+        other_size = _alloc(other)
         freed, removed, _ = space.reclaim(
             str(root), needed=10**9, current_entry="current.mkv", free=0
         )
         assert removed == ["other.mkv"]
-        assert freed == 200
+        assert freed == other_size
         assert (root / "current.mkv").exists()
         assert not (root / "other.mkv").exists()
 

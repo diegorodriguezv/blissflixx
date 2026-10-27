@@ -28,14 +28,19 @@ def free_bytes(root):
     return st.f_bavail * st.f_frsize
 
 
+def _allocated(st):
+    """The bytes this file really occupies, not its logical length."""
+    return getattr(st, "st_blocks", 0) * 512
+
+
 def _measure(path):
-    """Size and last-use time of one top-level entry, or None."""
+    """Allocated size and last-use time of one top-level entry, or None."""
     try:
         st = os.stat(path)
     except OSError:
         return None
     if os.path.isfile(path):
-        return st.st_size, max(st.st_atime, st.st_mtime)
+        return _allocated(st), max(st.st_atime, st.st_mtime)
 
     # A directory is a pack, and one unit. Its own atime is deliberately left
     # out: merely listing it here updates that atime, which would make every
@@ -50,7 +55,7 @@ def _measure(path):
                 cst = os.stat(child)
             except OSError:
                 continue
-            size += cst.st_size
+            size += _allocated(cst)
             use = max(cst.st_atime, cst.st_mtime)
             if use > last:
                 last = use
