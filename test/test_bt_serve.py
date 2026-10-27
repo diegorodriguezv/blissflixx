@@ -175,3 +175,51 @@ class TestErrorText:
 
     def test_nothing_at_all_is_silence(self):
         assert bt.error_text(None) == ""
+
+
+class TestAtomicWrite:
+    def test_creates_the_directory_it_holds(self, tmp_path):
+        """
+        The resume directory lives under the buffer and does not exist on a
+        first play. Failing here lost the .torrent and then, on the periodic
+        save, killed the process and the stream with it.
+        """
+        target = tmp_path / "downloads" / ".bf-torrent" / "abc.torrent"
+        bt.atomic_write(str(target), b"metadata")
+        assert target.read_bytes() == b"metadata"
+
+    def test_an_old_file_is_replaced_whole(self, tmp_path):
+        target = tmp_path / "abc.fastresume"
+        bt.atomic_write(str(target), b"one")
+        bt.atomic_write(str(target), b"two")
+        assert target.read_bytes() == b"two"
+        assert not (tmp_path / "abc.fastresume.part").exists()
+
+
+class TestPriorities:
+    def test_only_the_played_file_is_wanted(self):
+        assert bt.file_priorities(3, 1, []) == [0, 1, 0]
+
+    def test_the_subtitles_are_wanted_too(self):
+        assert bt.file_priorities(4, 2, [3]) == [0, 0, 1, 1]
+
+    def test_a_file_named_out_of_range_is_ignored(self):
+        assert bt.file_priorities(2, 9, [7]) == [0, 0]
+
+    def test_the_played_file_stays_wanted_though_its_pieces_do_not(self):
+        """
+        The file priority is what makes libtorrent write the film into its own
+        file instead of a hidden part file. Switching it off to control pieces
+        one by one left a play that worked and no film on the card.
+        """
+        assert bt.file_priorities(2, 0, [])[0] == 1
+
+    def test_no_pieces_are_wanted_without_subtitles(self):
+        assert bt.subtitle_pieces(4, []) == [0, 0, 0, 0]
+
+    def test_only_the_subtitle_ranges_are_wanted(self):
+        assert bt.subtitle_pieces(10, [(6, 7)]) == [0, 0, 0, 0, 0, 0, 1, 1, 0, 0]
+
+    def test_ranges_are_clamped_to_the_torrent(self):
+        assert bt.subtitle_pieces(3, [(2, 9)]) == [0, 0, 1]
+        assert bt.subtitle_pieces(3, [(-2, 0)]) == [1, 0, 0]

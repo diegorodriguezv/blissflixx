@@ -43,6 +43,13 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 #: only this window ever wanted.
 WINDOW = 8
 
+#: Pieces past the urgent window kept at low priority. They are the ones the
+#: reader asks for next, and wanting them is what stops the torrent reporting
+#: "finished" between reads. A finished torrent drops its swarm, and finding it
+#: again costs seconds: measured, peers fell from 21 to 4 at the moment the
+#: opening window completed, just as the player wanted more.
+LOW_AHEAD = 4
+
 #: How often the stage is told what is happening. Two seconds is what the old
 #: stage polled peerflix at, and it is fast enough for a stall warning.
 STATUS_EVERY = 2
@@ -149,6 +156,34 @@ def hash_text(hashes):
     return str(hashes.v1) if hashes.has_v1() else str(hashes.v2)
 
 
+def file_priorities(count, playing, subs):
+    """
+    Every file unwanted, except the one being played and the subtitles.
+
+    The played file has to be *wanted* even though its pieces are controlled
+    one by one: libtorrent stores pieces of a priority-zero file in a hidden
+    part file instead of the film's own, so a film watched that way is never a
+    file on the card. Prioritised pieces of a wanted file are written in place,
+    as a sparse film, and a later play -- or peerflix -- can see what is there.
+    """
+    priorities = [0] * count
+    if 0 <= playing < count:
+        priorities[playing] = 1
+    for i in subs:
+        if 0 <= i < count:
+            priorities[i] = 1
+    return priorities
+
+
+def subtitle_pieces(count, ranges):
+    """Ones for the given (first, last) piece ranges, zero elsewhere."""
+    priorities = [0] * count
+    for first, last in ranges:
+        for piece in range(max(0, first), min(count - 1, last) + 1):
+            priorities[piece] = 1
+    return priorities
+
+
 def error_text(err):
     """A libtorrent error_code as words, or "" for success."""
     if err is None:
@@ -166,6 +201,10 @@ def error_text(err):
 
 
 def atomic_write(path, data):
+    """Write a file in one step, creating the directory that holds it."""
+    parent = os.path.dirname(path)
+    if parent:
+        os.makedirs(parent, exist_ok=True)
     tmp = path + ".part"
     with open(tmp, "wb") as f:
         f.write(data)
@@ -284,6 +323,7 @@ class Window:
         self.width = width
         self.lock = threading.Lock()
         self.asked = set()
+        self.low = set()
         self.at = None
 
     def want(self, piece):
@@ -318,6 +358,15 @@ class Window:
             self.asked.add(p)
             self.handle.piece_priority(p, 7)
             self.handle.set_piece_deadline(p, 300 + (p - lo) * 400)
+        # A few pieces past the window at low priority: wanted, but never
+        # urgent. See LOW_AHEAD.
+        low_lo = hi + 1
+        low_hi = min(hi + LOW_AHEAD, self.last_piece)
+        for p in range(low_lo, low_hi + 1):
+            if p in self.low:
+                continue
+            self.low.add(p)
+            self.handle.piece_priority(p, 1)
         # A seek, or the player's probe at the end of the file, moves the
         # window; what it left behind is no longer worth a share of the line.
         # Pieces that did arrive are forgotten rather than released.
@@ -328,6 +377,13 @@ class Window:
                 self.asked.discard(p)
                 self.handle.reset_piece_deadline(p)
                 self.handle.piece_priority(p, 0)
+        for p in list(self.low):
+            if self.handle.have_piece(p):
+                self.low.discard(p)
+            elif p < low_lo or p > low_hi:
+                self.low.discard(p)
+                if p not in self.asked:
+                    self.handle.piece_priority(p, 0)
 
 
 class App:
@@ -364,28 +420,55 @@ class App:
             offset += self.files.file_size(i)
         return offset // self.piece_length
 
+    def last_piece_of(self, index):
+        """The last piece a file occupies; before the first for an empty file."""
+        offset = 0
+        for i in range(index + 1):
+            offset += self.files.file_size(i)
+        if self.files.file_size(index) == 0:
+            return self.first_piece(index) - 1
+        return min((offset - 1) // self.piece_length, self.last_piece)
+
     def crop(self):
         """
         Want the played file only by piece, the subtitles whole, nothing else.
 
-        The played file is 0 rather than 7 on purpose: its pieces are asked for
-        by the window, and a file priority would want all of them. Subtitles are
-        a few hundred kilobytes and are listed in the UI as things the play can
-        add, so they are fetched whole.
+        The file is left wanted and every piece of it is switched off, then the
+        window switches on the pieces the reader is at. Zeroing the file's
+        priority instead would be fewer calls, and would put the film in
+        libtorrent's part file rather than on the card: see file_priorities.
         """
-        priorities = [0] * self.files.num_files()
-        for i in self.subs:
-            priorities[i] = 1
-        self.handle.prioritize_files(priorities)
+        self.handle.prioritize_files(
+            file_priorities(self.files.num_files(), self.index, self.subs)
+        )
         # The crop lands on libtorrent's client thread. Asking for a piece
         # before it does gets the request overwritten by the crop, leaving a
         # torrent that wants nothing: see the note at the top of this file.
         first = self.first_piece(self.index)
         deadline = time.time() + CROP_TIMEOUT
         while time.time() < deadline:
-            if self.handle.piece_priority(first) == 0:
+            if self.handle.piece_priority(first) == 1:
                 break
             time.sleep(0.05)
+        # The played file is wanted, so its pieces are all on: switch every one
+        # of them off again, leaving only the subtitles on, until the reader
+        # says where it is. One call for all pieces rather than one per piece.
+        started = time.time()
+        self.handle.prioritize_pieces(
+            subtitle_pieces(
+                self.info.num_pieces(),
+                [
+                    (self.first_piece(i), self.last_piece_of(i))
+                    for i in self.subs
+                ],
+            )
+        )
+        print(
+            TAG + "pieces armed in %dms (%d-%d for file %d)"
+            % ((time.time() - started) * 1000, first,
+               self.last_piece_of(self.index), self.index),
+            flush=True,
+        )
         self.window = Window(self.handle, self.last_piece, WINDOW)
 
     def prime(self):
@@ -646,18 +729,28 @@ def print_status(stats):
 
 
 def save_resume(app, path, timeout=RESUME_GRACE):
-    """Ask for resume data and wait, briefly, for it to be produced."""
-    app.alerts.resume = None
-    app.handle.save_resume_data()
-    deadline = time.time() + timeout
-    with app.alerts.changed:
-        while app.alerts.resume is None and time.time() < deadline:
-            app.alerts.changed.wait(0.1)
-        data = app.alerts.resume
-    if not data:
+    """
+    Ask for resume data and wait, briefly, for it to be produced.
+
+    Never raises. This runs from the status loop, and a film must not stop
+    because its bookkeeping could not be written: losing resume data costs a
+    re-check on the next start, not the play that is running.
+    """
+    try:
+        app.alerts.resume = None
+        app.handle.save_resume_data()
+        deadline = time.time() + timeout
+        with app.alerts.changed:
+            while app.alerts.resume is None and time.time() < deadline:
+                app.alerts.changed.wait(0.1)
+            data = app.alerts.resume
+        if not data:
+            return False
+        atomic_write(path, data)
+        return True
+    except Exception as exc:
+        print(TAG + "resume data not saved: %s" % exc, flush=True)
         return False
-    atomic_write(path, data)
-    return True
 
 
 def parse_args(argv):
@@ -753,5 +846,19 @@ def main(argv=None):
     return 0
 
 
+def run():
+    """main(), but a traceback still ends with one line the stage can report."""
+    try:
+        return main()
+    except SystemExit:
+        raise
+    except BaseException as exc:
+        import traceback
+
+        traceback.print_exc()
+        print(TAG + "error %s: %s" % (type(exc).__name__, exc), flush=True)
+        return 1
+
+
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(run())
