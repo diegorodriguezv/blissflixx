@@ -354,6 +354,8 @@
         ' (' + Math.floor(p.position * 100 / p.length) + '%)'
       line('position', pos)
       line('asked for', p.elapsed + 's ago')
+      line('picture in', p.picture_after === null || p.picture_after === undefined
+        ? '—' : p.picture_after + 's')
       line('stalled', p.stalled ? p.stalled + 's · ' + p.stall_reason : 'no')
       if (p.error) line('error', p.error)
       out.push('')
@@ -377,8 +379,8 @@
       out.push('')
       out.push('PLAYER')
       line('state', pb.state)
-      line('picture in', player.picture_after === null || player.picture_after === undefined
-        ? '—' : player.picture_after + 's')
+      line('first frame', player.picture_after === null || player.picture_after === undefined
+        ? '—' : player.picture_after + 's after start')
       line('input read', stats.readbytes === undefined ? '—' : self.bytes(stats.readbytes))
       line('input now', pb.read_speed === undefined
         ? '—'

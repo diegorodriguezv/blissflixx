@@ -573,6 +573,16 @@ class _Player:
             return worst, "source"
         return 0, ""
 
+    def _picture_after(self):
+        """Seconds from the play being asked for to the first frame, or None."""
+        if self.play_requested_at is None:
+            return None
+        for stage in getattr(self.play_pipe, "procs", None) or []:
+            media_at = getattr(stage, "_media_at", None)
+            if media_at is not None:
+                return round(media_at - self.play_requested_at, 1)
+        return None
+
     def debug(self):
         """
         Everything that might explain what is happening, for the panel.
@@ -591,6 +601,7 @@ class _Player:
                 "paused": status["Paused"],
                 "waiting": status["Waiting"],
                 "elapsed": status["Elapsed"],
+                "picture_after": self._picture_after(),
                 "position": status.get("Position"),
                 "length": status.get("Length"),
                 "stalled": status.get("Stalled", 0),

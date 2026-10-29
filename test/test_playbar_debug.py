@@ -737,3 +737,30 @@ class TestNavSlots:
         assert buffer["evicted"] == 100
         assert buffer["removed"] == 2
         assert buffer["free"] > 0
+
+class TestTimeToPicture:
+    def test_it_is_measured_from_the_play_request(self):
+        """
+        The panel's old "picture in" was VLC's own start-to-first-frame time,
+        which hid the torrent and pipeline wait before it. The total is the one
+        the user waited for.
+        """
+        pipe = _Pipe(playback={"position": 1, "length": 10})
+        pipe._media_at = 112.5
+        pl = _player(pipe)
+        pl.play_requested_at = 100.0
+        assert pl.debug()["Playback"]["picture_after"] == 12.5
+
+    def test_it_is_unknown_until_the_first_frame(self, monkeypatch):
+        pipe = _Pipe(playback={"position": 1, "length": 10})
+        pl = _player(pipe)
+        pl.play_requested_at = 100.0
+        assert pl.debug()["Playback"]["picture_after"] is None
+
+    def test_the_panel_shows_it_in_the_now_section(self):
+        root = pathlib.Path(__file__).resolve().parents[1]
+        text = (root / "html" / "tags" / "playbar.html").read_text()
+        assert "line('picture in'" in text
+        assert "p.picture_after" in text
+        # The player's own number stays, under a name that says what it is.
+        assert "line('first frame'" in text
