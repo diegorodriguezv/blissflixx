@@ -143,6 +143,19 @@ class TestReady:
             {"url": "http://127.0.0.1:9697/3", "name": "Film.eng.srt"}
         ]
 
+    def test_a_process_that_dies_carries_the_command_too(self):
+        """
+        A crash has no message of its own. The exit status plus the command is
+        all there is to reproduce it with.
+        """
+        proc = feed(LibtorrentProcess(MAGNET, 0))
+        proc.args = {}
+        with pytest.raises(ProcessException) as raised:
+            proc._ready()
+        message = str(raised.value)
+        assert "no more output" in message
+        assert " ".join(proc.cmd) in message
+
     def test_a_fatal_line_fails_the_stage_and_carries_the_command(self):
         """
         The application's rule for a failure the person has to act on: say what

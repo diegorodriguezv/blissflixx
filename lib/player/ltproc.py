@@ -127,12 +127,22 @@ class LibtorrentProcess(ExternalProcess):
 
     def _ready(self):
         self._started_at = time.time()
+        try:
+            return self._read_until_serving()
+        except ProcessException as exc:
+            # Every failure here is one the person cannot fix from the screen,
+            # and the rule for this application is that such a message carries
+            # the command that reproduces it -- including a crash, where the
+            # only useful thing said is the exit status.
+            raise ProcessException(
+                "%s | %s" % (exc, " ".join(str(p) for p in self.cmd))
+            )
+
+    def _read_until_serving(self):
         while True:
             line = self._readline()
             if line.startswith(_ERROR_PREFIX):
-                raise ProcessException(
-                    line[len(_ERROR_PREFIX):] + " | " + " ".join(str(p) for p in self.cmd)
-                )
+                raise ProcessException(line[len(_ERROR_PREFIX):])
             serving = _SERVING_RE.search(line)
             if serving:
                 self.args["outfile"] = serving.group(1).rstrip("/")
