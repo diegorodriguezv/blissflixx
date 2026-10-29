@@ -3,9 +3,8 @@
 
 lib/player/ltproc.py runs this with the system python, because libtorrent comes
 from the python3-libtorrent package rather than from the application's
-virtualenv. It is a torrent source for the pipeline in the same way peerflix is:
-one line when it can serve, a status line every couple of seconds, and the file
-itself over HTTP.
+virtualenv. It is the torrent source for the pipeline: one line when it can
+serve, a status line every couple of seconds, and the file itself over HTTP.
 
 Why an HTTP layer of our own: a torrent file is mostly holes, and a reader that
 reads into a hole gets zeroes rather than an error. Reads block until the pieces
@@ -51,8 +50,8 @@ WINDOW = 8
 #: opening window completed, just as the player wanted more.
 LOW_AHEAD = 4
 
-#: How often the stage is told what is happening. Two seconds is what the old
-#: stage polled peerflix at, and it is fast enough for a stall warning.
+#: How often the stage is told what is happening. Two seconds is fast enough for
+#: a stall warning and slow enough to cost nothing.
 STATUS_EVERY = 2
 
 #: Seconds to wait for metadata before giving up. Measured against a live swarm
@@ -77,6 +76,10 @@ RESUME_DIR = ".bf-torrent"
 
 TAG = "bf-bt: "
 STATUS_TAG = "bf-status: "
+#: The file list, for the page that shows what a torrent carries. One line of
+#: JSON rather than the fixed columns the old source printed: the caller parses
+#: it, not a screen.
+FILES_TAG = "bf-files: "
 
 
 class Unsatisfiable(Exception):
@@ -246,7 +249,7 @@ def file_priorities(count, playing, subs):
     one by one: libtorrent stores pieces of a priority-zero file in a hidden
     part file instead of the film's own, so a film watched that way is never a
     file on the card. Prioritised pieces of a wanted file are written in place,
-    as a sparse film, and a later play -- or peerflix -- can see what is there.
+    as a sparse film, and a later play can see what is there.
     """
     priorities = [0] * count
     if 0 <= playing < count:
@@ -645,7 +648,7 @@ class App:
             "active_peers": self.active_peers(),
             "seeds": int(st.num_seeds),
             "speed": int(st.download_rate),
-            # This run's traffic, like peerflix reports: total_done is the
+            # This run's traffic, not the file's total: total_done is the
             # torrent's have-bytes, which on a rewatch is the file already on
             # the card and would read as a download that has just happened.
             "downloaded": int(st.total_payload_download),
@@ -867,7 +870,12 @@ def parse_args(argv):
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("source", help="magnet or http(s) URL of a .torrent")
     parser.add_argument("--dir", required=True, help="where files are kept")
-    parser.add_argument("--port", type=int, required=True, help="HTTP port")
+    parser.add_argument("--port", type=int, help="HTTP port; not needed with --list")
+    parser.add_argument(
+        "--list",
+        action="store_true",
+        help="print the torrent's files as JSON and exit, downloading nothing",
+    )
     parser.add_argument("--index", type=int, default=0, help="file to play")
     parser.add_argument("--subs", default="", help="comma separated file indexes")
     parser.add_argument(
@@ -908,6 +916,22 @@ def main(argv=None):
             )
         except Exception as exc:
             print(TAG + "metadata not saved: %s" % exc, flush=True)
+
+    if args.list:
+        info = handle.torrent_file()
+        files = [
+            {
+                "path": info.files().file_path(i),
+                "size": int(info.files().file_size(i)),
+            }
+            for i in range(info.num_files())
+        ]
+        print(FILES_TAG + json.dumps(files, separators=(",", ":")), flush=True)
+        return 0
+
+    if args.port is None:
+        print(TAG + "error --port is required to serve", flush=True)
+        return 2
 
     app = App(lt, session, handle, args.index, subs)
     app.metadata_after = time.time() - started

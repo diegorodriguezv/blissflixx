@@ -2,40 +2,35 @@
 
 This is the stage that turns a magnet into something a player can open. It
 starts bin/bt_serve.py -- a separate process, under the system python, because
-python3-libtorrent is a system package and the application runs in a
-virtualenv -- and treats it as a source in the same shape as peerflix: a line
-when it can serve, a status line every couple of seconds, and the file over
-HTTP.
+python3-libtorrent is a system package and the application runs in a virtualenv
+-- which prints one line when it can serve, a status line every couple of
+seconds, and serves the file over HTTP.
 
-It is selected with "torrent_backend": "libtorrent" in data/settings/player;
-anything else keeps peerflix. Two measurements decided the shape of it, on a
-Pi 3 against the same 1.9GB torrent, cold:
+What it is for, measured on a Pi 3 cold against a 1.9GB torrent: metadata in
+1.9-4.3s, 41-49 peers within 30s, 1.65-1.78MB/s. More to the point, it fetches
+what the reader asks for: a play 60 pieces in had downloaded 120MB of that file,
+a seek cost the pieces it landed in, and an episode played out of a 4GB season
+pack fetched only that episode and not the other nine.
 
-    libtorrent   metadata 1.9-4.3s, 41-49 peers at 30s, 1.65-1.78MB/s
-    peerflix     metadata never (one run), 0-13 peers, ~1.05MB/s
-
-and, more to the point, what is fetched: libtorrent follows the reader, so a
-play 60 pieces in had downloaded 120MB of a 1.9GB file, and a seek cost the
-pieces it landed in. peerflix downloads the torrent.
-
-The numbers in the bar mean the same as they did with peerflix -- the share of
-the file that is on the card, the rate, the peers, and how long nothing has
-arrived -- because they come from the same fields in the same shape.
+The bar reads the same fields it always has -- the share of the file that is on
+the card, the rate, the peers, and how long nothing has arrived -- so its
+meaning did not change when this replaced the old node-based source.
 """
 
 import json
 import os
 import re
+import subprocess
 import time
 
 import cherrypy
 
 from ..api.torrent import torrent2magnet
 from . import buffer as buffer_space
-from .pflixproc import BUFFER_DIR
+from .buffer import BUFFER_DIR
 from .processpipe import ExternalProcess, ProcessException
 
-#: Where bt_serve.py listens. peerflix has 9696.
+#: Where bt_serve.py listens.
 _PORT = "9697"
 
 #: The system interpreter, not the virtualenv: libtorrent comes from the
@@ -55,12 +50,12 @@ _SERVING_RE = re.compile(
 )
 
 _STATUS_PREFIX = "bf-status: "
+_FILES_PREFIX = "bf-files: "
 _ERROR_PREFIX = "bf-bt: error "
 
 #: How long the numbers may stay identical before the bar says nothing is
-#: arriving. Same value and same reasoning as the peerflix stage: long enough
-#: that one slow piece does not read as a dead torrent, short enough that a dead
-#: one is not left looking busy.
+#: arriving. Long enough that one slow piece does not read as a dead torrent,
+#: short enough that a dead one is not left looking busy.
 _STALLED_AFTER = 20
 
 
@@ -71,6 +66,54 @@ def _size(value):
     if value >= 1024:
         return "%d kB" % (value / 1024)
     return "%d B" % value
+
+
+def list_files(link, timeout=90):
+    """
+    The files inside a torrent, as (path, size) in the torrent's own order.
+
+    This runs the same torrent process in its listing mode: same trackers, same
+    saved .torrent, same timeout and same error. Nothing is downloaded and no
+    port is opened. Until this existed the only way to list a torrent was the
+    old source, which is why that source could not be removed.
+    """
+    cmd = [
+        SYSTEM_PYTHON,
+        BT_SERVE,
+        torrent2magnet(link),
+        "--dir",
+        BUFFER_DIR,
+        "--list",
+        "--metadata-timeout",
+        "45",
+    ]
+    try:
+        done = subprocess.run(
+            cmd,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            timeout=timeout,
+        )
+    except subprocess.TimeoutExpired:
+        raise RuntimeError(
+            "No answer listing this torrent in %ds | %s"
+            % (timeout, " ".join(str(part) for part in cmd))
+        )
+    text = (done.stdout or b"").decode("utf-8", "replace")
+    for line in text.splitlines():
+        if not line.startswith(_FILES_PREFIX):
+            continue
+        try:
+            files = json.loads(line[len(_FILES_PREFIX):])
+            return [(str(f["path"]), int(f["size"])) for f in files]
+        except (ValueError, KeyError, TypeError):
+            break
+    tail = " | ".join(text.strip().splitlines()[-3:])
+    raise RuntimeError(
+        "Unable to retrieve torrent files | %s | %s"
+        % (" ".join(str(part) for part in cmd), tail)
+    )
 
 
 class LibtorrentProcess(ExternalProcess):
@@ -192,7 +235,7 @@ class LibtorrentProcess(ExternalProcess):
         """
         The one space decision for this play, made when the size is known.
 
-        Same rule as the peerflix stage: free the bytes still to be written plus
+        The rule is the buffer module's: free the bytes still to be written plus
         the headroom the app leaves for the system, by removing whole buffer
         entries, least recently used first. The film being played is never a
         candidate. Returns False while the numbers are not here yet, so the next
@@ -273,8 +316,8 @@ class LibtorrentProcess(ExternalProcess):
         """
         The torrent's numbers, while the picture has not started.
 
-        The same reading as the peerflix stage: the share that is on disk, said
-        as such, then the rate and the peers. A film that is entirely here says
+        The reading the bar has always used: the share that is on disk, said as
+        such, then the rate and the peers. A film that is entirely here says
         100% and no peers, which is the truth rather than a warning.
         """
         if not self._status:
@@ -325,7 +368,7 @@ class LibtorrentProcess(ExternalProcess):
 
     def debug(self):
         """
-        The panel's sections, in the shape the peerflix stage gives them.
+        The panel's sections, in the shape it reads them.
 
         The diagnostics panel reads swarm.speed, swarm.peers and
         swarm.active_peers, and buffer.needed/evicted/removed/free; naming them

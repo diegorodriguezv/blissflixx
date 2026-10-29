@@ -93,15 +93,14 @@ else
     apt update
     stage "package lists"
 
-    # A JavaScript runtime, for yt-dlp's YouTube extraction and for peerflix.
+    # A JavaScript runtime, for yt-dlp's YouTube extraction.
     #
     # Not the distribution's. yt-dlp refuses node below version 22 and Raspberry
-    # Pi OS ships 20, so asking apt for npm once took about ten minutes and left
-    # a runtime yt-dlp would not use. This is the pinned LTS release, unpacked
-    # into the checkout instead of installed system-wide: swapping the system
-    # node would move the runtime npm and peerflix were installed with, which is
-    # a change to the machine rather than to this project. lib/player/nodejs.py
-    # is the one place that knows the path.
+    # Pi OS ships 20. This is the pinned LTS release, unpacked into the checkout
+    # instead of installed system-wide: swapping the system node would move the
+    # runtime the distribution's own packages were installed with, which is a
+    # change to the machine rather than to this project. lib/player/nodejs.py is
+    # the one place that knows the path.
     #
     # Checked against the release's own SHASUMS256.txt. A download that arrives
     # damaged is a mystery later ("it worked on the other Pi"), and a runtime
@@ -194,31 +193,14 @@ else
     # any binary that was running, so nothing could say what was actually
     # allowing the bind.
 
-    # Install peerflix globally, with the node unpacked above when it is there.
-    #
-    # That node ships its own npm, so the distribution's npm -- sixty packages,
-    # and the runtime we no longer want -- is not needed. The prefix is given
-    # explicitly because npm's default would be the unpacked tree, and the app
-    # runs /usr/local/bin/peerflix.
-    #
-    # Falls back to the distribution's npm if the download failed, so a box
-    # without a working nodejs.org still ends up with a working peerflix.
+    # Torrents are fetched by libtorrent, in the system python
+    # (python3-libtorrent, installed above), so there is no node torrent engine
+    # to install, patch or keep up to date. A box upgraded from a version that
+    # had one still carries it -- 43MB of npm tree and its launcher -- so it is
+    # removed here rather than left to rot.
     rm -rf /usr/local/lib/node_modules/peerflix
-    if [ -x data/node/bin/npm ]; then
-        PATH="$(pwd)/data/node/bin:$PATH" npm install -g peerflix --prefix /usr/local
-    else
-        apt -y install npm && npm install -g peerflix
-    fi
-
-    # Serve before verifying. peerflix waits for torrent-stream to hash every
-    # byte already on disk before it opens its port, and that is minutes for a
-    # film watched before -- measured, 249 seconds for a 2.3GB buffer on a card
-    # that reads at 11.8 MB/s. The pieces become usable one at a time as the
-    # hashing reaches them, in the order a film is watched, so the port is
-    # opened as soon as the file list exists and the player reads what is
-    # already verified. See bin/patch_peerflix.py.
-    python3 ./bin/patch_peerflix.py || true
-    stage "peerflix"
+    rm -f /usr/local/bin/peerflix
+    stage "peerflix removed"
     
     # Configure python dependencies as the person the install is for: they own
     # the checkout, and a virtualenv built by root is not theirs to run.

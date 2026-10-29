@@ -660,8 +660,7 @@ class ExternalProcess(Process):
             shell=self.shell,
             # None inherits this process's environment, which is what every
             # stage did before. A stage whose dependency writes somewhere of its
-            # own choosing sets this to redirect it -- peerflix writes its
-            # .torrent metadata to os.tmpdir() regardless of -f.
+            # own choosing sets this to redirect it.
             env=self.env,
         )
         # One reader, started here, for the whole life of the process.
@@ -714,11 +713,10 @@ class ExternalProcess(Process):
         process's output. A stage's observer is called last so that a stage which
         consumes lines cannot lose one before it is logged.
 
-        Colour is stripped first. peerflix prints its progress through clivas,
-        which decorates it for a terminal --
-        "\x1b[33mVerifying downloaded:\x1b[39m 27%" -- and none of that means
-        anything in a log file or in the panel: it arrives as "[33m" beside the
-        text. The escape sequences are the terminal's, and there is no terminal
+        Colour is stripped first. A dependency that decorates its output for a
+        terminal -- "\x1b[33mVerifying\x1b[39m 27%" -- produces text that means
+        nothing in a log file or in the panel: it arrives as "[33m" beside the
+        words. The escape sequences are the terminal's, and there is no terminal
         here.
         """
         line = _without_colour(line)
@@ -742,15 +740,14 @@ class ExternalProcess(Process):
         stop, which is what _wait() also passes here.
 
         That distinction is the whole point of this method. It used to invent an
-        error whenever there was none, so every ordinary stop became a failure.
-        Stopping a torrent produced
+        error whenever there was none, so every ordinary stop became a failure:
+        stopping a source that had said "server is listening" put
 
-            peerflix failed: Verifying downloaded: 0% | server is listening on
-            http://192.168.1.119:9696/
+            <source> failed: server is listening on http://127.0.0.1:9697/
 
-        in the UI: not a failure at all, just the last thing peerflix said before
-        it was asked to stop. But a process that died by itself, having printed
-        the reason and never called _set_error, is a genuine failure and is still
+        in the UI -- not a failure at all, just the last thing it said before it
+        was asked to stop. But a process that died by itself, having printed the
+        reason and never called _set_error, is a genuine failure and is still
         reported -- there is nothing else that will ever mention it.
         """
         if not tail:
@@ -925,9 +922,9 @@ class ExternalProcess(Process):
         With a timeout it gives up after that many seconds and raises.
 
         Both raise ProcessException at end of output, which is what the stages
-        waiting on a startup line depend on to stop looping: peerflix, dlsrv and
-        yt-dlp all call this with no timeout inside a while True, and would
-        otherwise block forever on a process that died silently.
+        waiting on a startup line depend on to stop looping: dlsrv, the torrent
+        stage and yt-dlp all call this with no timeout inside a while True, and
+        would otherwise block forever on a process that died silently.
         """
         try:
             line = self._lines.get(timeout=timeout)

@@ -2,7 +2,7 @@
 lib/player/ltproc.py
 
 The libtorrent source hands the player an HTTP URL and reports the swarm's
-numbers in the same shape the peerflix source did, because the playbar reads
+numbers the playbar reads
 them through detail() and the diagnostics panel through debug().
 
 Everything here runs without libtorrent or a swarm: the command is built, and
@@ -20,7 +20,7 @@ from lib.player import ltproc
 from lib.player import player as player_module
 from lib.player.ltproc import BT_SERVE, SYSTEM_PYTHON, LibtorrentProcess
 from lib.player.processpipe import ProcessException
-from lib.player.pflixproc import BUFFER_DIR
+from lib.player.buffer import BUFFER_DIR
 
 MAGNET = "magnet:?xt=urn:btih:" + "A" * 40
 SERVING = (
@@ -298,7 +298,7 @@ class TestDebug:
 
 class TestBufferSpace:
     """
-    The same rule the peerflix stage uses, applied to a libtorrent play: free
+    The same rule the space manager applies to any torrent play: free
     what the film still needs plus headroom, by deleting whole buffer entries,
     least recently used first, and never the one being played.
     """
@@ -374,25 +374,3 @@ class TestPanelTimes:
     def test_no_check_means_the_verify_line_says_nothing(self):
         proc = with_status(LibtorrentProcess(MAGNET, 0))
         assert proc.debug()["verifying"] is None
-
-
-class TestChoosingTheEngine:
-    def test_the_default_is_still_peerflix(self):
-        proc = player_module._Player()._torrent_source(MAGNET, 0, [])
-        assert proc.name() == "peerflix"
-
-    def test_the_setting_selects_libtorrent(self, settings):
-        settings.save("player", {"torrent_backend": "libtorrent"})
-        settings._cache.clear()
-        proc = player_module._Player()._torrent_source(MAGNET, 0, [])
-        assert proc.name() == "libtorrent"
-
-    def test_an_unknown_name_falls_back_to_peerflix(self, settings):
-        """
-        A settings file that names an engine this version does not have must
-        still play something rather than fail the play.
-        """
-        settings.save("player", {"torrent_backend": "transmission"})
-        settings._cache.clear()
-        proc = player_module._Player()._torrent_source(MAGNET, 0, [])
-        assert proc.name() == "peerflix"

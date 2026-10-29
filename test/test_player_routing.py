@@ -34,7 +34,7 @@ import lib.player.player as player_module
 from lib.api import playr
 from lib.player.dlsrvproc import DlsrvProcess
 from lib.player.localproc import LocalFileProcess
-from lib.player.pflixproc import PeerflixProcess
+from lib.player.ltproc import LibtorrentProcess
 from lib.player.subsproc import SubtitlesProcess
 from lib.player.vlcproc import VlcProcess
 
@@ -345,9 +345,9 @@ class TestTorrentSubtitles:
     """
     A subtitle that is a file inside the torrent.
 
-    It is not searched for -- it is fetched from the peerflix that is already
-    serving this film -- so the pipeline must not gain the online subtitle
-    stage, and the index must reach the torrent stage.
+    It is not searched for -- it is fetched from the torrent process that is
+    already serving this film -- so the pipeline must not gain the online
+    subtitle stage, and the index must reach the torrent stage.
     """
 
     def test_the_online_stage_is_not_added(self):
@@ -367,7 +367,7 @@ class TestTorrentSubtitles:
             "Film",
             {"torrent": {"idx": 3, "name": "Film.eng.srt"}},
         )
-        stage = [p for p in pipe.procs if p.name() == "peerflix"][0]
+        stage = [p for p in pipe.procs if p.name() == "libtorrent"][0]
         assert stage.subs == [{"idx": 3, "name": "Film.eng.srt"}]
 
     def test_an_old_subs_dict_starts_nothing(self):
@@ -488,8 +488,8 @@ class TestStageAvailability:
         assert proc.name() == "subtitles"
         assert proc.status_msg() == "FETCHING SUBTITLES"
 
-    def test_peerflix_needs_a_torrent_and_index(self):
-        assert PeerflixProcess("http://x/y.torrent", 1).name() == "peerflix"
+    def test_the_torrent_stage_needs_a_torrent_and_index(self):
+        assert LibtorrentProcess("http://x/y.torrent", 1).name() == "libtorrent"
 
     def test_url_scheme_parsing_uses_urlparse(self):
         """file:// urls must yield a bare filesystem path, not file:///x."""
@@ -961,7 +961,7 @@ class TestPlaylistContext:
         torrent = _item_builder(
             {"title": "b", "url": "http://x/y.torrent?bf_torr_idx=3"}
         )()
-        assert stages(torrent) == ["peerflix", "vlc"]
+        assert stages(torrent) == ["libtorrent", "vlc"]
 
         video = _item_builder({"title": "c", "url": "https://example.com/v"})()
         assert stages(video) == ["yt-dlp", "vlc"]

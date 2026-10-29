@@ -10,7 +10,7 @@ to eagerly import its submodules, one of which instantiated InstalledChannels()
 at import time and re-imported every installed channel. That produced two hard
 circular imports:
 
-    import lib.player -> pflixproc -> lib.api -> playr -> lib.player
+    import lib.player -> the torrent stage -> lib.api -> playr -> lib.player
     import bfch_eztv  -> lib.api.torrent -> channels -> InstalledChannels()
                          -> re-imports bfch_eztv while it is still executing
 

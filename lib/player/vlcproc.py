@@ -47,7 +47,7 @@ from .backend import (
     PlayerBackend,
 )
 from .processpipe import _TERMINATE_GRACE, TMP_DIR, ProcessException, _start_thread
-from .pflixproc import drop_buffer_cache, drop_file_cache
+from .buffer import drop_buffer_cache, drop_file_cache
 
 VLC_BIN = "cvlc"
 _START_TIMEOUT = 30
@@ -763,8 +763,8 @@ class VlcProcess(PlayerBackend):
         #: Seconds of stream the player keeps ahead of the picture.
         #:
         #: VLC's default is one second, which is not enough on this box while
-        #: the source is doing something else: measured while peerflix was
-        #: hashing the same 5.3GB file it was serving, the picture froze every
+        #: the source is doing something else: measured while the torrent source
+        #: was hashing the same 5.3GB file it was serving, the picture froze every
         #: 30-60 seconds, the decoder was rebuilt four times, and 2,847 of
         #: 10,352 frames were dropped -- with the log saying why:
         #:
@@ -1001,9 +1001,9 @@ class VlcProcess(PlayerBackend):
         Fetch the subtitles that live inside the torrent, when they can be had,
         and hand them to the player.
 
-        Not before the film starts. peerflix answers a request for a file whose
-        pieces are not here yet by waiting, so fetching these before the film
-        meant waiting on the swarm twice: the fetch timed out after twenty
+        Not before the film starts. The torrent source answers a request for a
+        file whose pieces are not here yet by waiting, so fetching these before
+        the film meant waiting on the swarm twice: the fetch timed out after twenty
         seconds and the film played without them, which is what "Play With
         Subtitles just plays the video" was on a torrent still finding peers.
 
@@ -2869,6 +2869,6 @@ class VlcProcess(PlayerBackend):
         # that loss is the torrent buffer's file pages sitting in the display
         # memory's region, not the player failing to exit: both exits in the
         # log are clean shuts, and evicting the pages recovers it. See
-        # drop_buffer_cache in pflixproc.)
+        # drop_buffer_cache in buffer.py.)
         self._send_command("quit")
         super().stop()

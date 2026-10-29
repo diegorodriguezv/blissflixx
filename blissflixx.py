@@ -65,7 +65,7 @@ import lib.updater as updater
 from lib.api import channels, playlink, playlists, playr, subtitles, torrent
 from lib.api.common import ApiError
 from lib.player import processpipe
-from lib.player.pflixproc import BUFFER_DIR
+from lib.player.buffer import BUFFER_DIR
 
 api_modules = {
     "channels": channels,
@@ -253,9 +253,9 @@ def ensure_data_dirs():
     ):
         os.makedirs(path, exist_ok=True)
 
-    # peerflix buffers into data/downloads/torrent-stream on the card, and does
-    # not create it. Without this a torrent fails on the first read with an
-    # unhelpful error rather than at startup.
+    # The torrent process buffers into data/downloads/torrent-stream on the
+    # card, and does not create it. Without this a torrent fails on the first
+    # read with an unhelpful error rather than at startup.
     os.makedirs(BUFFER_DIR, exist_ok=True)
 
     # The scratch directory as well, and for the same reason. Every temporary
@@ -265,8 +265,8 @@ def ensure_data_dirs():
     # effect of something stopping.
     #
     # Deliberately small on purpose. /tmp is a tmpfs sized at half of RAM on any
-    # current Pi, so it holds sockets, fifos and ~21KB of peerflix metadata and
-    # nothing else. Downloads live on the card.
+    # current Pi, so it holds sockets, fifos and nothing else of size. Downloads
+    # live on the card.
     os.makedirs(processpipe.TMP_DIR, exist_ok=True)
 
 
@@ -569,6 +569,8 @@ def cleanup():
         os.remove(home + "/.swfinfo")
     except Exception:
         pass
+    # A box upgraded from the old torrent source may still have one running from
+    # an interrupted play; it is uninstalled now, so nothing can start another.
     kill_process("peerflix")
     kill_process("livestreamer")
     kill_process("dlsrv")

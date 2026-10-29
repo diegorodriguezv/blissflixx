@@ -8,7 +8,6 @@ tests set those explicitly rather than pretending there is a database.
 import os
 
 import lib.player.buffer as space
-import lib.player.pflixproc as pflix
 
 
 def _touch(path, when):
@@ -137,42 +136,3 @@ class TestReclaim:
         )
         assert (freed, removed) == (0, [])
         assert (root / "current.mkv").exists()
-
-
-class TestPlayDecision:
-    def _proc(self, monkeypatch, tmp_path, idx):
-        root = _root(tmp_path)
-        monkeypatch.setattr(pflix, "BUFFER_DIR", str(root))
-        proc = pflix.PeerflixProcess("magnet:?xt=urn:btih:abc", idx)
-        proc.served_file = lambda: {"path": str(root / "A" / "e02.mkv"), "present": 100}
-        return proc, root
-
-    def test_the_decision_is_the_remaining_bytes_plus_the_headroom(self, monkeypatch, tmp_path):
-        proc, root = self._proc(monkeypatch, tmp_path, 1)
-        seen = []
-        monkeypatch.setattr(
-            pflix.buffer_space,
-            "reclaim",
-            lambda root, needed, current: seen.append((root, needed, current)) or (0, [], 0),
-        )
-        files = [
-            {"name": "A/e01.mkv", "length": 1000},
-            {"name": "A/e02.mkv", "length": 2000},
-        ]
-        assert proc._check_buffer_space(files) is True
-        assert seen == [(str(root), 1900 + space.HEADROOM, "A")]
-        assert proc._space_needed == 1900 + space.HEADROOM
-
-    def test_a_pack_is_protected_by_its_top_level_name(self, monkeypatch, tmp_path):
-        proc, root = self._proc(monkeypatch, tmp_path, 0)
-        monkeypatch.setattr(
-            pflix.buffer_space, "reclaim", lambda root, needed, current: (0, [], 0)
-        )
-        files = [{"name": "A/e01.mkv", "length": 1000}]
-        proc._check_buffer_space(files)
-        assert proc._space_needed == 900 + space.HEADROOM
-
-    def test_an_unknown_length_waits_for_the_next_poll(self, monkeypatch, tmp_path):
-        proc, root = self._proc(monkeypatch, tmp_path, 0)
-        assert proc._check_buffer_space([{"name": "A/e01.mkv", "length": 0}]) is False
-        assert proc._space_needed == 0

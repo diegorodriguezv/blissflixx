@@ -1,6 +1,5 @@
 import os
 import re
-import subprocess
 import urllib.parse
 
 from ..chanutils import byte_size
@@ -53,9 +52,9 @@ def _with_more_trackers(magnet):
     The magnet with any of ours it does not already name.
 
     A magnet from a channel carries the trackers its uploader chose, which are
-    frequently dead, and peerflix will ask only those. Adding ours costs a
-    handful of announces and is the difference between "0 peers" on a popular
-    film and finding it.
+    frequently dead, and a client asks only for the ones it was told about.
+    Adding ours costs a handful of announces and is the difference between
+    "0 peers" on a popular film and finding it.
     """
     missing = [
         t for t in TRACKERS if urllib.parse.quote(t, safe="") not in magnet
@@ -78,24 +77,17 @@ def torrent2magnet(torrent):
     return _with_more_trackers(magnet)
 
 
-def peerflix_metadata(link):
-    # stdin=PIPE so peerflix does not enter interactive mode
-    s = subprocess.check_output(["peerflix", link, "-l"], stdin=subprocess.PIPE)
-    s = s.decode("utf-8")
-    lines = s.split("\n")
-    files = []
-    for l in lines:
-        delim = l.rfind(":")
-        if delim == -1:
-            break
-        if "Verifying downloaded:" in l:
-            continue
-        files.append((l[20 : delim - 6], l[delim + 7 : -5]))
-    return files
-
-
 def torrent_files(link):
-    return peerflix_metadata(torrent2magnet(link))
+    """
+    The files inside a torrent, as (path, size), without playing it.
+
+    The torrent process does this in its listing mode: it fetches the metadata
+    the same way a play does and prints the file list. Imported here rather than
+    at the top because that module already imports this one.
+    """
+    from ..player.ltproc import list_files
+
+    return list_files(link)
 
 
 def _has_ext(name, exts):

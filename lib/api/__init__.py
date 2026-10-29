@@ -5,7 +5,7 @@
 # does network I/O and re-imports every installed channel. That produced two
 # hard circular imports, both of which broke the natural import order:
 #
-#   import lib.player  -> pflixproc -> lib.api -> playr -> lib.player (partial)
+#   import lib.player  -> the torrent stage -> lib.api -> playr -> lib.player
 #   import bfch_eztv   -> lib.api.torrent -> channels -> InstalledChannels()
 #                         -> re-imports bfch_eztv while it is still executing
 #

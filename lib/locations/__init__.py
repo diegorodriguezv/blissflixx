@@ -2,7 +2,7 @@
 Well-known locations, resolved relative to this file.
 
 The values are str rather than Path on purpose. Most of them are interpolated
-into shell commands by lib/player (OMX_CMD, the peerflix argv, getsubs.py,
+into shell commands by lib/player (OMX_CMD, the torrent argv, getsubs.py,
 yt-dlp) or passed to subprocess, so keeping them as plain strings avoids
 scattering str() calls across the riskiest code in the project. Use pathlib
 internally, as below, but keep the exported types.
@@ -29,8 +29,9 @@ SETTINGS_PATH = str(_ROOT / "data" / "settings")
 #:
 #: Not installed system-wide on purpose. yt-dlp requires node 22 and the
 #: distribution ships 20, but replacing the system node would move the runtime
-#: that npm and peerflix were installed with -- a change to the machine, not to
-#: this project. See lib/player/nodejs.py, which is the one place that knows.
+#: the distribution's own packages were installed with -- a change to the
+#: machine, not to this project. See lib/player/nodejs.py, which is the one place
+#: that knows.
 NODE_PATH = str(_ROOT / "data" / "node")
 #: A Netscape cookies.txt, if the user has put one there.
 #:

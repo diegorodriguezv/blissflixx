@@ -1881,16 +1881,6 @@ class TestEmbeddedSubtitlesAreEnabledOnStart:
         proc._wait_for_subtitles({})
         assert proc._track_choice["strack"] == 2
 
-    def test_the_start_command_never_carries_peerflixs_remove_flag(self):
-        """
-        Belt and braces on the deletion change: -r is "--remove, remove files on
-        exit" and is why downloads never survived.
-        """
-        from lib.player.pflixproc import PeerflixProcess
-
-        cmd = PeerflixProcess("magnet:?xt=urn:btih:AAAA", -1).cmd
-        assert "-r" not in cmd
-
 
 def _delay_press_proc(step=None):
     """
@@ -3129,8 +3119,8 @@ class TestTheSubtitleInsideTheTorrent:
     """
     A subtitle that is a file in the torrent joins the film after it started.
 
-    peerflix will not answer for a file whose pieces are not here yet, and on a
-    film that is still gathering peers that can be minutes. Waiting for it
+    The torrent source will not answer for a file whose pieces are not here
+    yet, and on a film that is still gathering peers that can be minutes. Waiting for it
     before the film meant the fetch timed out and the film played without
     subtitles -- which is what "Play With Subtitles just plays the video" was.
     """

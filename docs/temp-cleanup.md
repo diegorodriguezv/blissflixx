@@ -9,8 +9,8 @@ Five places used to delete on stop, and one deleted on every startup:
 
 | Site | What it removed |
 |---|---|
-| `peerflix -r` | peerflix's own flag, `--remove`: "remove files on exit" |
-| `lib/player/pflixproc.py` | `/tmp/torrent-stream` |
+| the old torrent source's `-r` flag | its own `--remove`: "remove files on exit" (both gone) |
+| the old torrent stage | `/tmp/torrent-stream` (gone) |
 | `blissflixx.py` `cleanup()` | `/tmp/torrent-stream` and all of `/tmp/blissflixx`, on every start |
 | `lib/player/processpipe.py` `stop()` | `bf.out` |
 | `lib/player/subsproc.py` `stop()` | the subtitle file |
@@ -35,21 +35,16 @@ live in `/tmp/blissflixx`; downloads live on the card.
 
 ```
 data/downloads/
-  torrent-stream/       peerflix's download buffer, told with -f
+  torrent-stream/       the download buffer, told to the torrent process with --dir
+  torrent-stream/.bf-torrent/
+                        <info hash>.torrent and <info hash>.fastresume
 ```
 
-One deliberate exception: peerflix also writes a `<hash>.torrent` metadata file to
-`/tmp/torrent-stream`, and that path cannot be moved. Its torrent-stream library
-computes it as
-
-    var TMP = fs.existsSync('/tmp') ? '/tmp' : (os.tmpdir ...)
-
-which resolves to the literal `/tmp` before any environment is consulted, and
-peerflix has no option for it. `TMPDIR` was tried and does not reach it. A
-symlink was tried and dropped: faking a path peerflix believes is its own is more
-confusing than the file being in the wrong place, and the file is about 21 KB
-per torrent against a download measured in gigabytes — so leaving that much
-metadata in RAM costs nothing.
+Nothing torrent-related is written to `/tmp` any more. The old source kept its
+own `<hash>.torrent` metadata in `/tmp/torrent-stream`, a path its library
+hardcoded; the torrent process keeps metadata and resume data with the download,
+so a rewatch needs no network and no hashing, and `/tmp` holds only sockets and
+fifos.
 
 ## Why downloads are not in /tmp
 
@@ -92,7 +87,7 @@ is not a faster disk, it is not finishing the film.
 
 - Should age-based cleanup consider *last access* or *download completion*? A
   film half-watched and finished is not the same as one abandoned.
-- Should a peerflix buffer be removed when the torrent is verified complete, or
-  left alone because it doubles as a local copy?
+- Should a torrent buffer be removed when the film is complete, or left alone
+  because it doubles as a local copy?
 - On a Pi, is tmpfs large enough that a swap file or a persistent mount under
   `~/` would be a better home than `/tmp` at all?

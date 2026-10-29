@@ -271,57 +271,64 @@ class TestTorrent2Magnet:
 
 class TestTorrentFiles:
     """
-    peerflix is a node program installed by configure.sh and only present on
-    the Pi, so subprocess.check_output is stubbed. What is under test is how
-    lib.api.torrent.peerflix_metadata parses the -l listing.
+    Listing a torrent's files without playing it.
 
-    That parser uses fixed column offsets rather than splitting:
-
-        name = line[20 : delim - 6]
-        size = line[delim + 7 : -5]
-
-    so it only works if peerflix's output layout stays exactly as it is. These
-    tests build their input to those offsets, which documents the assumption.
-    If peerflix ever changes its formatting, this is where it will show up.
+    The torrent process answers with one line of JSON, so the parser has no
+    column offsets to depend on: it reads the line it printed and nothing else.
+    subprocess is stubbed -- the process needs a swarm and is exercised on the
+    box.
     """
 
-    @staticmethod
-    def _peerflix_line(name, size):
-        return "P" * 20 + name + " " * 6 + ":" + " " * 6 + size + "S" * 5
+    def _listing(self, monkeypatch, files, returncode=0, output=None):
+        import json as _json
+        import types
 
-    def test_parses_name_and_size(self, monkeypatch):
-        line = self._peerflix_line("Movie.Name.2020.1080p.mkv", "2147483648")
-
-        def fake_check_output(cmd, **kwargs):
-            assert cmd[0] == "peerflix"
-            assert "-l" in cmd
-            return (line + "\n").encode("utf-8")
-
-        monkeypatch.setattr("subprocess.check_output", fake_check_output)
-        files = torrent_files(HASH)
-        assert len(files) == 1
-        assert files[0][0] == "Movie.Name.2020.1080p.mkv"
-        assert files[0][1] == "2147483648"
-
-    def test_skips_verifying_lines_and_stops_at_malformed_line(self, monkeypatch):
-        good1 = self._peerflix_line("a.mkv", "100")
-        good2 = self._peerflix_line("b.mkv", "200")
-        output = "Verifying downloaded: 100% (2 of 2)\n" + good1 + "\n" + good2 + "\n"
-
-        monkeypatch.setattr(
-            "subprocess.check_output",
-            lambda cmd, **kw: output.encode("utf-8"),
-        )
-        files = torrent_files(HASH)
-        assert [f[0] for f in files] == ["a.mkv", "b.mkv"]
-
-    def test_magnet_is_converted_before_calling_peerflix(self, monkeypatch):
+        line = "bf-files: " + _json.dumps(files)
         seen = {}
 
-        def fake_check_output(cmd, **kwargs):
+        def fake_run(cmd, **kwargs):
             seen["cmd"] = cmd
-            return b""
+            text = output if output is not None else line
+            return types.SimpleNamespace(
+                returncode=returncode, stdout=text.encode("utf-8")
+            )
 
-        monkeypatch.setattr("subprocess.check_output", fake_check_output)
+        monkeypatch.setattr("lib.player.ltproc.subprocess.run", fake_run)
+        return seen
+
+    def test_paths_and_sizes_come_back_in_the_torrents_order(self, monkeypatch):
+        seen = self._listing(
+            monkeypatch,
+            [
+                {"path": "Pack/E01.mkv", "size": 1000},
+                {"path": "Pack/E01.eng.srt", "size": 50},
+            ],
+        )
+        assert torrent_files(HASH) == [("Pack/E01.mkv", 1000), ("Pack/E01.eng.srt", 50)]
+        assert "--list" in seen["cmd"]
+        assert seen["cmd"][2].startswith("magnet:?xt=urn:btih:")
+
+    def test_the_torrent_is_converted_to_a_magnet_first(self, monkeypatch):
+        seen = self._listing(monkeypatch, [])
         torrent_files(HASH)
-        assert seen["cmd"][1].startswith("magnet:?xt=urn:btih:")
+        assert seen["cmd"][2].startswith("magnet:?xt=urn:btih:")
+        assert HASH in seen["cmd"][2]
+
+    def test_a_failure_carries_the_command(self, monkeypatch):
+        self._listing(monkeypatch, [], returncode=3, output="bf-bt: error no metadata after 45s")
+        with pytest.raises(RuntimeError) as raised:
+            torrent_files(HASH)
+        message = str(raised.value)
+        assert "Unable to retrieve torrent files" in message
+        assert "--list" in message
+        assert "no metadata" in message
+
+    def test_a_timeout_says_so(self, monkeypatch):
+        import subprocess
+
+        def fake_run(cmd, **kwargs):
+            raise subprocess.TimeoutExpired(cmd, 90)
+
+        monkeypatch.setattr("lib.player.ltproc.subprocess.run", fake_run)
+        with pytest.raises(RuntimeError, match="No answer listing this torrent"):
+            torrent_files(HASH)

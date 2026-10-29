@@ -160,7 +160,7 @@ frozen rather than as waiting.
 
 What it should say instead is open: what stage it has reached — connecting,
 finding peers, downloading, opening — and, where the numbers are known, how
-far along it is. The stages are already logged by `peerflix` and the download
+far along it is. The stages are already logged by the torrent source and the download
 stage already knows its size, so this is a matter of surfacing what exists
 rather than measuring anything new.
 

@@ -4,7 +4,7 @@ ProcessPipe message protocol.
 lib/player/processpipe chains subprocesses together: each one signals READY with
 the arguments the next one needs, and the pipe walks its processes in order. The
 protocol is the trickiest part of the player, and it cannot be tested on a
-development machine without VLC and peerflix, so these tests drive it with
+development machine without VLC or a swarm, so these tests drive it with
 fake Process subclasses. No subprocess is ever started and no Raspberry Pi
 hardware is involved.
 
@@ -31,7 +31,7 @@ import pytest
 import lib.player.processpipe as pp
 from lib.player.backends import BACKENDS, backend_class
 from lib.player.dlsrvproc import DlsrvProcess
-from lib.player.pflixproc import PeerflixProcess
+from lib.player.ltproc import LibtorrentProcess
 from lib.player.processpipe import (
     MSG_PLAYER_PIPE_STOPPED,
     MSG_PROCESS_FINISHED,
@@ -810,7 +810,7 @@ class TestReadlineAtEndOfOutput:
     """
     Reading past the end of a process's output must raise, not block.
 
-    Four stages -- peerflix, dlsrv, yt-dlp and subtitles -- call _readline()
+    Four stages -- libtorrent, dlsrv, yt-dlp and subtitles -- call _readline()
     with no timeout inside a while True, relying on it to raise when the process
     dies. A queue looks the same whether a line is coming or the pipe has closed,
     so the copier pushes a sentinel at EOF to wake them. Without it a process
@@ -1111,18 +1111,7 @@ class TestDownloadsAreNeverDeleted:
             subs.exists()
         ), "the subtitle file was deleted, so the next play refetches it"
 
-    def test_peerflix_keeps_its_buffer(self, tmp_path):
-        """
-        peerflix was passed -r, which its own help spells "remove files on
-        exit". That is why no torrent ever kept its download.
-        """
-        from lib.player.pflixproc import PeerflixProcess
-
-        cmd = PeerflixProcess("magnet:?xt=urn:btih:AAAA", -1).cmd
-        assert "-r" not in cmd
-        assert "--remove" not in cmd
-
-    def test_peerflix_buffers_on_the_card_not_in_ram(self):
+    def test_the_torrent_process_buffers_on_the_card(self):
         """
         /tmp is a tmpfs sized at half of RAM on any current Pi -- systemd's
         static tmp.mount -- so it holds 371MB on a 741MB Pi. A film is 2-4GB.
@@ -1130,11 +1119,11 @@ class TestDownloadsAreNeverDeleted:
         the on-screen confirmation stopped appearing. The buffer has to be on
         the card.
         """
-        from lib.player.pflixproc import BUFFER_DIR, PeerflixProcess
+        from lib.player.buffer import BUFFER_DIR
 
         assert not BUFFER_DIR.startswith("/tmp"), BUFFER_DIR
-        cmd = PeerflixProcess("magnet:?xt=urn:btih:AAAA", -1).cmd
-        assert cmd[cmd.index("-f") + 1] == BUFFER_DIR
+        cmd = LibtorrentProcess("magnet:?xt=urn:btih:AAAA", -1).cmd
+        assert cmd[cmd.index("--dir") + 1] == BUFFER_DIR
 
     def test_the_server_clears_nothing_on_startup(self):
         """
@@ -1249,8 +1238,7 @@ class TestAStopIsNotAFailure:
     that used to invent an error whenever none existed. So every ordinary stop
     showed up as a failure whose reason was whatever the player last printed:
 
-        peerflix failed: Verifying downloaded: 0% | server is listening on
-        http://192.168.1.119:9696/
+        <source> failed: server is listening on http://127.0.0.1:9697/
 
     which is not a failure at all, and was alarming enough to look like a broken
     torrent.
@@ -1286,50 +1274,6 @@ class TestAStopIsNotAFailure:
         proc._add_output_to_error(tail)
         assert len(proc.errors) == 1
         assert proc.errors[0] == "could not start | no suitable decoder"
-
-
-class TestPeerflixsHardcodedMetadataPathIsLeftAlone:
-    """
-    peerflix has two output locations and only one of them can be aimed.
-
-    -f sets the buffer path, so the download goes where we want. The .torrent
-    metadata file cannot be moved at all: torrent-stream/index.js builds its path
-    as
-
-        var TMP = fs.existsSync('/tmp') ? '/tmp' : (os.tmpdir ...)
-        var torrentPath = path.join(opts.tmp, opts.name, infoHash + '.torrent')
-
-    with opts.name defaulting to 'torrent-stream'. TMP is resolved to the
-    literal '/tmp' before any environment is consulted, so TMPDIR does not reach
-    it, and peerflix exposes no option for it.
-
-    TMPDIR was tried for this and reverted. It redirected os.tmpdir() users
-    correctly but not this one, so it would have looked like it worked. A symlink
-    from /tmp/torrent-stream was tried next and dropped: peerflix's path is
-    clearer left alone than faked, and the file is about 21 KB per torrent
-    against a download measured in gigabytes -- so leaving ~21KB of metadata in
-    RAM costs nothing next to the gigabytes, and the buffer is on the card.
-    """
-
-    def test_the_buffer_is_on_the_card_while_metadata_stays_in_tmp(self):
-        from lib.player.pflixproc import BUFFER_DIR, PeerflixProcess
-
-        cmd = PeerflixProcess("magnet:?xt=urn:btih:AA", -1).cmd
-        assert cmd[cmd.index("-f") + 1] == BUFFER_DIR
-        assert not BUFFER_DIR.startswith("/tmp"), BUFFER_DIR
-
-    def test_nothing_pretends_to_redirect_peerflixs_hardcoded_path(self):
-        """
-        Guards against the symlink coming back. It worked, and it was still
-        wrong: making a path peerflix believes is its own into something else
-        is more confusing than a 21 KB file in the wrong directory.
-        """
-        import inspect
-
-        import blissflixx
-
-        source = inspect.getsource(blissflixx)
-        assert "symlink" not in source, "peerflix's hardcoded path is faked again"
 
 
 class TestStoppingAStageThatNeverStarted:
@@ -1513,11 +1457,11 @@ class TestTheKillIsNotSkippedWhenTheGroupIsMissing:
 
 class TestColourInStageOutput:
     """
-    peerflix decorates its progress for a terminal, and there is none here.
+    A dependency decorates its progress for a terminal, and there is none here.
 
     Its output arrived in the log and in the diagnostics panel with the escape
-    sequences intact -- "Verifying downloaded:" printed as "[33mVerifying
-    downloaded:[39m 27%" -- because clivas writes colour for a tty and the log
+    sequences intact -- the words printed between "[33m" and "[39m" -- because
+    the library writes colour for a tty and the log
     is not one.
     """
 

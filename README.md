@@ -470,8 +470,8 @@ enough that it is worth saying what does and does not help.
 YouTube's JavaScript challenges. Not the distribution's: yt-dlp refuses node
 below 22 and Raspberry Pi OS ships 20, so asking for `node` bought nothing and
 said so only in a warning. It is unpacked into the checkout rather than
-installed system-wide, so the runtime npm and peerflix were installed with is
-untouched. `quickjs` is installed too, as the fallback: it works, but it is an
+installed system-wide, so the runtime the distribution's own packages were
+installed with is untouched. `quickjs` is installed too, as the fallback: it works, but it is an
 interpreter and took four times as long to solve the same challenge — 79 s
 against 19 s on a Pi 4.
 
@@ -568,7 +568,7 @@ For information about what extra plugins are available please check the [Plugin 
 BlissFlixx relies on the following projects to do all the heavy lifting:
 
  - yt-dlp for media extraction: https://github.com/yt-dlp/yt-dlp
- - peerflix for torrent streaming: https://github.com/mafintosh/peerflix
+ - libtorrent for torrent streaming: https://libtorrent.org/
  - SinglePaged jekyll theme for the website: https://github.com/t413/SinglePaged
 
 ## Previously used software

@@ -2,7 +2,7 @@
 The diagnostics the bar and its panel are built on.
 
 Two kinds of reading, from two places that cannot answer the same way. The
-source is asked over peerflix's own /.json, which is cheap and always there.
+source is read from the torrent process's own status lines, which are cheap and always there.
 The player is asked over the lua http interface it already opens for subtitles
 -- never over the cli, which is a single reply queue that stopped answering
 when it was polled once a second, and which this feature must not bring back.
@@ -18,7 +18,8 @@ import time
 
 import pytest
 
-import lib.player.pflixproc as pflix
+import lib.player.buffer as buffer
+import lib.player.ltproc as ltproc
 import lib.player.player as player_module
 import lib.player.vlcproc as vlcproc
 
@@ -251,116 +252,15 @@ class TestTrackListing:
         assert proc.debug()["tracks"] == []
 
 
-class TestPeerflixDisk:
-    def _proc(self, tmp_path, monkeypatch, idx=0):
-        monkeypatch.setattr(pflix, "BUFFER_DIR", str(tmp_path))
-        proc = pflix.PeerflixProcess("magnet:?xt=urn:btih:abc", idx)
-        proc._started_at = time.time()
-        return proc
-
-    def test_the_share_on_disk_is_allocated_bytes(self, tmp_path, monkeypatch):
-        proc = self._proc(tmp_path, monkeypatch)
-        path = tmp_path / "film.mkv"
-        # A sparse file: 10 MB logical, 1 MB actually written.
-        with open(path, "wb") as fh:
-            fh.truncate(10 * 1024 * 1024)
-            fh.seek(0)
-            fh.write(b"x" * (1024 * 1024))
-            fh.flush()
-            os.fsync(fh.fileno())
-        proc._progress = {"files": [{"name": "film.mkv", "length": 10 * 1024 * 1024}]}
-        info = proc.served_file()
-        assert info["name"] == "film.mkv"
-        assert info["percent"] == 10
-        assert info["present"] < info["length"]
-
-    def test_a_complete_file_reads_one_hundred_percent(self, tmp_path, monkeypatch):
-        proc = self._proc(tmp_path, monkeypatch)
-        path = tmp_path / "film.mkv"
-        path.write_bytes(b"x" * (1024 * 1024))
-        proc._progress = {"files": [{"name": "film.mkv", "length": path.stat().st_size}]}
-        assert proc.served_file()["percent"] == 100
-
-    def test_a_file_in_a_torrent_folder_is_found(self, tmp_path, monkeypatch):
-        """peerflix names files relative to the torrent, which is a folder."""
-        proc = self._proc(tmp_path, monkeypatch)
-        folder = tmp_path / "A.Pack"
-        folder.mkdir()
-        (folder / "E01.mkv").write_bytes(b"x" * 1024)
-        proc._progress = {"files": [{"name": "E01.mkv", "length": 1024}]}
-        assert proc.served_file()["present"] > 0
-
-    def _set_swarm(self, proc, peers, downloaded=0):
-        proc._progress = {
-            "peers": peers,
-            "downloaded": downloaded,
-            "percent": 0,
-            "speed": 0,
-            "files": [{"name": "film.mkv", "length": 100}],
-        }
-
-    def test_a_complete_film_with_no_peers_is_not_stalled(self, tmp_path, monkeypatch):
-        proc = self._proc(tmp_path, monkeypatch)
-        (tmp_path / "film.mkv").write_bytes(b"x" * 100)
-        self._set_swarm(proc, peers=0)
-        proc._peers_seen_at = time.time() - 600
-        assert proc.stalled_for() == 0
-
-    def test_peers_mean_it_is_working(self, tmp_path, monkeypatch):
-        proc = self._proc(tmp_path, monkeypatch)
-        (tmp_path / "film.mkv").write_bytes(b"x" * 10)
-        self._set_swarm(proc, peers=3)
-        proc._peers_seen_at = time.time() - 600
-        assert proc.stalled_for() == 0
-
-    def test_missing_pieces_and_no_peers_is_stalled(self, tmp_path, monkeypatch):
-        proc = self._proc(tmp_path, monkeypatch)
-        (tmp_path / "film.mkv").write_bytes(b"x" * 10)
-        self._set_swarm(proc, peers=0)
-        proc._peers_seen_at = time.time() - 90
-        assert proc.stalled_for() >= 89
-
-    def test_without_an_answer_from_the_swarm_nothing_is_claimed(self, tmp_path, monkeypatch):
-        proc = self._proc(tmp_path, monkeypatch)
-        assert proc.served_file() is None
-        assert proc.stalled_for() == 0
-
-
-class TestDiskFallback:
-    def _proc(self, tmp_path, monkeypatch, total):
-        monkeypatch.setattr(pflix, "BUFFER_DIR", str(tmp_path))
-        proc = pflix.PeerflixProcess("magnet:?xt=urn:btih:abc", None)
-        proc._progress = {"total": total, "downloaded": 0, "percent": 0,
-                          "speed": 0, "peers": 0, "files": []}
-        return proc
-
-    def test_without_a_file_list_the_buffer_is_measured(self, tmp_path, monkeypatch):
-        """
-        A poll can land before peerflix has parsed the metadata, with totals
-        and no files. The panel used to show "-" for the one number that says
-        whether waiting is worth anything.
-        """
-        film = tmp_path / "film.mp4"
-        film.write_bytes(b"x" * (2 * 1024 * 1024))
-        proc = self._proc(tmp_path, monkeypatch, 8 * 1024 * 1024)
-        info = proc.served_file()
-        assert info["percent"] == 25
-        assert info["name"] == "film.mp4"
-
-    def test_an_empty_buffer_is_still_unknown(self, tmp_path, monkeypatch):
-        proc = self._proc(tmp_path, monkeypatch, 8 * 1024 * 1024)
-        assert proc.served_file() is None
-
-
 class TestPlayerDebug:
     def test_the_panel_gets_every_section(self):
         pl = _player(_Pipe(playback={"position": 10, "length": 100}))
         pl.play_pipe = _FakePipe()
         debug = pl.debug()
         assert debug["Playback"]["title"] == "A Film"
-        assert debug["Source"]["name"] == "peerflix"
+        assert debug["Source"]["name"] == "libtorrent"
         assert debug["Player"]["name"] == "vlc"
-        assert [s["name"] for s in debug["Pipeline"]] == ["peerflix", "vlc"]
+        assert [s["name"] for s in debug["Pipeline"]] == ["libtorrent", "vlc"]
         assert "cma_free_mb" in debug["Machine"]
         assert debug["Log"]["vlc"] == ["a line"]
 
@@ -518,14 +418,14 @@ class TestDropFileCache:
     def test_one_file_is_evicted(self, tmp_path):
         path = tmp_path / "film.mkv"
         path.write_bytes(b"x" * 4096)
-        assert pflix.drop_file_cache(str(path)) == 1
+        assert buffer.drop_file_cache(str(path)) == 1
 
     def test_a_missing_file_is_not_an_error(self, tmp_path):
-        assert pflix.drop_file_cache(str(tmp_path / "absent.mkv")) == 0
+        assert buffer.drop_file_cache(str(tmp_path / "absent.mkv")) == 0
 
     def test_no_path_drops_nothing(self):
-        assert pflix.drop_file_cache(None) == 0
-        assert pflix.drop_file_cache("") == 0
+        assert buffer.drop_file_cache(None) == 0
+        assert buffer.drop_file_cache("") == 0
 
 
 class TestLocalFileEviction:
@@ -678,7 +578,7 @@ class _Stage:
             "running": True,
             "ready_after": 1.5,
             "log": ["a line"] if self._name == "vlc" else [],
-            "is_source": self._name in ("peerflix", "libtorrent"),
+            "is_source": self._name == "libtorrent",
         }
         base.update(self._extra)
         return base
@@ -687,7 +587,7 @@ class _Stage:
 class _FakePipe(_Pipe):
     def __init__(self):
         super().__init__(playback={"position": 10, "length": 100})
-        self.procs = [_Stage("peerflix"), _Stage("vlc")]
+        self.procs = [_Stage("libtorrent"), _Stage("vlc")]
 
     def debug(self):
         return {
@@ -741,17 +641,17 @@ class TestNavSlots:
         assert "buf.free" in text
 
     def test_the_source_reports_the_buffer_space(self, tmp_path, monkeypatch):
-        monkeypatch.setattr(pflix, "BUFFER_DIR", str(tmp_path))
+        monkeypatch.setattr(ltproc, "BUFFER_DIR", str(tmp_path))
         (tmp_path / "film.mkv").write_bytes(b"x" * 10)
-        proc = pflix.PeerflixProcess("magnet:?xt=urn:btih:abc", None)
+        proc = ltproc.LibtorrentProcess("magnet:?xt=urn:btih:abc", None)
         proc._space_needed = 1234
         proc._space_freed = 100
         proc._space_removed = ["a", "b"]
-        buffer = proc.debug()["buffer"]
-        assert buffer["needed"] == 1234
-        assert buffer["evicted"] == 100
-        assert buffer["removed"] == 2
-        assert buffer["free"] > 0
+        space = proc.debug()["buffer"]
+        assert space["needed"] == 1234
+        assert space["evicted"] == 100
+        assert space["removed"] == 2
+        assert space["free"] > 0
 
 class TestTimeToPicture:
     def test_it_is_measured_from_the_play_request(self):

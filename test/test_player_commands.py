@@ -2,7 +2,7 @@
 Command construction for every pipeline stage.
 
 Each stage's _get_cmd() builds the command it will run and does no I/O, so the
-whole command surface is testable without VLC, peerflix, dlsrv or any
+whole command surface is testable without VLC, libtorrent, dlsrv or any
 Raspberry Pi. Only the shape of each command is asserted: these tests check
 that the right flags, paths and arguments are assembled, not that any binary is
 installed. Whether the player actually renders video is a question for the
@@ -23,7 +23,6 @@ from lib.locations import BIN_PATH
 from lib.player import ythelper
 from lib.player.dlsrvproc import DlsrvProcess
 from lib.player.localproc import LocalFileProcess
-from lib.player.pflixproc import PeerflixProcess
 from lib.player.subsproc import SubtitlesProcess
 from lib.player.ytdlproc import YoutubeDlProcess
 
@@ -360,166 +359,3 @@ class TestSubtitles:
     def test_uses_argv(self):
         proc = SubtitlesProcess({"lang": "eng", "title": "M"})
         assert isinstance(proc._get_cmd({}), list)
-
-
-class TestPeerflix:
-    def test_argv_shape(self):
-        cmd = PeerflixProcess("http://x/y.torrent", None)._get_cmd({})
-        assert cmd[0] == "node"
-        assert "--max-old-space-size=128" in cmd
-        assert "/usr/local/bin/peerflix" in cmd
-
-    def test_torrent_is_converted_to_a_magnet(self):
-        """
-        peerflix needs a magnet; a .torrent url or a bare hash both become one,
-        which is what keeps sites that serve html instead of a torrent from
-        being queued as a download.
-        """
-        HASH = "A" * 40
-        cmd = PeerflixProcess(HASH, None)._get_cmd({})
-        assert cmd[3].startswith("magnet:?xt=urn:btih:")
-
-    def test_magnet_url_keeps_its_own_trackers_and_gains_ours(self):
-        """
-        A magnet from a channel names the trackers its uploader chose, and
-        they are frequently dead. Ours are appended rather than replacing
-        them, so the film gets both sets to ask.
-        """
-        from urllib.parse import quote
-
-        from lib.api.torrent import TRACKERS
-
-        own = "udp://old.example:1/announce"
-        magnet = "magnet:?xt=urn:btih:" + "B" * 40 + "&tr=" + quote(own, safe="")
-        cmd = PeerflixProcess(magnet, None)._get_cmd({})
-        assert cmd[3].startswith(magnet)
-        assert own in cmd[3] or quote(own, safe="") in cmd[3]
-        for tracker in TRACKERS:
-            assert "tr=" + quote(tracker, safe="") in cmd[3]
-        # Running it through twice must not add the same tracker twice.
-        again = PeerflixProcess(cmd[3], None)._get_cmd({})
-        assert again[3] == cmd[3]
-
-    def test_file_index_only_when_non_negative(self):
-        cmd = PeerflixProcess("http://x/y.torrent", 2)._get_cmd({})
-        assert "-i" in cmd
-        assert "2" in cmd
-
-    def test_main_file_sends_no_index(self):
-        """
-        bf_torr_idx=-1 means "the torrent's main file", and peerflixproc
-        excludes it via `idx >= 0`, so no -i is emitted and peerflix picks the
-        main file itself. Only explicit non-negative indexes are forwarded.
-        """
-        cmd = PeerflixProcess("http://x/y.torrent", -1)._get_cmd({})
-        assert "-i" not in cmd
-        assert "-1" not in cmd
-
-    def test_no_index_when_none(self):
-        cmd = PeerflixProcess("http://x/y.torrent", None)._get_cmd({})
-        assert "-i" not in cmd
-
-    def test_serving_port(self):
-        cmd = PeerflixProcess("http://x/y.torrent", None)._get_cmd({})
-        assert "-p" in cmd
-        assert "9696" in cmd
-
-    def test_args_retained_for_ready(self):
-        proc = PeerflixProcess("http://x/y.torrent", None)
-        args = {}
-        proc._get_cmd(args)
-        assert proc.args is args
-
-    def test_builds_cmd_in_constructor(self):
-        """Unlike every other stage, peerflix does not need args to build."""
-        proc = PeerflixProcess("http://x/y.torrent", 1)
-        assert proc._get_cmd({}) is proc.cmd
-
-
-class TestLocalFile:
-    """
-    Not an ExternalProcess: it has no command, it just hands a path on. That is
-    how a file:// url is played without involving the network at all.
-    """
-
-    def test_ready_reports_the_path(self):
-        proc = LocalFileProcess("/media/movies/a.mkv")
-        q = _capture(proc)
-        proc.set_msgq(q, 0)
-        proc.start({})
-        assert q.get_nowait() == 1  # MSG_PROCESS_READY
-        assert q.get_nowait() == 0  # index
-        assert q.get_nowait() == {"outfile": "/media/movies/a.mkv"}
-
-    def test_stop_reports_finished(self):
-        from lib.player.processpipe import MSG_PROCESS_FINISHED
-
-        proc = LocalFileProcess("/media/movies/a.mkv")
-        q = _capture(proc)
-        proc.set_msgq(q, 0)
-        proc.stop()
-        assert q.get_nowait() == MSG_PROCESS_FINISHED
-
-    def test_has_no_shell_flag(self):
-        """It never spawns anything."""
-        assert not hasattr(LocalFileProcess("/a.mkv"), "shell")
-
-
-def _capture(proc):
-    import queue
-
-    q = queue.Queue()
-    return q
-
-
-class TestTheJavaScriptRuntime:
-    """
-    A runtime the checkout owns, or the one on PATH.
-
-    yt-dlp refuses node below version 22, which is what Raspberry Pi OS ships,
-    so configure.sh unpacks a pinned LTS into data/node. peerflix goes through
-    the same helper, because once the distribution's node is no longer installed
-    it is the only node on the machine.
-    """
-
-    def _bundled(self, tmp_path, monkeypatch):
-        import lib.player.nodejs as nodejs
-
-        binary = tmp_path / "bin" / "node"
-        binary.parent.mkdir()
-        binary.write_text("#!/bin/sh\n")
-        monkeypatch.setattr(nodejs, "_BUNDLED", str(binary))
-        return nodejs, binary
-
-    def test_a_bundled_runtime_is_named_by_path(self, tmp_path, monkeypatch):
-        """
-        By path rather than by name: a bare "node" would find the distribution's
-        and be rejected as too old, which is the bug this exists to avoid.
-        """
-        nodejs, binary = self._bundled(tmp_path, monkeypatch)
-        assert nodejs.node_binary() == str(binary)
-        assert nodejs.node_runtime() == "node:" + str(binary.parent)
-
-    def test_without_one_the_name_on_path_is_used(self, tmp_path, monkeypatch):
-        import lib.player.nodejs as nodejs
-
-        monkeypatch.setattr(nodejs, "_BUNDLED", str(tmp_path / "absent"))
-        assert nodejs.node_binary() == "node"
-        assert nodejs.node_runtime() == "node"
-
-    def test_and_ytdlp_is_told_about_it(self, tmp_path, monkeypatch):
-        self._bundled(tmp_path, monkeypatch)
-        cmd = YoutubeDlProcess(SHORT_URL)._get_cmd({})
-        runtimes = [cmd[i + 1] for i, a in enumerate(cmd) if a == "--js-runtimes"]
-        expected = "node:" + str(tmp_path / "bin")
-        assert runtimes == [expected, "quickjs"], runtimes
-
-    def test_peerflix_runs_on_the_same_runtime(self, monkeypatch):
-        """
-        peerflix is invoked as "<node> ... /usr/local/bin/peerflix", so the node
-        it runs on is the one named here.
-        """
-        import lib.player.pflixproc as pflixproc
-
-        monkeypatch.setattr(pflixproc, "node_binary", lambda: "/opt/node/bin/node")
-        assert PeerflixProcess("http://x/y.torrent", 0).cmd[0] == "/opt/node/bin/node"

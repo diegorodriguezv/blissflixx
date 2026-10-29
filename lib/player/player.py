@@ -12,7 +12,6 @@ from .backends import DEFAULT_BACKEND, get_backend
 from .dlsrvproc import DlsrvProcess
 from .localproc import LocalFileProcess
 from .ltproc import LibtorrentProcess
-from .pflixproc import PeerflixProcess
 from .processpipe import MSG_PLAYER_PIPE_STOPPED, ProcessPipe, _start_thread
 from .subsproc import ChosenSubtitlesProcess
 from .ytdlproc import YoutubeDlProcess
@@ -394,27 +393,8 @@ class _Player:
         files = wanted.get("files")
         if files is None and wanted.get("idx") is not None:
             files = [{"idx": wanted["idx"], "name": wanted.get("name")}]
-        source = self._torrent_source(url, idx, files or [])
+        source = LibtorrentProcess(url, idx, files or [])
         return self.build(title, source, subs, True)
-
-    def _torrent_source(self, url, idx, files):
-        """
-        Which torrent engine this play uses.
-
-        Two engines, one setting: peerflix is the old source and stays the
-        default until libtorrent has matched or beaten it on the box. The switch
-        is by name rather than by capability because they are not
-        interchangeable in the middle of a play -- resuming one with the other
-        would read a half-downloaded file as a complete one.
-        """
-        backend = load("player").get("torrent_backend", "peerflix")
-        if backend == "libtorrent":
-            return LibtorrentProcess(url, idx, files)
-        if backend != "peerflix":
-            cherrypy.log(
-                "Unknown torrent_backend %r, using peerflix" % (backend,)
-            )
-        return PeerflixProcess(url, idx, files)
 
     # Dead: LivestreamerProcess is only reachable from here, and livestreamer is
     # no longer supported upstream and is not installed by configure.sh.
@@ -487,8 +467,8 @@ class _Player:
         status["Detail"] = play_pipe.detail()
         # How long it took, once, for the question that keeps coming back:
         # "was that slower than it used to be". Everything a play waits on is
-        # already logged with a timestamp -- peerflix verifying its buffer,
-        # yt-dlp resolving, the player opening -- and this is the total.
+        # already logged with a timestamp -- the torrent source arming, yt-dlp
+        # resolving, the player opening -- and this is the total.
         if (
             not self.start_logged
             and self.play_requested_at is not None

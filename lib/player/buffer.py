@@ -1,6 +1,8 @@
 """
-Make room for a play by deleting the least recently used buffer entry.
+The torrent buffer: where downloads live, how space is made for one, and how
+its pages are kept out of memory the display needs.
 
+Space: make room for a play by deleting the least recently used buffer entry.
 Deliberately small and stateless. "Last used" is the filesystem's own record:
 the newest of a file's atime and mtime, or, for a pack directory, the newest of
 the directory's mtime and its files' atimes and mtimes. Nothing is written down
@@ -18,8 +20,94 @@ HEADROOM, at the moment the film's size is known, and never look again.
 import os
 import shutil
 
+from ..locations import DATA_PATH
+
 #: Left for the system after the film has finished downloading.
 HEADROOM = 100 * 1024 * 1024
+
+#: Where a torrent's files are written, and where the space manager looks. The
+#: torrent process is told this directory; it does not choose one.
+#:
+#: On the SD card, not in /tmp. On any current Pi /tmp is a tmpfs sized at half
+#: of RAM (systemd's static tmp.mount, Options=...,size=50%%), and a 1080p film
+#: is 2-4GB against 371MB: a download there cannot finish, and the writes after
+#: it fails fill the mount and fail with ENOSPC, which is how the on-screen
+#: confirmation once stopped appearing.
+BUFFER_DIR = os.path.join(DATA_PATH, "downloads", "torrent-stream")
+
+
+def drop_file_cache(path):
+    """
+    Evict one file's pages, or say zero. Never raises.
+
+    The single-file form of drop_buffer_cache, for a film being read from the
+    card: VLC reads its own media through the same page cache, and those pages
+    land in the display memory's region just as the verifier's do. Measured on
+    rpi with a 1080p file, the same play failed at 0:30 without this and ran
+    past 1:35 with it, CmaFree steady at 64MB either way until the failure.
+    """
+    try:
+        fadvise = getattr(os, "posix_fadvise", None)
+        dontneed = getattr(os, "POSIX_FADV_DONTNEED", None)
+        if fadvise is None or dontneed is None or not path:
+            return 0
+        fd = os.open(path, os.O_RDONLY)
+        try:
+            fadvise(fd, 0, 0, dontneed)
+        finally:
+            os.close(fd)
+        return 1
+    except OSError:
+        return 0
+
+
+def drop_buffer_cache():
+    """
+    Evict the torrent buffer's file pages from memory. Returns how many files
+    were dropped.
+
+    A hash check reads gigabytes through the page cache, and
+    on this box those pages land in the display memory's region faster than
+    the kernel migrates them out: measured on rpi, a 60MB read cost 155MB of
+    CmaFree, and a play starting with a pressured region decodes to a black
+    screen -- "Atomic commit failed: No space left on device", which is the
+    display, not the disk. A check reads each piece once and never again, so
+    what has been read is never needed in memory; telling the kernel so
+    keeps the region defragmented for the decoder's large contiguous
+    allocations. Needs no privileges: an eviction hint on files this user can
+    read.
+
+    Best effort, so it never raises: a play must not fail because housekeeping
+    did.
+    """
+    try:
+        return _drop_buffer_cache()
+    except Exception:
+        return 0
+
+
+def _drop_buffer_cache():
+    if not os.path.isdir(BUFFER_DIR):
+        return 0
+    fadvise = getattr(os, "posix_fadvise", None)
+    dontneed = getattr(os, "POSIX_FADV_DONTNEED", None)
+    if fadvise is None or dontneed is None:
+        return 0
+    dropped = 0
+    for root, _dirs, files in os.walk(BUFFER_DIR):
+        for name in files:
+            try:
+                fd = os.open(os.path.join(root, name), os.O_RDONLY)
+            except OSError:
+                continue
+            try:
+                fadvise(fd, 0, 0, dontneed)
+                dropped += 1
+            except OSError:
+                pass
+            finally:
+                os.close(fd)
+    return dropped
 
 
 def free_bytes(root):
