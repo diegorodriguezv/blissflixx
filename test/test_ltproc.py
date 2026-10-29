@@ -202,6 +202,17 @@ class TestDetail:
         assert proc.stalled_for() == 0
         assert "nothing arriving" not in proc.detail()
 
+    def test_a_hash_check_is_not_a_stall(self):
+        """
+        Checking the card runs with no peers and might take a minute on a 2GB
+        film; reported as a stall it would read as a dead torrent.
+        """
+        proc = with_status(
+            LibtorrentProcess(MAGNET, 0), state="checking_files", checking=20, peers=0
+        )
+        proc._started_at = time.time() - 90
+        assert proc.stalled_for() == 0
+
     def test_peers_present_is_not_a_stall_even_if_slow(self):
         proc = with_status(LibtorrentProcess(MAGNET, 0), peers=1)
         proc._started_at = time.time() - 400
@@ -335,6 +346,21 @@ class TestBufferSpace:
         proc = with_status(LibtorrentProcess(MAGNET, 0))
         assert proc._space_checked is True
         assert proc.stalled_for() == 0
+
+
+class TestPanelTimes:
+    def test_the_panel_is_told_how_long_the_stage_took_to_serve(self):
+        proc = LibtorrentProcess(MAGNET, 0)
+        proc._ready_after = 4.2
+        assert proc.debug()["serve_after"] == 4.2
+
+    def test_a_hash_check_is_reported_as_verifying(self):
+        proc = with_status(LibtorrentProcess(MAGNET, 0), state="checking_files", checking=37)
+        assert proc.debug()["verifying"] == 37
+
+    def test_no_check_means_the_verify_line_says_nothing(self):
+        proc = with_status(LibtorrentProcess(MAGNET, 0))
+        assert proc.debug()["verifying"] is None
 
 
 class TestChoosingTheEngine:

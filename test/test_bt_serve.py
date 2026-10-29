@@ -326,3 +326,18 @@ class TestWindowWithinFile:
 
     def test_a_single_piece_file_is_one_piece(self):
         assert bt.window_within(5, 5, 5) == (5, 5)
+
+
+class TestCheckingPercent:
+    def test_a_check_reports_how_far_it_has_got(self):
+        assert bt.checking_percent("checking_files", 50, 200) == 25
+
+    def test_anything_else_is_not_a_check(self):
+        assert bt.checking_percent("downloading", 50, 200) is None
+        assert bt.checking_percent("finished", 200, 200) is None
+
+    def test_reading_resume_data_is_instant_and_not_reported(self):
+        assert bt.checking_percent("checking_resume_data", 0, 200) is None
+
+    def test_a_torrent_with_no_pieces_is_not_a_percentage(self):
+        assert bt.checking_percent("checking_files", 0, 0) is None

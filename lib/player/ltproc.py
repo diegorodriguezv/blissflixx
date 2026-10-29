@@ -300,6 +300,10 @@ class LibtorrentProcess(ExternalProcess):
         info = self.served_file()
         if not self._status:
             return 0
+        if self._status.get("checking") is not None:
+            # A hash check is work, and it is the card being read, not a swarm
+            # with nothing to send. It must not read as "nothing arriving".
+            return 0
         if info and info["percent"] >= 99:
             return 0
         if self._status.get("peers"):
@@ -331,6 +335,11 @@ class LibtorrentProcess(ExternalProcess):
                 "swarm": swarm,
                 "file": self.served_file(),
                 "stalled_for": self.stalled_for(),
+                # The panel's own lines: how long this stage took to serve,
+                # and whether a hash check is running. Without these it showed
+                # "—" and "not running" for every libtorrent play.
+                "serve_after": getattr(self, "_ready_after", None),
+                "verifying": (self._status or {}).get("checking"),
                 "buffer": {
                     "dir": BUFFER_DIR,
                     "files": buffered,

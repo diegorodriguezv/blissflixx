@@ -142,6 +142,19 @@ def read_spans(file_start, file_size, piece_length, start, end):
         pos += chunk
 
 
+def checking_percent(state, have_pieces, total_pieces):
+    """
+    How far a hash check has got, or None when none is running.
+
+    A check is the one long wait with nothing on screen: no peers, no bytes of
+    the film, just the card being read. libtorrent counts the pieces it has
+    verified as it goes, so the piece count is the progress.
+    """
+    if not state.startswith("checking_files") or not total_pieces:
+        return None
+    return min(100, int(have_pieces * 100 / total_pieces))
+
+
 def window_for(piece, last_piece, width=WINDOW):
     """The pieces to keep urgent while the reader is at piece."""
     lo = max(0, min(piece, last_piece))
@@ -625,6 +638,9 @@ class App:
             )
         return {
             "state": str(st.state),
+            "checking": checking_percent(
+                str(st.state), int(st.num_pieces), self.info.num_pieces()
+            ),
             "peers": int(st.num_peers),
             "active_peers": self.active_peers(),
             "seeds": int(st.num_seeds),
