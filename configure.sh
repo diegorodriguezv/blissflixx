@@ -122,7 +122,13 @@ else
        ( cd /tmp && grep " $NODE_TARBALL\$" SHASUMS256.txt | sha256sum -c - ); then
         mkdir -p data/node
         tar -xJf "/tmp/$NODE_TARBALL" -C data/node --strip-components=1
-        echo "  node $NODE_VERSION in $(pwd)/data/node"
+        # Only the runtime is used: yt-dlp runs `node` for YouTube's JavaScript
+        # challenges. The tarball also carries 65MB of C++ headers for building
+        # native addons and 18MB of npm and corepack; nothing here runs npm, so
+        # both are removed rather than left as the largest thing in the checkout.
+        rm -rf data/node/include data/node/lib/node_modules \
+               data/node/CHANGELOG.md data/node/README.md
+        echo "  node $NODE_VERSION in $(pwd)/data/node ($(du -sh data/node | cut -f1))"
     else
         echo "  node $NODE_VERSION not installed; yt-dlp will fall back to quickjs"
     fi
@@ -144,7 +150,11 @@ else
     # VLC is the default backend.
     if [[ $@ != *-no-players* ]] ; then
         apt -y install vlc
-        apt -y install mpv
+        # mpv is the second backend, small and a useful fallback for VLC. Its
+        # Recommends include the distribution's yt-dlp, which this application
+        # does not use -- it runs yt-dlp from its virtualenv, unpinned, on
+        # purpose -- and which drags in another Python stack alongside it.
+        apt -y install --no-install-recommends mpv
         stage "mpv"
         # GStreamer for the most CPU-efficient pipeline. The element set depends
         # on which plugin packages are installed, so bin/check_players.py
@@ -156,6 +166,17 @@ else
                        gstreamer1.0-libav
         stage "vlc and gstreamer"
     fi
+
+    # ffmpeg, which yt-dlp uses where a stream has to be remuxed or a download
+    # reassembled. It used to arrive only as a dependency of mpv's recommended
+    # yt-dlp package; naming it makes it deliberate rather than a side effect.
+    apt -y install ffmpeg
+
+    # The distribution's yt-dlp arrives with mpv's recommends and is not used.
+    # It is also old by design -- the virtualenv's is unpinned and tracks the
+    # sites it extracts from -- so it is removed rather than left on PATH.
+    apt-get -y purge yt-dlp > /dev/null 2>&1 || true
+    stage "ffmpeg"
 
     # Install version control software for updates and to install other packages like
     # yt-dlp. It is probably already installed, but it is possible that the user
