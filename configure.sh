@@ -176,17 +176,15 @@ else
     apt -y install git
     stage "git"
 
-    # Install python package manager
-    apt -y install python3-pip
-    
-    # Install python virtual environment to keep blissflixx dependencies isolated
+    # The virtual environment keeps BlissFlixx's Python dependencies isolated.
+    # python3-venv pulls python3-pip with it on this distribution, so pip is not
+    # named separately; the system pip is not used, only the one in the venv.
     apt -y install python3-venv
-    
-    # Install XML parser for screen scaping websites
-    apt -y install libxml2-dev
-    
-    # Install XSLT package for screen scaping websites
-    apt -y install libxslt1-dev
+
+    # libxml2-dev and libxslt1-dev are deliberately not installed: they are only
+    # needed to *build* lxml, and lxml ships a manylinux wheel for armv7l and
+    # aarch64. configure_py.sh asks for that wheel explicitly, so a version
+    # without one fails at install instead of compiling against missing headers.
 
     # libtorrent, for the torrent source that fetches only the pieces a play
     # reads. It is a system package rather than a pip one, so it lives in the

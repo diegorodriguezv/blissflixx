@@ -29,7 +29,10 @@ fi
 # place rather than as a list of pip invocations here.
 echo "Installing runtime dependencies..."
 pip3 install --upgrade pip
-pip3 install -r requirements.txt
+# lxml only: its wheel is what makes the libxml2-dev/libxslt1-dev build
+# dependencies unnecessary. If a version ever ships without an armv7l/arm64
+# wheel, failing here says so plainly rather than half-building.
+pip3 install --only-binary lxml -r requirements.txt
 
 # What yt-dlp arrived as, said plainly.
 #
