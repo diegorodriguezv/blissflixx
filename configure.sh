@@ -60,6 +60,74 @@ fi
 # password, and it does not need a terminal.
 BF_USER="${SUDO_USER:-$(logname 2>/dev/null || whoami)}"
 
+# apt, with the patience this needs.
+#
+# The Raspberry Pi archive and its mirrors drop connections often enough --
+# especially at peak hours -- that one attempt is not a plan. apt is told to
+# retry each download and to give up on a stalled one after 30 seconds, and the
+# whole command is attempted a few times with a pause between. Re-running the
+# script by hand was the old answer to a bad mirror; this is that, without the
+# person.
+APT_OPTS=(
+    -o Acquire::Retries=5
+    -o Acquire::http::Timeout=30
+    -o Acquire::https::Timeout=30
+)
+apt_run() {
+    local attempt
+    for attempt in 1 2 3 4
+    do
+        if apt-get "${APT_OPTS[@]}" "$@"; then
+            return 0
+        fi
+        if [ "$attempt" -lt 4 ]; then
+            echo "  apt failed (attempt $attempt of 4), retrying in 10s"
+            sleep 10
+        fi
+    done
+    return 1
+}
+
+# A package set that must be present. A partial mirror makes apt exit without
+# everything it was asked for, and a box that "looks installed" is the worst
+# outcome: say which ones are missing and stop, with the command that finishes
+# the job on the next run.
+install_or_stop() {
+    if apt_run install -y --no-install-recommends "$@"; then
+        return 0
+    fi
+    echo ""
+    echo "These packages did not install:"
+    echo "    $*"
+    echo ""
+    echo "The archive was probably having a bad moment. Run this again -- it"
+    echo "picks up where it left off:"
+    echo ""
+    echo "    sudo ./configure.sh -boot"
+    echo ""
+    exit 1
+}
+
+require_packages() {
+    local missing="" pkg
+    for pkg in "$@"
+    do
+        dpkg-query -W -f='${Status}' "$pkg" 2>/dev/null |
+            grep -q "install ok installed" || missing="$missing $pkg"
+    done
+    if [ -n "$missing" ]; then
+        echo ""
+        echo "These packages are not installed:"
+        echo "   $missing"
+        echo ""
+        echo "Run this again -- it picks up where it left off:"
+        echo ""
+        echo "    sudo ./configure.sh -boot"
+        echo ""
+        exit 1
+    fi
+}
+
 if [[ $@ == *-only* ]] ; then
     echo running only optional arguments
 else
@@ -72,7 +140,10 @@ else
     echo "============================================================"
 
     echo "  Updating package lists"
-    apt update
+    if ! apt_run update; then
+        echo "  package lists could not be refreshed; carrying on with the ones"
+        echo "  already here. If the install fails below, run it again."
+    fi
     stage "package lists"
 
     # A JavaScript runtime, for yt-dlp's YouTube extraction.
@@ -102,9 +173,11 @@ else
         # something else must not download 26MB again on a slow connection.
         echo "  node $NODE_VERSION already in $(pwd)/data/node"
     elif [ -n "$NODE_ARCH" ] &&
-       curl -fsS --max-time 300 -o "/tmp/$NODE_TARBALL" \
+       curl -fsS --retry 5 --retry-delay 5 --retry-all-errors -C - \
+           --connect-timeout 20 --max-time 300 -o "/tmp/$NODE_TARBALL" \
            "https://nodejs.org/dist/$NODE_VERSION/$NODE_TARBALL" &&
-       curl -fsS --max-time 120 -o /tmp/SHASUMS256.txt \
+       curl -fsS --retry 5 --retry-delay 5 --retry-all-errors \
+           --connect-timeout 20 --max-time 120 -o /tmp/SHASUMS256.txt \
            "https://nodejs.org/dist/$NODE_VERSION/SHASUMS256.txt" &&
        ( cd /tmp && grep " $NODE_TARBALL\$" SHASUMS256.txt | sha256sum -c - ); then
         mkdir -p data/node
@@ -130,8 +203,7 @@ else
     # and the video output plugins. Measured on a Pi 3: 31MB instead of 80MB,
     # same picture, same hardware decoder.
     if [[ $@ != *-no-players* ]] ; then
-        apt-get -y install --no-install-recommends \
-            vlc-bin vlc-plugin-base vlc-plugin-video-output
+        install_or_stop vlc-bin vlc-plugin-base vlc-plugin-video-output
         stage "vlc"
     fi
 
@@ -150,9 +222,17 @@ else
     # to *build* lxml, and lxml ships a manylinux wheel for armv7l and aarch64.
     # configure_py.sh asks for that wheel explicitly, so a version without one
     # fails at install instead of compiling against missing headers.
-    apt-get -y install --no-install-recommends \
+    install_or_stop \
         quickjs fonts-freefont-ttf git python3-venv python3-libtorrent ffmpeg
     stage "tools"
+
+    # What a play actually needs. Checked rather than assumed: a mirror that
+    # dropped a package leaves apt reporting success, and the failure would
+    # otherwise surface much later as a missing player or a torrent stage that
+    # cannot start.
+    require_packages vlc-bin vlc-plugin-base vlc-plugin-video-output \
+        python3-libtorrent quickjs fonts-freefont-ttf ffmpeg git python3-venv
+    stage "packages verified"
 
     # Boxes upgraded from older versions carry packages this one does not use:
     # the two retired players, and the distribution's yt-dlp (which arrived as
@@ -161,13 +241,13 @@ else
     # for the check twice.
     if dpkg-query -W -f='${Status}' mpv 2>/dev/null | grep -q "install ok installed"
     then
-        apt-get -y purge mpv gstreamer1.0-tools gstreamer1.0-plugins-base \
+        apt_run purge -y mpv gstreamer1.0-tools gstreamer1.0-plugins-base \
             gstreamer1.0-plugins-good gstreamer1.0-plugins-bad \
             gstreamer1.0-libav > /dev/null 2>&1 || true
     fi
     if dpkg-query -W -f='${Status}' yt-dlp 2>/dev/null | grep -q "install ok installed"
     then
-        apt-get -y purge yt-dlp > /dev/null 2>&1 || true
+        apt_run purge -y yt-dlp > /dev/null 2>&1 || true
     fi
     stage "upgrades cleaned"
     

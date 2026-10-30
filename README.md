@@ -79,11 +79,13 @@ stage failed if one does.
 
 Various warnings are reported during the install and this is expected.
 
-**If an apt repository fails partway**, the script carries on and the machine
-ends up looking installed without being installed. The stage timings are how
-you tell: something that took no time at all is the step that failed. Run
-`sudo ./configure.sh` again and it will pick up where it left off, finishing in
-a few minutes because everything already installed is cached.
+**The Raspberry Pi archive drops connections often**, especially at peak
+hours. The installer expects that: apt retries each download, the whole command
+is attempted four times with a pause, and the packages a play needs are checked
+at the end rather than assumed. If something is still missing it stops and names
+it, and running `sudo ./configure.sh -boot` again picks up where it left off --
+packages already installed and files already downloaded are kept, so a re-run
+takes minutes.
 
 # configure.sh options
 
