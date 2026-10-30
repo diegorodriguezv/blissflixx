@@ -28,7 +28,9 @@ fi
 # Runtime dependencies. Kept in requirements.txt so they are declared in one
 # place rather than as a list of pip invocations here.
 echo "Installing runtime dependencies..."
-pip3 install --upgrade pip
+# pip itself is not upgraded: the one in a fresh venv is recent enough to
+# resolve these, and upgrading it costs a download and an install on every
+# fresh card to gain nothing.
 # lxml only: its wheel is what makes the libxml2-dev/libxslt1-dev build
 # dependencies unnecessary. If a version ever ships without an armv7l/arm64
 # wheel, failing here says so plainly rather than half-building.

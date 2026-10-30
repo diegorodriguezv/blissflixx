@@ -85,7 +85,7 @@ else
     echo "============================================================"
     echo ""
     echo "Installing system dependencies... (This will take a while)"
-    echo "Expect about 45 minutes on a Raspberry Pi 3."
+    echo "Expect about 20 minutes on a Raspberry Pi 3."
     echo ""
     echo "============================================================"
 
@@ -121,13 +121,13 @@ else
            "https://nodejs.org/dist/$NODE_VERSION/SHASUMS256.txt" &&
        ( cd /tmp && grep " $NODE_TARBALL\$" SHASUMS256.txt | sha256sum -c - ); then
         mkdir -p data/node
-        tar -xJf "/tmp/$NODE_TARBALL" -C data/node --strip-components=1
         # Only the runtime is used: yt-dlp runs `node` for YouTube's JavaScript
         # challenges. The tarball also carries 65MB of C++ headers for building
-        # native addons and 18MB of npm and corepack; nothing here runs npm, so
-        # both are removed rather than left as the largest thing in the checkout.
-        rm -rf data/node/include data/node/lib/node_modules \
-               data/node/CHANGELOG.md data/node/README.md
+        # native addons and 18MB of npm and corepack, none of which anything here
+        # runs, so only the binary is extracted -- 103MB written instead of 187MB.
+        tar -xJf "/tmp/$NODE_TARBALL" -C data/node --strip-components=1 \
+            "node-$NODE_VERSION-$NODE_ARCH/bin/node" \
+            "node-$NODE_VERSION-$NODE_ARCH/LICENSE"
         echo "  node $NODE_VERSION in $(pwd)/data/node ($(du -sh data/node | cut -f1))"
     else
         echo "  node $NODE_VERSION not installed; yt-dlp will fall back to quickjs"
@@ -135,64 +135,54 @@ else
     rm -f "/tmp/$NODE_TARBALL" /tmp/SHASUMS256.txt
     stage "node runtime"
 
-    # A second runtime yt-dlp accepts, so that a failed download above costs
-    # speed and not YouTube. Its build clears the minimum yt-dlp asks for
-    # (2023-12-09); yt-dlp ignores a runtime it cannot use rather than failing.
-    apt -y install quickjs
-    stage "quickjs"
-
-    # Install default fonts for subtitles
-    apt install fonts-freefont-ttf
-    stage "subtitle fonts"
-
-    # The player. VLC decodes H.264 in hardware, sends audio to HDMI and burns
-    # in subtitles without an expensive compositing path.
+    # The player. VLC's metapackage exists to give you a desktop application:
+    # it depends on vlc-plugin-qt and qt6-wayland, and recommends 43MB of UI
+    # translations, skins, samba, visualisation and notification plugins. The
+    # application runs cvlc with no window and no menus, so what it needs is the
+    # cli binary, the base plugins (demuxers, decoders, the DRM output and ALSA)
+    # and the video output plugins. Measured on a Pi 3: 31MB instead of 80MB,
+    # same picture, same hardware decoder.
     if [[ $@ != *-no-players* ]] ; then
-        apt -y install vlc
-        # A box installed before this carried two more backends. They are gone
-        # from the code, so their packages are removed rather than left to
-        # occupy 40MB and be reported as broken by check_players.
-        apt-get -y purge mpv gstreamer1.0-tools gstreamer1.0-plugins-base \
-            gstreamer1.0-plugins-good gstreamer1.0-plugins-bad \
-            gstreamer1.0-libav > /dev/null 2>&1 || true
+        apt-get -y install --no-install-recommends \
+            vlc-bin vlc-plugin-base vlc-plugin-video-output
         stage "vlc"
     fi
 
-    # ffmpeg, which yt-dlp uses where a stream has to be remuxed or a download
-    # reassembled. It is named rather than left to arrive as somebody's
-    # dependency, so it cannot disappear with a package that is removed.
-    apt -y install ffmpeg
+    # Everything else in one transaction: the fallback JavaScript runtime, the
+    # fonts subtitles are drawn with, git for updates, the virtual environment,
+    # libtorrent, and ffmpeg for the yt-dlp paths that remux.
+    #
+    # --no-install-recommends keeps the optional halves of these packages off a
+    # box that will never use them. It is safe for each of these: git runs
+    # without its recommends, and the rest are leaves.
+    #
+    # python3-venv pulls python3-pip with it, and the system pip is not used --
+    # only the venv's -- so pip is not named.
+    #
+    # libxml2-dev and libxslt1-dev are deliberately absent: they are only needed
+    # to *build* lxml, and lxml ships a manylinux wheel for armv7l and aarch64.
+    # configure_py.sh asks for that wheel explicitly, so a version without one
+    # fails at install instead of compiling against missing headers.
+    apt-get -y install --no-install-recommends \
+        quickjs fonts-freefont-ttf git python3-venv python3-libtorrent ffmpeg
+    stage "tools"
 
-    # Older installs pulled in the distribution's yt-dlp as a recommended
-    # dependency of mpv. It is not used -- the virtualenv's is unpinned and
-    # tracks the sites it extracts from -- so it is removed rather than left on
-    # PATH, stale.
-    apt-get -y purge yt-dlp > /dev/null 2>&1 || true
-    stage "ffmpeg"
-
-    # Install version control software for updates and to install other packages like
-    # yt-dlp. It is probably already installed, but it is possible that the user
-    # got blissflixx other way, like downloading the source as a zip file.
-    apt -y install git
-    stage "git"
-
-    # The virtual environment keeps BlissFlixx's Python dependencies isolated.
-    # python3-venv pulls python3-pip with it on this distribution, so pip is not
-    # named separately; the system pip is not used, only the one in the venv.
-    apt -y install python3-venv
-
-    # libxml2-dev and libxslt1-dev are deliberately not installed: they are only
-    # needed to *build* lxml, and lxml ships a manylinux wheel for armv7l and
-    # aarch64. configure_py.sh asks for that wheel explicitly, so a version
-    # without one fails at install instead of compiling against missing headers.
-
-    # libtorrent, for the torrent source that fetches only the pieces a play
-    # reads. It is a system package rather than a pip one, so it lives in the
-    # system python and bin/bt_serve.py is run with that interpreter; see
-    # lib/player/ltproc.py. The stage reports its absence in one line, with this
-    # command, rather than failing obscurely.
-    apt -y install python3-libtorrent
-    stage "python and build libraries"
+    # Boxes upgraded from older versions carry packages this one does not use:
+    # the two retired players, and the distribution's yt-dlp (which arrived as
+    # mpv's recommended dependency, and whose virtualenv replacement is unpinned
+    # deliberately). Purged only when present, so a fresh install does not pay
+    # for the check twice.
+    if dpkg-query -W -f='${Status}' mpv 2>/dev/null | grep -q "install ok installed"
+    then
+        apt-get -y purge mpv gstreamer1.0-tools gstreamer1.0-plugins-base \
+            gstreamer1.0-plugins-good gstreamer1.0-plugins-bad \
+            gstreamer1.0-libav > /dev/null 2>&1 || true
+    fi
+    if dpkg-query -W -f='${Status}' yt-dlp 2>/dev/null | grep -q "install ok installed"
+    then
+        apt-get -y purge yt-dlp > /dev/null 2>&1 || true
+    fi
+    stage "upgrades cleaned"
     
     # Binding port 80 needs no help here: the service unit asks for
     # CAP_NET_BIND_SERVICE itself, through AmbientCapabilities, which scopes the
