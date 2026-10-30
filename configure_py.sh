@@ -34,7 +34,20 @@ echo "Installing runtime dependencies..."
 # lxml only: its wheel is what makes the libxml2-dev/libxslt1-dev build
 # dependencies unnecessary. If a version ever ships without an armv7l/arm64
 # wheel, failing here says so plainly rather than half-building.
-pip3 install --only-binary lxml -r requirements.txt
+#
+# The retries are for a fresh card on a home connection: a 5MB wheel that times
+# out at 2.6MB used to abort the install with nothing useful on screen. Resume
+# picks up the partial download instead of starting it again.
+if ! pip3 install --retries 10 --timeout 60 --resume-retries 5 \
+        --only-binary lxml -r requirements.txt; then
+    echo ""
+    echo "The Python packages did not all download."
+    echo "Run this again when the connection is better:"
+    echo ""
+    echo "    sudo -u $BF_USER ./configure_py.sh"
+    echo ""
+    exit 1
+fi
 
 # What yt-dlp arrived as, said plainly.
 #

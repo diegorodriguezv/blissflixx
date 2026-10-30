@@ -17,37 +17,19 @@ SECONDS=0
 # all. Running a single stage printed nothing and looked like the work had been
 # skipped. Tested with -n rather than arithmetic, because a string is what says
 # "unset" without having to pick a number nothing legitimate can be.
-STAGE_START=""
-STAGE_NAME=""
+STAGE_START=0
 
 stage() {
+    # Called at the end of a stage, with its name. The second field is the time
+    # since the previous stage ended, which is this stage's own duration.
+    #
+    # It used to print the *previous* name with this stage's time, so every line
+    # named one stage and timed another: a fresh install reported "peerflix
+    # removed 13m43s" for what was actually the Python environment downloading,
+    # which sends anyone reading it after the wrong thing.
     local now=$SECONDS
-    # The name printed here is the stage that just finished, beside its own
-    # duration.
-    #
-    # It used to be the name of the stage starting, beside the duration of the
-    # one before it, so every line named one stage and timed another. Read
-    # plainly it said something false: installing the reboot and shutdown
-    # buttons reported "the reboot and shutdown buttons 0s", which reads as
-    # those buttons having taken no time, when it was the stage before them
-    # that had. A line that misreports its own subject is worse than none.
-    #
-    # So the previous name is kept and printed when the next stage begins. The
-    # last stage has no next stage, so it is flushed explicitly -- otherwise
-    # running a single stage prints nothing at all.
-    if [ -n "$STAGE_START" ]; then
-        printf '  %-28s %s\n' "$STAGE_NAME" "$(elapsed $((now - STAGE_START)))"
-    fi
+    printf '  %-28s %s\n' "$1" "$(elapsed $((now - STAGE_START)))"
     STAGE_START=$now
-    STAGE_NAME=$1
-}
-
-stage_flush() {
-    if [ -n "$STAGE_START" ]; then
-        printf '  %-28s %s\n' "$STAGE_NAME" "$(elapsed $((SECONDS - STAGE_START)))"
-        STAGE_START=""
-        STAGE_NAME=""
-    fi
 }
 
 # Seconds as 1h02m03s or 45s, whichever is readable.
@@ -85,7 +67,7 @@ else
     echo "============================================================"
     echo ""
     echo "Installing system dependencies... (This will take a while)"
-    echo "Expect about 20 minutes on a Raspberry Pi 3."
+    echo "Expect about 25 minutes on a Raspberry Pi 3."
     echo ""
     echo "============================================================"
 
@@ -205,7 +187,24 @@ else
     
     # Configure python dependencies as the person the install is for: they own
     # the checkout, and a virtualenv built by root is not theirs to run.
-    sudo -u "$BF_USER" ./configure_py.sh
+    #
+    # Fatal on failure. A pip download that timed out used to leave a venv with
+    # no yt-dlp and no lxml, and the script carried on to install a service that
+    # could not start: the install looked finished and was not. A new card
+    # deserves to be told, with the command that finishes the job.
+    if ! sudo -u "$BF_USER" ./configure_py.sh; then
+        echo ""
+        echo "Python dependencies did not install."
+        echo "Fix the connection and run this again -- it picks up where it left off:"
+        echo ""
+        echo "    sudo ./configure.sh -boot"
+        echo ""
+        echo "or only the python part:"
+        echo ""
+        echo "    sudo -u $BF_USER ./configure_py.sh"
+        echo ""
+        exit 1
+    fi
     stage "python virtual environment"
 
     # Report what is actually usable. Installing a player is not the same as
@@ -215,7 +214,7 @@ else
     echo ""
     echo "============================================================"
     echo ""
-    sudo -u $user ./virtualenv/bin/python ./bin/check_players.py || true
+    sudo -u "$BF_USER" ./virtualenv/bin/python ./bin/check_players.py || true
     echo ""
     echo "============================================================"
     echo ""
@@ -365,7 +364,6 @@ _contents
         echo "  will still fail. polkit reports no error for this; it just" 1>&2
         echo "  refuses." 1>&2
     fi
-    stage "the reboot and shutdown buttons"
 
     # The restart helper stays a sudo grant, because it runs from a terminal
     # where sudo works and is not involved in the above. It is what a manual
@@ -410,7 +408,7 @@ _contents
             echo "The sudo grant did not parse, so it was removed." 1>&2
         fi
     fi
-    stage_flush
+    stage "the reboot and shutdown buttons"
 fi
 
 if [[ $@ == *-blank* ]] ; then

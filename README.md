@@ -64,15 +64,18 @@ BlissFlixx for current Raspberry Pi OS is developed on the `bookworm` branch:
 Once it has been tested it will be published to the main repository, and this
 line will go back to being a plain `git clone`.
 
-Now enter the BlissFlixx folder and run the configure script which will install all the required external dependencies:
+Now enter the BlissFlixx folder and run the configure script, which installs the
+external dependencies, builds the Python environment, and installs the service
+that starts BlissFlixx at boot:
 
     cd blissflixx
-    sudo ./configure.sh
+    sudo ./configure.sh -boot
 
-Expect about **40 minutes** on a Raspberry Pi 3. The script prints how long each
-stage took as it goes, and the total at the end, so you can see where the time
-went. The largest single step is VLC, at about eight minutes; the node download
-for yt-dlp is next.
+Expect about **25 minutes** on a Raspberry Pi 3. Almost all of it is downloads
+-- VLC, the node runtime yt-dlp uses, and the Python packages -- so a slow
+connection makes it longer. The script prints how long each stage took as it
+goes, and the total at the end, so you can see where the time went and which
+stage failed if one does.
 
 Various warnings are reported during the install and this is expected.
 
@@ -89,7 +92,9 @@ But it can also perform other optional tasks which are invoked with the followin
 
 * `-boot`
 
-Install a system service script to run BlissFlixx when the system starts up. The command executed at boot is `run.sh` in case you want to modify it.
+Install the service that runs BlissFlixx when the system starts up, and start it
+now. This is the normal install: without it only the dependencies are installed.
+The command executed at boot is `run.sh` in case you want to modify it.
 
 * `-blank`
 
