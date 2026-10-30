@@ -32,10 +32,9 @@ thing as one that works for someone who has just found it.
 
 ## Known limits, agreed
 
-- **Subtitle delay is not available on VLC.** Its cli interface has no verb
-  for it. `mpv` has the capability; VLC does not
-  advertise it and the buttons are hidden for it rather than shown and
-  ineffective.
+- **Subtitle delay goes through a hotkey.** VLC's cli interface has no verb for
+  it, so it is done with the "key" command that simulates the delay hotkey. It
+  works, but it is the interface's side effect rather than a first-class one.
 - **The overlay is one line at one position.** A marquee reads one line from
   one file, so two stacked messages need two overlays, and that has not been
   shown to work.

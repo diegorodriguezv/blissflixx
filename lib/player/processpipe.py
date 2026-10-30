@@ -939,7 +939,7 @@ class ExternalProcess(Process):
                 raise ProcessException("Process exit: " + str(self.proc.returncode))
             raise ProcessException("Process suddenly died")
         if not line.strip():
-            # Blank lines are not output worth reporting. mpv in particular
-            # prints a bare prompt before it is ready for anything.
+            # Blank lines are not output worth reporting: a player printing a
+            # bare prompt is not saying anything.
             return self._readline(timeout)
         return line.strip()

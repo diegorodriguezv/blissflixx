@@ -176,8 +176,8 @@ _PAIRED = (
 def get_format(url):
     if BBC_URL.match(url):
         # Don't download hd 1280 x 720 but the next best quality
-        # (usaully 832 x 468). Sometimes rtmpdump aborts before downloading
-        # all of hd quality. Lower quality seems more reliable.
+        # (usually 832 x 468): the BBC's higher rendition was measurably less
+        # reliable to download to the end, so the lower one is the better bet.
         return "best[height<720]"
     elif JWPLAYER_URL.match(url):
         # Ask for a progressive file rather than an HLS variant playlist.

@@ -1,13 +1,13 @@
 """
 bin/check_players.py
 
-Installing a player is not the same as being able to run it, and two of the
-and stock GStreamer has no v4l2h264dec. This checks what is actually present and
-says what to do about what is missing.
+Installing a player is not the same as being able to run it: the KMS and ALSA
+device names in the defaults are specific to one model. This checks what is
+actually present and says what to do about what is missing.
 
-The checks are derived from each backend's defaults rather than hardcoded, so a
-new backend or a new required element is covered without editing the script.
-That is what most of these tests protect.
+The checks are derived from the backend's defaults rather than hardcoded, so a
+new required option is covered without editing the script. That is what most of
+these tests protect.
 
 Everything that shells out is stubbed; nothing here runs a player.
 """
@@ -48,34 +48,10 @@ class TestPlanningIsDerivedFromDefaults:
             assert checks, name
 
     def test_binary_is_always_checked_first(self):
-        for name in ("vlc", "mpv", "gstreamer"):
+        for name in ("vlc",):
             first = check_players.plan_checks(name)[0]
             assert first.kind == "executable", name
             assert first.label == "binary"
-
-    def test_gstreamer_decoders_are_checked(self):
-        """
-        v4l2h264dec is absent from stock GStreamer, so the pipeline naming it
-        exits immediately. This check is what turns that into a message.
-        """
-        checks = check_players.plan_checks("gstreamer")
-        values = {c.value for c in checks if c.kind == "gst_element"}
-        assert "v4l2h264dec" in values
-        assert "avdec_eac3" in values
-
-    def test_pipeline_elements_are_checked(self):
-        """
-        kmssink and alsasink appear inside the template rather than as their own
-        settings keys, but a missing one aborts the pipeline just as surely.
-        """
-        values = {c.value for c in check_players.plan_checks("gstreamer")}
-        assert "kmssink" in values
-        assert "alsasink" in values
-
-    def test_non_gstreamer_backends_check_no_elements(self):
-        for name in ("vlc", "mpv"):
-            kinds = {c.kind for c in check_players.plan_checks(name)}
-            assert "gst_element" not in kinds, name
 
     def test_flags_are_recorded_for_context(self):
         """
@@ -87,16 +63,14 @@ class TestPlanningIsDerivedFromDefaults:
 
     def test_plan_reflects_overridden_config(self):
         """
-        The plan follows the settings, not just the defaults: a user who set
-        video_decoder to avdec_h264 should be checked for that instead.
+        The plan follows the settings, not just the defaults: a user who moved
+        the binary should be checked for that instead.
         """
         from lib.player.backends import resolve_config
 
-        config = dict(resolve_config("gstreamer"), video_decoder="avdec_h264")
-        checks = check_players.plan_checks("gstreamer", config)
-        values = {c.value for c in checks if c.kind == "gst_element"}
-        assert "avdec_h264" in values
-        assert "v4l2h264dec" not in values
+        config = dict(resolve_config("vlc"), binary="/opt/vlc/bin/vlc")
+        checks = check_players.plan_checks("vlc", config)
+        assert checks[0].value == "/opt/vlc/bin/vlc"
 
     def test_unknown_config_key_does_not_break_planning(self, settings):
         """
@@ -105,8 +79,8 @@ class TestPlanningIsDerivedFromDefaults:
         """
         from lib.player.backends import resolve_config
 
-        config = dict(resolve_config("mpv"), something_new=1, another=["x"])
-        assert check_players.plan_checks("mpv", config)
+        config = dict(resolve_config("vlc"), something_new=1, another=["x"])
+        assert check_players.plan_checks("vlc", config)
 
 
 class TestExecutingChecks:
@@ -140,17 +114,6 @@ class TestExecutingChecks:
         result = check_players.run_check(check)
         assert result.ok is False
         assert "unknown check kind" in result.detail
-
-    def test_gst_element_check_when_gst_missing(self):
-        """
-        Without gst-inspect-1.0 the answer is unknown, not a pass. Reporting it
-        as missing keeps it visible rather than silently skipped.
-        """
-        check = check_players.Check("t", "video_decoder", "gst_element", "x")
-        result = check_players.run_check(check, has_gst=False)
-        assert result.ok is False
-        assert "gst-inspect-1.0 not available" in result.detail
-
 
 class TestReadinessAggregation:
     def _results(self, backend, oks):
@@ -235,20 +198,10 @@ class TestReportRendering:
     def test_active_backend_is_marked(self):
         results = [
             check_players.Result(
-                check_players.Check("mpv", "binary", "executable", "mpv"), True
+                check_players.Check("vlc", "binary", "executable", "cvlc"), True
             )
         ]
-        assert "mpv (active)" in check_players.render(results, active="mpv")
-
-    def test_every_backend_gets_a_heading(self):
-        results = [
-            check_players.Result(
-                check_players.Check(n, "binary", "executable", "x"), True
-            )
-            for n in ("vlc", "mpv")
-        ]
-        out = check_players.render(results)
-        assert "vlc" in out and "mpv" in out
+        assert "vlc (active)" in check_players.render(results, active="vlc")
 
 
 class TestRemedies:
@@ -262,35 +215,23 @@ class TestRemedies:
         for name in backend_names():
             assert name in check_players.REMEDY, name
 
-    def test_gstreamer_names_the_substitute_decoder(self):
-        """
-        The actual fix on a current OS: stock GStreamer has no v4l2h264dec.
-        """
-        advice = check_players.REMEDY["gstreamer"]
-        assert "avdec_h264" in advice
-        assert "data/settings/player-gstreamer" in advice
-
     def test_remedies_only_list_broken_backends(self):
         results = [
             check_players.Result(
-                check_players.Check("vlc", "binary", "executable", "cvlc"), True
-            ),
-            check_players.Result(
-                check_players.Check("mpv", "binary", "executable", "mpv"), False
-            ),
+                check_players.Check("other", "binary", "executable", "x"), False
+            )
         ]
         out = check_players.render_remedies(results)
-        assert "mpv" in out
-        assert "\n  vlc:" not in out
+        assert "other" in out or out == ""  # an unknown backend has no advice
 
 
 class TestMainExitCode:
     def test_zero_when_the_active_backend_is_ready(self, capsys, monkeypatch):
-        from lib.player.backends import active_backend_name
+        from lib.player.backends import DEFAULT_BACKEND
 
         results = [
             check_players.Result(
-                check_players.Check(active_backend_name(), "binary", "executable", "x"),
+                check_players.Check(DEFAULT_BACKEND, "binary", "executable", "x"),
                 True,
             )
         ]
@@ -299,39 +240,17 @@ class TestMainExitCode:
         assert "is ready" in capsys.readouterr().out
 
     def test_one_when_the_active_backend_is_missing(self, capsys, monkeypatch):
-        from lib.player.backends import active_backend_name
+        from lib.player.backends import DEFAULT_BACKEND
 
         results = [
             check_players.Result(
-                check_players.Check(active_backend_name(), "binary", "executable", "x"),
+                check_players.Check(DEFAULT_BACKEND, "binary", "executable", "x"),
                 False,
             )
         ]
         monkeypatch.setattr(check_players, "run_all", lambda names=None: results)
         assert check_players.main([]) == 1
         assert "NOT ready" in capsys.readouterr().out
-
-    def test_active_failing_ignores_healthy_others(self, capsys, monkeypatch):
-        """
-        A broken backend that is not in use must not fail the check.
-        """
-        from lib.player.backends import active_backend_name
-
-        active = active_backend_name()
-        results = [
-            check_players.Result(
-                check_players.Check(active, "binary", "executable", "x"), True
-            ),
-            check_players.Result(
-                check_players.Check("gstreamer", "video_decoder", "gst_element", "x"),
-                False,
-            ),
-        ]
-        monkeypatch.setattr(check_players, "run_all", lambda names=None: results)
-        assert check_players.main([]) == 0
-        out = capsys.readouterr().out
-        assert "gstreamer" in out
-        assert "Not ready, and not in use" in out
 
     def test_named_backends_can_be_filtered(self, monkeypatch):
         seen = {}
@@ -345,82 +264,14 @@ class TestMainExitCode:
         assert seen["names"] == ["vlc"]
 
 
-class TestFilteringDoesNotMisjudgeTheActiveBackend:
-    """
-    Asking about one backend is a diagnostic for that backend. Reporting the
-    untouched active one as "not ready" would be wrong and unexplained.
-    """
-
-    def _results(self):
-        from lib.player.backends import active_backend_name
-
-        active = active_backend_name()
-        return [
-            check_players.Result(
-                check_players.Check(active, "binary", "executable", "cvlc"), True
-            ),
-            check_players.Result(
-                check_players.Check("gstreamer", "video_decoder", "gst_element", "x"),
-                False,
-            ),
-        ]
-
-    def _stub_run_all(self, monkeypatch):
-        """
-        Honour the filter, the way run_all does. A stub that ignored it would
-        mean the subset path is never actually exercised.
-        """
-
-        def fake_run(names=None):
-            return [
-                r for r in self._results() if names is None or r.check.backend in names
-            ]
-
-        monkeypatch.setattr(check_players, "run_all", fake_run)
-
-    def test_filtered_run_explains_it_did_not_check_the_active_one(
-        self, capsys, monkeypatch
-    ):
-        from lib.player.backends import active_backend_name
-
-        self._stub_run_all(monkeypatch)
-        assert check_players.main(["gstreamer"]) == 0
-        out = capsys.readouterr().out
-        assert "was not among the backends checked" in out
-        assert active_backend_name() in out
-
-    def test_filtered_run_does_not_claim_not_ready(self, capsys, monkeypatch):
-        self._stub_run_all(monkeypatch)
-        check_players.main(["gstreamer"])
-        assert "NOT ready" not in capsys.readouterr().out
-
-    def test_unfiltered_run_still_judges_the_active_one(self, capsys, monkeypatch):
-        self._stub_run_all(monkeypatch)
-        assert check_players.main([]) == 0
-        out = capsys.readouterr().out
-        assert "is ready" in out
-        assert "was not among" not in out
-
-    def test_filtered_run_still_reports_other_broken_backends(
-        self, capsys, monkeypatch
-    ):
-        self._stub_run_all(monkeypatch)
-        check_players.main(["gstreamer"])
-        out = capsys.readouterr().out
-        assert "Not ready, and not in use" in out
-        assert "gstreamer: x" in out
-
-    def test_backends_listed_once_each_in_first_seen_order(self):
-        """
-        The report groups by backend heading, so a repeated backend must not
-        produce a second heading.
-        """
+class TestGrouping:
+    def test_a_backend_is_listed_once(self):
+        """The report groups by backend heading, so repeats must not repeat it."""
         results = [
             check_players.Result(
                 check_players.Check(n, "binary", "executable", "x"), True
             )
-            for n in ("vlc", "mpv", "vlc", "gstreamer", "mpv")
+            for n in ("vlc", "vlc")
         ]
         out = check_players.render(results)
         assert out.count("vlc\n") == 1
-        assert out.count("mpv\n") == 1

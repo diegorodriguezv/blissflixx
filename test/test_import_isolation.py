@@ -227,29 +227,21 @@ class TestVendoredTreesUntouched:
 
 class TestRetiredProcessModules:
     """
-    RtmpProcess and LivestreamerProcess were reachable only from
-    _Player.playRtmpdump() and _Player.playLivestream(), and nothing called
-    either. livestreamer is no longer supported upstream and neither it nor
-    rtmpdump is installed by configure.sh, so both modules are commented out.
-
-    Commented out rather than deleted, per the project convention, so these
-    assertions are about them staying out of the import graph.
+    RtmpProcess and LivestreamerProcess were reachable only from wrappers that
+    nothing called, and neither livestreamer nor rtmpdump is installed by
+    configure.sh. The modules are gone now: importing one must fail, so no
+    dependency on an unprovisioned tool can creep back in.
     """
 
-    def test_rtmp_module_is_inert(self):
-        proc = run_snippet(
-            "import lib.player.rtmpproc as m; print(hasattr(m, 'RtmpProcess'))"
-        )
-        assert proc.returncode == 0, proc.stderr
-        assert proc.stdout.strip() == "False"
+    def test_the_rtmp_module_is_gone(self):
+        proc = run_snippet("import lib.player.rtmpproc")
+        assert proc.returncode != 0
+        assert "ModuleNotFoundError" in proc.stderr
 
-    def test_livestreamer_module_is_inert(self):
-        proc = run_snippet(
-            "import lib.player.lvstrmrproc as m; "
-            "print(hasattr(m, 'LivestreamerProcess'))"
-        )
-        assert proc.returncode == 0, proc.stderr
-        assert proc.stdout.strip() == "False"
+    def test_the_livestreamer_module_is_gone(self):
+        proc = run_snippet("import lib.player.lvstrmrproc")
+        assert proc.returncode != 0
+        assert "ModuleNotFoundError" in proc.stderr
 
     def test_player_exposes_neither_wrapper(self):
         proc = run_snippet(

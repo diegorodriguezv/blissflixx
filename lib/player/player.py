@@ -16,14 +16,6 @@ from .processpipe import MSG_PLAYER_PIPE_STOPPED, ProcessPipe, _start_thread
 from .subsproc import ChosenSubtitlesProcess
 from .ytdlproc import YoutubeDlProcess
 
-# playRtmpdump() and playLivestream() were the only users of RtmpProcess and
-# LivestreamerProcess, and nothing called either method. livestreamer in
-# particular is no longer installable or supported upstream, and configure.sh
-# never provisioned it. The methods and their two imports are commented out
-# below rather than deleted so the wrappers stay recoverable.
-# from .lvstrmrproc import LivestreamerProcess
-# from .rtmpproc import RtmpProcess
-
 ST_NOT_RUNNING = 0
 ST_STARTING = 1
 ST_RUNNING = 3
@@ -280,12 +272,8 @@ class _Player:
             self.main_thread.join()
 
     def _player_stage(self, http, dlsrv):
-        """
-        Return the backend stage for a pipeline.
-
-        A backend named in settings wins, defaulting to DEFAULT_BACKEND.
-        """
-        return get_backend(load("player").get("backend", DEFAULT_BACKEND))
+        """Return the player stage for a pipeline."""
+        return get_backend(DEFAULT_BACKEND)
 
     def build(self, title, src, subs=None, http=False, dlsrv=True):
         """
@@ -376,11 +364,6 @@ class _Player:
             title, YoutubeDlProcess(url), subs, ythelper.skip_download(url)
         )
 
-    # Dead: RtmpProcess is only reachable from here, and rtmpdump is not
-    # installed by configure.sh.
-    # def playRtmpdump(self, cmd, title):
-    #     self.play(title, RtmpProcess(cmd))
-
     def playTorrent(self, url, idx, title, subs, playlist=None, index=None):
         self.playPipe(self.buildTorrent(url, idx, title, subs), playlist, index)
 
@@ -395,11 +378,6 @@ class _Player:
             files = [{"idx": wanted["idx"], "name": wanted.get("name")}]
         source = LibtorrentProcess(url, idx, files or [])
         return self.build(title, source, subs, True)
-
-    # Dead: LivestreamerProcess is only reachable from here, and livestreamer is
-    # no longer supported upstream and is not installed by configure.sh.
-    # def playLivestream(self, url, title):
-    #     self.play(title, LivestreamerProcess(url), http=False, dlsrv=False)
 
     def playLocalFile(self, filepath, title, playlist=None, index=None):
         self.playPipe(self.buildLocalFile(filepath, title), playlist, index)

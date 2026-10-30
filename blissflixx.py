@@ -572,7 +572,6 @@ def cleanup():
     # A box upgraded from the old torrent source may still have one running from
     # an interrupted play; it is uninstalled now, so nothing can start another.
     kill_process("peerflix")
-    kill_process("livestreamer")
     kill_process("dlsrv")
 
 

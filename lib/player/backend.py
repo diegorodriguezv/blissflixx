@@ -17,7 +17,7 @@ top. That is what makes the same checkout usable on a Pi 4 and a Pi 5, or on a
 desktop during development: the hardware strings differ (an ALSA card name, a
 KMS plane id) and they are values rather than branches in code.
 
-    data/settings/player-mpv   {"audio_device": "alsa/hdmi:CARD=vc4hdmi,DEV=0"}
+    data/settings/player-vlc   {"audio_device": "hdmi:CARD=vc4hdmi,DEV=0"}
     data/settings/player-vlc   {"audio_device": "hdmi:CARD=vc4hdmi,DEV=0"}
 
 A config file may be absent or partial; anything it does not set keeps its
@@ -45,10 +45,9 @@ CAP_AUDIO_TRACK = "audio_track"
 #: drift apart. Distinct from CAP_SUBTITLES, which is about which track is
 #: showing at all.
 #:
-#: mpv does this over IPC. VLC's cli interface has no verb for it -- the whole
-#: command table has no sub-delay -- but it has a "key" command that simulates
-#: a hotkey press, and the subtitle-delay hotkey moves exactly the variable VLC
-#: renders with. So this is declared for both, arrived at differently; see
+#: VLC's cli interface has no verb for it -- the whole command table has no
+#: sub-delay -- but it has a "key" command that simulates a hotkey press, and
+#: the subtitle-delay hotkey moves exactly the variable VLC renders with. See
 #: VlcProcess._shift_subtitle_delay.
 CAP_SUBTITLE_DELAY = "subtitle_delay"
 
@@ -123,15 +122,11 @@ class PlayerBackend(ExternalProcess):
         """
         Act on a playback control action.
 
-        Backends do not all control the player the same way, and a backend should
-        not assume one player's model. There are three shapes in practice:
-
-        - Keystroke, no acknowledgement. The player reads keys from a FIFO.
-          Writing the key is all there is; nothing reports whether it was acted
-          on, so a caller cannot distinguish "delivered" from "ignored".
-        - Request/response. mpv's JSON IPC replies, so delivery can be observed
-          and logged. VLC's cli interface does too, once it is not busy.
-        - None. gst-launch exposes no IPC at all, so every action is dropped.
+        A backend must not assume one player's model. There are three shapes in
+        practice: keystroke with no acknowledgement (the player reads keys from a
+        FIFO and nothing says whether it acted), request/response (VLC's cli
+        interface replies, so delivery can be observed and logged), and none at
+        all (a pipeline with no control surface drops every action).
 
         control() returns False when the command could not be delivered at all
         (no socket, nothing running), and otherwise does not raise. It is called

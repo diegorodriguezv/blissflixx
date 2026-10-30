@@ -69,10 +69,10 @@ Now enter the BlissFlixx folder and run the configure script which will install 
     cd blissflixx
     sudo ./configure.sh
 
-Expect about **45 minutes** on a Raspberry Pi 3. The script prints how long each
+Expect about **40 minutes** on a Raspberry Pi 3. The script prints how long each
 stage took as it goes, and the total at the end, so you can see where the time
-went. The largest single step is npm, which downloads nodejs and takes about
-ten minutes of it; installing VLC takes about eight and GStreamer about four.
+went. The largest single step is VLC, at about eight minutes; the node download
+for yt-dlp is next.
 
 Various warnings are reported during the install and this is expected.
 
@@ -418,8 +418,8 @@ clock keeps running, so the elapsed time advances and nothing is playing.
 `subtitle_delay_step` is how far one press of the playbar's subtitle-delay
 buttons moves the timing. VLC's floor is 50 ms and it cannot be asked for an
 amount, so a step is rounded to whole multiples of that and the confirmation
-shows the offset actually in force. The default quarter second matches mpv;
-set it to `0.05` when a film needs an offset the quarter-second grid misses.
+shows the offset actually in force. The default is a quarter second; set it to
+`0.05` when a film needs an offset the quarter-second grid misses.
 
 A key the backend does not recognise is logged and ignored, so a settings file
 written for a different version stays usable.
@@ -428,9 +428,8 @@ written for a different version stays usable.
 
 The command for each backend, its readiness handling and its control commands
 are all covered by the test suite on a development machine. What cannot be is
-whether the video actually appears: `kmssink`, `drm_vout` and `v4l2h264dec` need
-the Pi's kernel and hardware. `gst-launch` in particular cannot express a path
-containing a space, and says so rather than failing obscurely.
+whether the video actually appears: `drm_vout` needs the Pi's kernel and
+hardware.
 
 # Help
 

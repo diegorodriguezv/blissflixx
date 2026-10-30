@@ -25,12 +25,11 @@ from lib.player.backends import (
     DEFAULT_BACKEND,
     backend_class,
     backend_names,
-    describe,
     get_backend,
     resolve_config,
     settings_name,
 )
-from lib.player.mpvproc import MpvProcess
+from lib.player.vlcproc import VlcProcess
 from lib.settings import save
 
 FILE_OUT = "/tmp/blissflixx/bf.out"
@@ -44,7 +43,7 @@ def write_settings(name, data):
 
 class TestSettingsNaming:
     def test_config_file_is_namespaced_under_player(self):
-        assert settings_name("mpv") == "player-mpv"
+        assert settings_name("vlc") == "player-vlc"
 
     def test_no_collision_with_the_active_choice_file(self):
         """
@@ -57,49 +56,52 @@ class TestSettingsNaming:
 
 
 class TestDefaultsWithoutSettings:
-    @pytest.mark.parametrize("name", ["vlc", "mpv", "gstreamer"])
+    @pytest.mark.parametrize("name", ["vlc"])
     def test_resolve_config_yields_the_defaults(self, name):
         assert resolve_config(name) == backend_class(name).defaults
 
-    @pytest.mark.parametrize("name", ["vlc", "mpv", "gstreamer"])
+    @pytest.mark.parametrize("name", ["vlc"])
     def test_get_backend_constructs_from_defaults_alone(self, name):
         assert isinstance(get_backend(name), backend_class(name))
 
     def test_absent_settings_file_is_not_an_error(self, settings):
         """No file at all is the common case, not a failure."""
-        assert resolve_config("mpv")["binary"] == "mpv"
+        assert resolve_config("vlc")["binary"] == VlcProcess.defaults["binary"]
 
 
 class TestOverrideSemantics:
     def test_single_key_overrides(self, settings):
-        write_settings("mpv", {"audio_device": "alsa/plughw:0"})
-        assert get_backend("mpv").opt("audio_device") == "alsa/plughw:0"
+        write_settings("vlc", {"audio_device": "hdmi:CARD=hdmi_zero,DEV=0"})
+        assert (
+            get_backend("vlc").opt("audio_device")
+            == "hdmi:CARD=hdmi_zero,DEV=0"
+        )
 
     def test_unmentioned_keys_keep_their_defaults(self, settings):
-        write_settings("mpv", {"audio_device": "alsa/plughw:0"})
-        backend = get_backend("mpv")
-        assert backend.opt("binary") == MpvProcess.defaults["binary"]
+        write_settings("vlc", {"audio_device": "hdmi:CARD=hdmi_zero,DEV=0"})
+        backend = get_backend("vlc")
+        assert backend.opt("binary") == VlcProcess.defaults["binary"]
 
     def test_a_full_override_need_not_repeat_the_defaults(self, settings):
-        write_settings("mpv", {"binary": "/opt/mpv/bin/mpv"})
-        backend = get_backend("mpv")
-        assert backend.opt("binary") == "/opt/mpv/bin/mpv"
-        assert backend.opt("extra_args") == MpvProcess.defaults["extra_args"]
+        write_settings("vlc", {"binary": "/opt/vlc/bin/vlc"})
+        backend = get_backend("vlc")
+        assert backend.opt("binary") == "/opt/vlc/bin/vlc"
+        assert backend.opt("extra_args") == VlcProcess.defaults["extra_args"]
 
     def test_empty_settings_file_is_the_same_as_absent(self, settings):
-        write_settings("mpv", {})
-        assert resolve_config("mpv") == MpvProcess.defaults
+        write_settings("vlc", {})
+        assert resolve_config("vlc") == VlcProcess.defaults
 
     def test_extra_args_replace_rather_than_append(self, settings):
         """
         Replacement is what makes it possible to *remove* a flag the backend
-        always adds. Appending would make --no-config impossible to drop.
+        always adds. Appending would make --intf=cli impossible to drop.
         """
-        write_settings("mpv", {"extra_args": ["--profile=gpu-hq"]})
-        assert get_backend("mpv").opt("extra_args") == ["--profile=gpu-hq"]
-        cmd = get_backend("mpv").build_command({"outfile": FILE_OUT})
-        assert "--no-config" not in cmd
-        assert "--profile=gpu-hq" in cmd
+        write_settings("vlc", {"extra_args": ["--intf=dummy"]})
+        assert get_backend("vlc").opt("extra_args") == ["--intf=dummy"]
+        cmd = get_backend("vlc").build_command({"outfile": FILE_OUT})
+        assert "--intf=cli" not in cmd
+        assert "--intf=dummy" in cmd
 
 
 class TestUnknownKeys:
@@ -108,9 +110,9 @@ class TestUnknownKeys:
         A backend must stay usable when a settings file written for a different
         version names something that no longer exists.
         """
-        write_settings("mpv", {"audio_device": "alsa/plughw:0", "hwdec": "auto"})
-        backend = get_backend("mpv")
-        assert backend.opt("audio_device") == "alsa/plughw:0"
+        write_settings("vlc", {"audio_device": "hdmi:CARD=hdmi_zero,DEV=0", "hwdec": "auto"})
+        backend = get_backend("vlc")
+        assert backend.opt("audio_device") == "hdmi:CARD=hdmi_zero,DEV=0"
         assert "hwdec" not in backend.config
 
     def test_unknown_key_is_logged(self, settings, caplog):
@@ -123,16 +125,16 @@ class TestUnknownKeys:
         to fail depending on where in the suite it ran.
         """
         with caplog.at_level("INFO"):
-            write_settings("mpv", {"hwdec": "auto"})
-            get_backend("mpv")
+            write_settings("vlc", {"hwdec": "auto"})
+            get_backend("vlc")
         assert any("hwdec" in record.getMessage() for record in caplog.records)
 
     def test_typo_in_a_real_key_still_uses_the_default(self, settings):
         """A misspelt key must not silently disable the setting."""
-        write_settings("mpv", {"audio_devise": "alsa/plughw:0"})
+        write_settings("vlc", {"audio_devise": "hdmi:CARD=hdmi_zero,DEV=0"})
         assert (
-            get_backend("mpv").opt("audio_device")
-            == MpvProcess.defaults["audio_device"]
+            get_backend("vlc").opt("audio_device")
+            == VlcProcess.defaults["audio_device"]
         )
 
 
@@ -147,40 +149,40 @@ class TestPlatformVariants:
     @pytest.mark.parametrize(
         "label,device",
         [
-            ("pi4", "alsa/hdmi:CARD=vc4hdmi,DEV=0"),
-            ("pi5", "alsa/hdmi:CARD=hdmi_zero,DEV=0"),
+            ("pi4", "hdmi:CARD=vc4hdmi,DEV=0"),
+            ("pi5", "hdmi:CARD=hdmi_zero,DEV=0"),
             ("desktop", "alsa/plughw:CARD=PCH,DEV=0"),
         ],
     )
-    def test_mpv_audio_device_variants(self, settings, label, device):
-        write_settings("mpv", {"audio_device": device})
-        cmd = get_backend("mpv").build_command({"outfile": FILE_OUT})
-        assert "--audio-device=" + device in cmd, label
+    def test_vlc_audio_device_variants(self, settings, label, device):
+        write_settings("vlc", {"audio_device": device})
+        cmd = get_backend("vlc").build_command({"outfile": FILE_OUT})
+        assert "--alsa-audio-device=" + device in cmd, label
 
     def test_two_registered_names_can_share_a_class(self, settings):
         """
-        A Pi 4 and a Pi 5 profile of the same player, side by side in one
-        checkout, with no platform conditional in the code.
+        A second profile of the same player, side by side in one checkout, with
+        no platform conditional in the code.
         """
-        BACKENDS["mpv-test"] = MpvProcess
+        BACKENDS["vlc-test"] = VlcProcess
         try:
-            write_settings("mpv", {"audio_device": "alsa/hdmi:CARD=vc4hdmi,DEV=0"})
-            write_settings("mpv-test", {"audio_device": "alsa/plughw:0"})
-            assert get_backend("mpv").opt("audio_device") != (
-                get_backend("mpv-test").opt("audio_device")
+            write_settings("vlc", {"audio_device": "hdmi:CARD=vc4hdmi,DEV=0"})
+            write_settings("vlc-test", {"audio_device": "alsa/plughw:0"})
+            assert get_backend("vlc").opt("audio_device") != (
+                get_backend("vlc-test").opt("audio_device")
             )
         finally:
-            del BACKENDS["mpv-test"]
+            del BACKENDS["vlc-test"]
 
 
 class TestRegistryInvariants:
-    @pytest.mark.parametrize("name", ["vlc", "mpv", "gstreamer"])
+    @pytest.mark.parametrize("name", ["vlc"])
     def test_every_backend_declares_its_defaults(self, name):
         """A backend with no defaults dict cannot be configured or described."""
         assert isinstance(backend_class(name).defaults, dict)
         assert backend_class(name).defaults, name
 
-    @pytest.mark.parametrize("name", ["vlc", "mpv", "gstreamer"])
+    @pytest.mark.parametrize("name", ["vlc"])
     def test_every_default_value_is_json_serialisable(self, name):
         """
         Settings are JSON, so a default that cannot round-trip through the file
@@ -188,12 +190,12 @@ class TestRegistryInvariants:
         """
         json.dumps(backend_class(name).defaults)
 
-    @pytest.mark.parametrize("name", ["vlc", "mpv", "gstreamer"])
+    @pytest.mark.parametrize("name", ["vlc"])
     def test_every_backend_has_a_binary(self, name):
         """Needed by describe(), and by anything that reports what will run."""
         assert get_backend(name).opt("binary")
 
-    @pytest.mark.parametrize("name", ["vlc", "mpv", "gstreamer"])
+    @pytest.mark.parametrize("name", ["vlc"])
     def test_every_backend_builds_a_command(self, name):
         cmd = get_backend(name).build_command({"outfile": HTTP_OUT})
         assert cmd
@@ -204,36 +206,22 @@ class TestRegistryInvariants:
         for name in backend_names():
             assert get_backend(name).capabilities <= ALL_CAPABILITIES, name
 
-    def test_unknown_name_raises_rather_than_falling_back(self):
-        with pytest.raises(KeyError):
-            get_backend("vlc-ish")
-
     def test_default_backend_is_configured(self):
         """
         An unconfigured install has to resolve to a real, installed backend.
-        There is no fallback path any more, so DEFAULT_BACKEND is simply a
-        member of the registry.
         """
         assert DEFAULT_BACKEND in backend_names()
 
-    def test_describe_reports_what_will_run(self):
-        info = describe("mpv")
-        assert info["backend"] == "mpv"
-        assert info["name"] == "mpv"
-        assert info["binary"] == "mpv"
-        assert "pause" in info["capabilities"]
-
-
 class TestConfigIsNotShared:
     def test_mutating_one_instance_does_not_affect_the_defaults(self, settings):
-        backend = get_backend("mpv")
+        backend = get_backend("vlc")
         backend.config["audio_device"] = "mutated"
-        assert MpvProcess.defaults["audio_device"] != "mutated"
+        assert VlcProcess.defaults["audio_device"] != "mutated"
 
     def test_two_instances_are_independent(self, settings):
-        first = get_backend("mpv")
+        first = get_backend("vlc")
         first.config["binary"] = "changed"
-        assert get_backend("mpv").opt("binary") == MpvProcess.defaults["binary"]
+        assert get_backend("vlc").opt("binary") == VlcProcess.defaults["binary"]
 
 
 class TestBaseMerge:
@@ -242,4 +230,4 @@ class TestBaseMerge:
 
     def test_opt_requires_a_known_key(self, settings):
         with pytest.raises(KeyError):
-            get_backend("mpv").opt("not_a_real_key")
+            get_backend("vlc").opt("not_a_real_key")

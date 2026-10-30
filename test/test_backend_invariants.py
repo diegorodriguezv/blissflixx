@@ -22,10 +22,8 @@ import pytest
 from lib.player.backend import ALL_CAPABILITIES, CAP_PAUSE, PlayerBackend
 from lib.player.backends import (
     BACKENDS,
-    SUPPORTED_BACKENDS,
     backend_class,
     backend_names,
-    describe,
     get_backend,
     resolve_config,
 )
@@ -35,10 +33,8 @@ HTTP_OUT = "http://127.0.0.1:9696/movie.mkv"
 FILE_OUT = "/tmp/blissflixx/bf.out"
 
 ALL_NAMES = sorted(BACKENDS)
-#: The backends the README is required to document. The rest stay selectable in
-#: the code but are not part of this release, so nothing in the user-facing
-#: documentation promises them.
-DOCUMENTED_NAMES = sorted(SUPPORTED_BACKENDS)
+#: The backends the README is required to document.
+DOCUMENTED_NAMES = ["vlc"]
 
 
 class TestRegistryShape:
@@ -164,7 +160,7 @@ class TestShellBackendsQuoteTheirInput:
 
 
 class TestArgvBackendsKeepPathsIntact:
-    @pytest.mark.parametrize("name", ["vlc", "mpv"])
+    @pytest.mark.parametrize("name", ["vlc"])
     def test_path_with_a_space_stays_one_argument(self, name):
         """
         The inverse of the shell case: argv builders must not split the path,
@@ -175,31 +171,6 @@ class TestArgvBackendsKeepPathsIntact:
         assert spaced in cmd
         assert "'" + spaced + "'" not in cmd
 
-    def test_gstreamer_refuses_a_path_it_cannot_express(self):
-        """
-        gst-launch rebuilds its pipeline by joining argv with spaces and accepts
-        no quoting of a property value, so a path with a space cannot be
-        expressed. Emitting the command anyway gives
-        "WARNING: erroneous pipeline: syntax error", which says nothing about the
-        cause, so it raises with the reason instead.
-        """
-        from lib.player.processpipe import ProcessException
-
-        with pytest.raises(ProcessException, match="space"):
-            get_backend("gstreamer").build_command({"outfile": "/tmp/a b/file.mkv"})
-
-    def test_gstreamer_normal_paths_have_no_spaces(self):
-        """
-        The paths this backend normally sees: the dlsrv url and the torrent
-        download path. If either ever gains a space the limitation above starts
-        biting in normal use.
-        """
-        from lib.player.processpipe import OUT_FILE
-
-        assert " " not in OUT_FILE
-        assert " " not in "http://127.0.0.1:9696"
-
-
 class TestCapabilitiesMatchImplementation:
     """
     A capability must be backed by something. This is the check that catches a
@@ -209,24 +180,14 @@ class TestCapabilitiesMatchImplementation:
 
     def test_audio_track_capability_matches_the_transport(self):
         """
-        mpv's IPC and VLC's track interface can both cycle
-        audio tracks. VLC was counted as unable to for as long as the cli
+        VLC was counted as unable to change audio tracks for as long as the cli
         interface was assumed to have no track verb, which turned out to be
         wrong: "atrack" lists the tracks and marks the active one, the same way
-        "strack" does for subtitles. gstreamer has no control at all.
+        "strack" does for subtitles.
         """
-        from lib.player.gstproc import GStreamerProcess
-        from lib.player.mpvproc import MpvProcess
         from lib.player.vlcproc import VlcProcess
 
-        assert MpvProcess().declares("audio_track") is True
         assert VlcProcess().declares("audio_track") is True
-        assert GStreamerProcess().declares("audio_track") is False
-
-    def test_a_capability_less_backend_declares_none(self):
-        from lib.player.gstproc import GStreamerProcess
-
-        assert GStreamerProcess().capabilities == frozenset()
 
     def test_every_declared_capability_is_a_known_string(self):
         for name in ALL_NAMES:
@@ -255,23 +216,6 @@ class TestControlIsSafeWithoutAPlayer:
             assert backend.control("not_an_action") is None or True
 
 
-class TestDescribeIsSerialisable:
-    @pytest.mark.parametrize("name", ALL_NAMES)
-    def test_describe_round_trips_as_json(self, name):
-        """
-        describe() is what a UI would be handed, so it has to survive being
-        serialised into the API response.
-        """
-        json.dumps(describe(name))
-
-    @pytest.mark.parametrize("name", ALL_NAMES)
-    def test_describe_reports_the_binary(self, name):
-        assert describe(name)["binary"] == get_backend(name).opt("binary")
-
-    def test_capability_less_backend_is_flagged(self):
-        assert "note" in describe("gstreamer")
-
-
 class TestDefaultBackend:
     """
     VLC decodes H.264 in hardware, sends audio to HDMI and burns in subtitles
@@ -284,33 +228,16 @@ class TestDefaultBackend:
         assert DEFAULT_BACKEND == "vlc"
 
     def test_default_is_a_real_backend(self):
-        """Not the legacy pseudo-name, which resolves to nothing by itself."""
-        from lib.player.backends import DEFAULT_BACKEND, is_known
+        from lib.player.backends import DEFAULT_BACKEND
 
-        assert is_known(DEFAULT_BACKEND)
         assert get_backend(DEFAULT_BACKEND) is not None
 
-    def test_unconfigured_install_gets_the_default(self, settings):
+    def test_every_play_uses_the_default(self):
+        from lib.player.vlcproc import VlcProcess
+
         pl = _Player()
-        with m.patch("lib.player.player.load", return_value={}):
-            from lib.player.vlcproc import VlcProcess
-
-            assert isinstance(pl._player_stage(True, True), VlcProcess)
-            assert isinstance(pl._player_stage(False, False), VlcProcess)
-
-    def test_configured_backend_overrides_the_flags(self, settings):
-        pl = _Player()
-        with m.patch("lib.player.player.load", return_value={"backend": "vlc"}):
-            from lib.player.vlcproc import VlcProcess
-
-            assert isinstance(pl._player_stage(True, True), VlcProcess)
-            assert isinstance(pl._player_stage(False, False), VlcProcess)
-
-    def test_unknown_configured_backend_raises(self, settings):
-        pl = _Player()
-        with m.patch("lib.player.player.load", return_value={"backend": "nope"}):
-            with pytest.raises(KeyError):
-                pl._player_stage(False, True)
+        assert isinstance(pl._player_stage(True, True), VlcProcess)
+        assert isinstance(pl._player_stage(False, False), VlcProcess)
 
 
 class TestConfigResolutionIsIndependent:
@@ -325,13 +252,6 @@ class TestConfigResolutionIsIndependent:
             save("player-" + name, {"binary": "/opt/" + name})
         for name in ALL_NAMES:
             assert get_backend(name).opt("binary") == "/opt/" + name
-
-    def test_setting_one_backend_leaves_the_others_alone(self, settings):
-        from lib.settings import save
-
-        save("player-" + ALL_NAMES[0], {"binary": "/custom"})
-        for name in ALL_NAMES[1:]:
-            assert get_backend(name).opt("binary") != "/custom"
 
 
 class TestPauseCapabilityIsAlwaysAvailable:
@@ -407,24 +327,10 @@ class TestReadmeMatchesTheCode:
         for name in DOCUMENTED_NAMES:
             assert "`" + name + "`" in readme, name
 
-    def test_unsupported_backends_are_not_advertised(self):
+    def test_the_only_backend_has_controls(self):
         """
-        The point of SUPPORTED_BACKENDS: mpv and gstreamer are selectable in the
-        code but are not part of this release, so the README must not offer them
-        to someone following it. Naming them as absent would be as much a
-        promise as offering them.
-        """
-        readme = self.readme()
-        for name in ALL_NAMES:
-            if name not in DOCUMENTED_NAMES:
-                assert "| `" + name + "` |" not in readme, name
-
-    def test_a_capability_free_backend_is_called_out(self):
-        """
-        Only meaningful while every supported backend has controls. If a
-        capability-free backend is ever promoted into SUPPORTED_BACKENDS this
-        stops passing, which is the point: the README would then have to warn
-        about it, since the UI does not hide the buttons.
+        The UI does not hide buttons a backend lacks, so the one backend must
+        have them all.
         """
         from lib.player.backends import backend_class
 

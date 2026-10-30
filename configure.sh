@@ -145,36 +145,28 @@ else
     apt install fonts-freefont-ttf
     stage "subtitle fonts"
 
-    # Player backends.
-    #
-    # VLC is the default backend.
+    # The player. VLC decodes H.264 in hardware, sends audio to HDMI and burns
+    # in subtitles without an expensive compositing path.
     if [[ $@ != *-no-players* ]] ; then
         apt -y install vlc
-        # mpv is the second backend, small and a useful fallback for VLC. Its
-        # Recommends include the distribution's yt-dlp, which this application
-        # does not use -- it runs yt-dlp from its virtualenv, unpinned, on
-        # purpose -- and which drags in another Python stack alongside it.
-        apt -y install --no-install-recommends mpv
-        stage "mpv"
-        # GStreamer for the most CPU-efficient pipeline. The element set depends
-        # on which plugin packages are installed, so bin/check_players.py
-        # verifies afterwards what actually arrived.
-        apt -y install gstreamer1.0-tools \
-                       gstreamer1.0-plugins-base \
-                       gstreamer1.0-plugins-good \
-                       gstreamer1.0-plugins-bad \
-                       gstreamer1.0-libav
-        stage "vlc and gstreamer"
+        # A box installed before this carried two more backends. They are gone
+        # from the code, so their packages are removed rather than left to
+        # occupy 40MB and be reported as broken by check_players.
+        apt-get -y purge mpv gstreamer1.0-tools gstreamer1.0-plugins-base \
+            gstreamer1.0-plugins-good gstreamer1.0-plugins-bad \
+            gstreamer1.0-libav > /dev/null 2>&1 || true
+        stage "vlc"
     fi
 
     # ffmpeg, which yt-dlp uses where a stream has to be remuxed or a download
-    # reassembled. It used to arrive only as a dependency of mpv's recommended
-    # yt-dlp package; naming it makes it deliberate rather than a side effect.
+    # reassembled. It is named rather than left to arrive as somebody's
+    # dependency, so it cannot disappear with a package that is removed.
     apt -y install ffmpeg
 
-    # The distribution's yt-dlp arrives with mpv's recommends and is not used.
-    # It is also old by design -- the virtualenv's is unpinned and tracks the
-    # sites it extracts from -- so it is removed rather than left on PATH.
+    # Older installs pulled in the distribution's yt-dlp as a recommended
+    # dependency of mpv. It is not used -- the virtualenv's is unpinned and
+    # tracks the sites it extracts from -- so it is removed rather than left on
+    # PATH, stale.
     apt-get -y purge yt-dlp > /dev/null 2>&1 || true
     stage "ffmpeg"
 
@@ -229,9 +221,9 @@ else
     stage "python virtual environment"
 
     # Report what is actually usable. Installing a player is not the same as
-    # being able to run it: stock GStreamer has no v4l2h264dec, so the GStreamer
-    # pipeline needs video_decoder changed to avdec_h264. The checks come from
-    # the backends' own defaults, so they stay correct as backends change.
+    # being able to run it: the ALSA and video output names in its defaults are
+    # specific to one model. The checks come from those defaults, so they stay
+    # correct as they change.
     echo ""
     echo "============================================================"
     echo ""

@@ -1,11 +1,10 @@
 """
 VLC backend.
 
-VLC is the recommended player on current Raspberry Pi OS. Hardware H.264 decode,
-HDMI audio and subtitles all work without the expensive GStreamer compositing
-path, which makes it the most capable of the options.
+VLC is the player. Hardware H.264 decode, HDMI audio and subtitles all work
+without the expensive compositing paths other players needed.
 
-Two things differ from the mpv backend:
+Two things about it are worth knowing:
 
 - Control goes through VLC's cli interface, by typing plaintext commands into
   its stdin and reading the replies off its stdout. The rc interface would be
@@ -803,7 +802,7 @@ class VlcProcess(PlayerBackend):
         "volume_step": 10,
         "volume_max": _VOLUME_MAX,
         # How far one press of the subtitle-delay buttons moves the timing.
-        # Quarter of a second, the same as mpv's, because the buttons are the
+        # Quarter of a second, because the buttons are the
         # same buttons.
         #
         # VLC's own granularity is 50ms and there is no finer control, so a

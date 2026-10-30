@@ -29,7 +29,6 @@ from lib.player.backend import (
     CAP_SUBTITLES,
     CAP_VOLUME,
 )
-from lib.player.gstproc import GStreamerProcess
 from lib.player.processpipe import ProcessException
 from lib.player.vlcproc import (
     _DECODED_FRAMES,
@@ -1091,16 +1090,13 @@ class TestVlcControl:
         the capability is real and is declared. See
         VlcProcess._shift_subtitle_delay for what was measured.
 
-        The two backends agreeing is the point of the test: the UI carries one
-        set of controls, so a capability either of them lacks has to be a
-        deliberate statement rather than a silent difference.
+        The UI carries one fixed set of controls, so everything it offers has to
+        be something this backend really does.
         """
         from lib.player.backend import ALL_CAPABILITIES
-        from lib.player.mpvproc import MpvProcess
 
         missing = ALL_CAPABILITIES - VlcProcess().capabilities
         assert missing == set(), missing
-        assert VlcProcess().capabilities == MpvProcess().capabilities
 
 
 class _FakeStdin:
@@ -1300,164 +1296,6 @@ class TestVlcReady:
         proc._readline = lambda timeout=None: "no suitable decoder for this stream"
         with pytest.raises(ProcessException, match="no suitable decoder"):
             proc._ready()
-
-
-class TestGstreamerCommand:
-    def test_matches_the_verified_pi_pipeline(self):
-        cmd = gst({"outfile": FILE_OUT})
-        assert cmd[0] == "gst-launch-1.0"
-        assert cmd[1] == "-q"
-        assert cmd[2:] == [
-            "filesrc location=" + FILE_OUT,
-            "matroskademux",
-            "name=demux",
-            "demux.video_0",
-            "!",
-            "queue",
-            "!",
-            "h264parse",
-            "!",
-            "v4l2h264dec",
-            "!",
-            "kmssink",
-            "plane-id=98",
-            "connector-id=35",
-            "demux.audio_0",
-            "!",
-            "queue",
-            "!",
-            "avdec_eac3",
-            "!",
-            "audioconvert",
-            "!",
-            "audioresample",
-            "!",
-            "alsasink",
-            "device=hdmi:CARD=vc4hdmi,DEV=0",
-        ]
-
-    def test_elements_are_separate_argv_words(self):
-        """
-        Not a shell string. The "!" separators need no escaping this way, so
-        shell=False and no quoting are both safe.
-        """
-        assert GStreamerProcess().shell is False
-        assert all(isinstance(a, str) for a in gst({"outfile": FILE_OUT}))
-        assert " !" not in " ".join(gst({"outfile": FILE_OUT})).replace(" ! ", "!")
-
-    def test_http_url_switches_to_an_http_source(self):
-        """
-        filesrc stops at the current end of a file that is still being written,
-        so a growing file has to come from dlsrv over http instead.
-        """
-        cmd = gst({"outfile": HTTP_OUT})
-        assert cmd[2] == "souphttpsrc location=" + HTTP_OUT
-        assert not any(a.startswith("filesrc") for a in cmd)
-
-    def test_local_file_uses_filesrc(self):
-        assert gst({"outfile": FILE_OUT})[2].startswith("filesrc location=")
-
-    def test_no_subtitles(self):
-        """
-        Text overlay needs the GStreamer compositing path, which is the
-        expensive part this backend exists to avoid.
-        """
-        assert not any("sub" in a.lower() for a in gst({"outfile": FILE_OUT}))
-
-    def test_kms_ids_are_configurable(self):
-        cmd = gst({"outfile": FILE_OUT}, plane_id=97, connector_id=36)
-        assert "plane-id=97" in cmd
-        assert "connector-id=36" in cmd
-
-    def test_decoders_are_configurable(self):
-        """
-        v4l2h264dec is a Pi kernel plugin and is absent elsewhere, which is why
-        the decoder is data rather than a constant.
-        """
-        cmd = gst(
-            {"outfile": FILE_OUT},
-            video_decoder="avdec_h264",
-            audio_decoder="avdec_aac",
-        )
-        assert "avdec_h264" in cmd
-        assert "avdec_aac" in cmd
-        assert "v4l2h264dec" not in cmd
-
-    def test_audio_device_is_configurable(self):
-        assert "device=plughw:CARD=PCH,DEV=0" in gst(
-            {"outfile": FILE_OUT}, audio_device="plughw:CARD=PCH,DEV=0"
-        )
-
-
-class TestGstreamerHasNoControl:
-    def test_declares_nothing(self):
-        assert GStreamerProcess().capabilities == frozenset()
-
-    def test_control_is_a_documented_no_op(self):
-        """
-        gst-launch has no IPC surface. Every action is dropped, and the empty
-        capability set is what stops the UI offering the buttons in the first
-        place.
-        """
-        proc = GStreamerProcess()
-        for action in (
-            "pause",
-            "resume",
-            "stop",
-            "plus30",
-            "volup",
-            "next_audio",
-            "show_subtitle",
-        ):
-            assert proc.control(action) is None
-
-    def test_stop_still_works_through_the_pipe(self):
-        """
-        Not through control(): ProcessPipe.stop() SIGKILLs the process group, so
-        the UI's stop button is honoured even with no control surface.
-        """
-        proc = GStreamerProcess()
-        proc.proc = None
-        proc.stop()
-
-
-class TestGstreamerReady:
-    def test_healthy_pipeline_is_ready(self):
-        """Still running after a moment is the only success signal available."""
-        proc = GStreamerProcess()
-        proc.proc = types.SimpleNamespace(poll=lambda: None)
-        proc._ready()
-
-    def test_immediate_exit_is_reported(self, monkeypatch):
-        """
-        An unknown element makes gst-launch exit at once. Without this check a
-        typo in a settings file would become a hang rather than an error.
-        """
-        proc = GStreamerProcess()
-        proc.proc = types.SimpleNamespace(poll=lambda: 2)
-        proc._readline = lambda timeout=None: (
-            "ERROR: pipeline could not be constructed: no element v4l2h264dec"
-        )
-        monkeypatch.setattr("lib.player.gstproc.time.sleep", lambda s: None)
-        with pytest.raises(ProcessException, match="could not be constructed"):
-            proc._ready()
-
-
-class TestRegistryCoversBoth:
-    def test_both_are_registered(self):
-        from lib.player.backends import backend_names
-
-        assert "vlc" in backend_names()
-        assert "gstreamer" in backend_names()
-
-    def test_describe_flags_the_backend_with_no_controls(self):
-        """
-        So a caller cannot offer a seek button to something that will ignore it.
-        """
-        from lib.player.backends import describe
-
-        assert "note" in describe("gstreamer")
-        assert "note" not in describe("mpv")
 
 
 class _FakeCli:
