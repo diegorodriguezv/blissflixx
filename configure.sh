@@ -96,7 +96,12 @@ else
         *) NODE_ARCH="" ;;
     esac
     NODE_TARBALL="node-$NODE_VERSION-$NODE_ARCH.tar.xz"
-    if [ -n "$NODE_ARCH" ] &&
+    if [ -x data/node/bin/node ] &&
+       [ "$(data/node/bin/node --version 2>/dev/null)" = "$NODE_VERSION" ]; then
+        # Already unpacked by an earlier run. Re-running the installer to finish
+        # something else must not download 26MB again on a slow connection.
+        echo "  node $NODE_VERSION already in $(pwd)/data/node"
+    elif [ -n "$NODE_ARCH" ] &&
        curl -fsS --max-time 300 -o "/tmp/$NODE_TARBALL" \
            "https://nodejs.org/dist/$NODE_VERSION/$NODE_TARBALL" &&
        curl -fsS --max-time 120 -o /tmp/SHASUMS256.txt \
