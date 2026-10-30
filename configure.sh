@@ -103,7 +103,7 @@ install_or_stop() {
     echo "The archive was probably having a bad moment. Run this again -- it"
     echo "picks up where it left off:"
     echo ""
-    echo "    sudo ./configure.sh -boot"
+    echo "    sudo ./configure.sh"
     echo ""
     exit 1
 }
@@ -122,7 +122,7 @@ require_packages() {
         echo ""
         echo "Run this again -- it picks up where it left off:"
         echo ""
-        echo "    sudo ./configure.sh -boot"
+        echo "    sudo ./configure.sh"
         echo ""
         exit 1
     fi
@@ -282,7 +282,7 @@ else
         echo "Python dependencies did not install."
         echo "Fix the connection and run this again -- it picks up where it left off:"
         echo ""
-        echo "    sudo ./configure.sh -boot"
+        echo "    sudo ./configure.sh"
         echo ""
         echo "or only the python part:"
         echo ""
@@ -308,11 +308,20 @@ else
     echo ""
 fi
 
-# Check for optional script arguments
+# The boot service. Installed by default: this is a television application, and
+# an install that does not start when the box does is not finished. --no-boot is
+# for a checkout somebody starts by hand.
+#
+# -boot is still accepted, since it used to be required, and now asks for what
+# already happens.
 
-if [[ $@ == *-boot* ]] ; then
-    systemctl stop blissflixx.service
-    systemctl disable blissflixx.service
+# -only keeps its old meaning -- do nothing except what was named -- so there
+# the service has to be asked for with -boot. Every other run installs it.
+if [[ $@ != *--no-boot* ]] &&
+   { [[ $@ != *-only* ]] || [[ $@ == *-boot* ]]; } ; then
+    # A fresh card has no such unit; that is not a failure worth printing.
+    systemctl stop blissflixx.service 2>/dev/null || true
+    systemctl disable blissflixx.service 2>/dev/null || true
   cat << _contents > /etc/systemd/system/blissflixx.service
 [Unit]
 Description=Blissflixx service

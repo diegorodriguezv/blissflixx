@@ -69,7 +69,7 @@ external dependencies, builds the Python environment, and installs the service
 that starts BlissFlixx at boot:
 
     cd blissflixx
-    sudo ./configure.sh -boot
+    sudo ./configure.sh
 
 Expect about **25 minutes** on a Raspberry Pi 3. Almost all of it is downloads
 -- VLC, the node runtime yt-dlp uses, and the Python packages -- so a slow
@@ -83,20 +83,20 @@ Various warnings are reported during the install and this is expected.
 hours. The installer expects that: apt retries each download, the whole command
 is attempted four times with a pause, and the packages a play needs are checked
 at the end rather than assumed. If something is still missing it stops and names
-it, and running `sudo ./configure.sh -boot` again picks up where it left off --
+it, and running `sudo ./configure.sh` again picks up where it left off --
 packages already installed and files already downloaded are kept, so a re-run
 takes minutes.
 
 # configure.sh options
 
-The `configure.sh` script will install BlissFlixx dependencies and set up the python environment.
-But it can also perform other optional tasks which are invoked with the following arguments:
+The `configure.sh` script installs the dependencies, builds the Python
+environment, and installs the service that runs BlissFlixx when the system
+starts up. Its other tasks are invoked with the following arguments:
 
-* `-boot`
+* `--no-boot`
 
-Install the service that runs BlissFlixx when the system starts up, and start it
-now. This is the normal install: without it only the dependencies are installed.
-The command executed at boot is `run.sh` in case you want to modify it.
+Install the dependencies but not the boot service. For a checkout you start by
+hand; a normal install starts when the box does.
 
 * `-blank`
 
@@ -120,9 +120,11 @@ Remove the system service scripts installed by BlissFlixx.
 
 * `-only`
 
-Performs only the options invoked. Useful to configure BlissFlixx after initial installation.
+Performs only the options invoked, and nothing else -- not even the boot service,
+which a normal run installs. Useful to reconfigure an installed box.
 
-For example `sudo ./configure.sh -only -blank` will just install the blank screen screen service, skipping over installation.
+For example `sudo ./configure.sh -only -blank` installs the blank screen service
+and nothing else; `sudo ./configure.sh -only -boot` rewrites the boot service.
 
 * `-no-players`
 
@@ -170,9 +172,9 @@ So for example if the IP address of the Raspberry Pi is 192.168.1.4:
     http://192.168.1.4
 
 **The server runs on port 80**, so there is no port number in the address. Port
-80 normally needs privilege to bind; the service installed by `configure.sh
--boot` asks for `CAP_NET_BIND_SERVICE` for itself, which is why `./start.sh`
-needs no `sudo`.
+80 normally needs privilege to bind; the service installed by `configure.sh`
+asks for `CAP_NET_BIND_SERVICE` for itself, which is why `./start.sh` needs no
+`sudo`.
 
 To run on a different port, for instance behind a reverse proxy or to avoid
 needing that capability at all:
