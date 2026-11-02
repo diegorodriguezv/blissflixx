@@ -52,7 +52,8 @@ def mark(row):
         return None, ""
     end = row.subtitle.find("</span>", start)
     span = row.subtitle[start : end + 7]
-    kind = span.split('"')[1].split()[-1]
+    classes = span.split('"')[1].split()
+    kind = classes[1] if len(classes) > 1 else ""
     text = span[span.find(">") + 1 : span.find("</span>")]
     return kind, text
 
@@ -91,11 +92,15 @@ class TestOneRowPerChannel:
         ]
         assert "1080p" in rows(data)[0].subtitle
 
-    def test_mirrors_are_capped(self):
+    def test_every_mirror_is_carried(self):
+        """
+        The player tries until one works, so it needs the whole list. A cap
+        here would mark a channel failed while working URLs sat untried.
+        """
         data = [
             stream("c", "C", "http://a/%d" % i, "720p") for i in range(8)
         ]
-        assert len(urls(rows(data)[0])) == iptv._MAX_SOURCES
+        assert len(urls(rows(data)[0])) == 8
 
     def test_a_stream_without_a_channel_is_skipped(self):
         data = [
@@ -162,44 +167,100 @@ class TestOrderingByWhatWorked:
             {"http://a/old": {"ok_at": now - 8 * 24 * 3600, "ok_seconds": 5}},
         )
         data = [stream("old", "Old", "http://a/old")]
-        kind, _text = mark(rows(data)[0])
-        assert kind is None
+        kind, text = mark(rows(data)[0])
+        assert kind == ""
+        assert text == "1 source"
 
 
-class TestTheMark:
-    def test_a_worked_channel_says_so_with_the_time_and_age(self, monkeypatch):
+class TestTheCounts:
+    def test_an_unplayed_channel_lists_its_sources(self, monkeypatch):
+        journal(monkeypatch, {})
+        kind, text = mark(rows([stream("c", "C", "http://a/one")])[0])
+        assert (kind, text) == ("", "1 source")
+
+    def test_many_sources_untried(self, monkeypatch):
+        journal(monkeypatch, {})
+        data = [stream("c", "C", "http://a/%d" % i) for i in range(12)]
+        kind, text = mark(rows(data)[0])
+        assert (kind, text) == ("", "12 sources")
+
+    def test_a_healthy_channel_counts_healthy_and_tested(self, monkeypatch):
         now = time.time()
-        journal(
-            monkeypatch,
-            {"http://a/one": {"ok_at": now - 7200, "ok_seconds": 6}},
-        )
+        journal(monkeypatch, {"http://a/one": {"ok_at": now - 60, "ok_seconds": 6}})
         kind, text = mark(rows([stream("c", "C", "http://a/one")])[0])
         assert kind == "ok"
-        assert text.startswith("worked · 6s · 2h ago")
+        assert text == "1 source · 1 healthy · 1 tested"
 
-    def test_a_slow_start_is_called_slow(self, monkeypatch):
+    def test_a_failure_counts_as_tested_not_healthy(self, monkeypatch):
+        now = time.time()
+        journal(monkeypatch, {"http://a/one": {"bad_at": now - 60}})
+        kind, text = mark(rows([stream("c", "C", "http://a/one")])[0])
+        assert kind == "bad"
+        assert text == "1 source · 0 healthy · 1 tested"
+
+    def test_a_freeze_counts_as_tested_not_healthy(self, monkeypatch):
+        now = time.time()
+        journal(monkeypatch, {"http://a/one": {"froze_at": now - 60}})
+        kind, text = mark(rows([stream("c", "C", "http://a/one")])[0])
+        assert kind == "bad"
+        assert text == "1 source · 0 healthy · 1 tested"
+
+    def test_a_partial_channel_is_amber_and_stays_in_the_middle(self, monkeypatch):
         now = time.time()
         journal(
             monkeypatch,
-            {"http://a/one": {"ok_at": now - 60, "ok_seconds": 14}},
+            {
+                "http://a/bad": {"bad_at": now - 60},
+                "http://a/good": {"ok_at": now - 60, "ok_seconds": 5},
+            },
         )
-        kind, text = mark(rows([stream("c", "C", "http://a/one")])[0])
-        assert kind == "warn"
-        assert text.startswith("slow · 14s")
+        data = [
+            stream("c", "C", "http://a/bad"),
+            stream("c", "C", "http://a/good"),
+            stream("c", "C", "http://a/untried"),
+        ]
+        kind, text = mark(rows(data)[0])
+        assert kind == "ok"
+        assert text == "3 sources · 1 healthy · 2 tested"
 
-    def test_a_failure_says_when(self, monkeypatch):
+    def test_only_failures_are_amber_until_every_source_is_tried(self, monkeypatch):
         now = time.time()
-        journal(monkeypatch, {"http://a/one": {"bad_at": now - 600}})
-        kind, text = mark(rows([stream("c", "C", "http://a/one")])[0])
+        journal(monkeypatch, {"http://a/one": {"bad_at": now - 60}})
+        data = [
+            stream("c", "C", "http://a/one"),
+            stream("c", "C", "http://a/two"),
+        ]
+        kind, text = mark(rows(data)[0])
+        assert kind == "warn"
+        assert text == "2 sources · 0 healthy · 1 tested"
+
+    def test_every_source_failed_is_red(self, monkeypatch):
+        now = time.time()
+        journal(
+            monkeypatch,
+            {
+                "http://a/one": {"bad_at": now - 60},
+                "http://a/two": {"froze_at": now - 60},
+            },
+        )
+        data = [
+            stream("c", "C", "http://a/one"),
+            stream("c", "C", "http://a/two"),
+        ]
+        kind, text = mark(rows(data)[0])
         assert kind == "bad"
-        assert text == "failed · 10m ago"
+        assert text == "2 sources · 0 healthy · 2 tested"
 
-    def test_a_freeze_says_so(self, monkeypatch):
-        now = time.time()
-        journal(monkeypatch, {"http://a/one": {"froze_at": now - 3600}})
-        kind, text = mark(rows([stream("c", "C", "http://a/one")])[0])
-        assert kind == "warn"
-        assert text == "froze · 1h ago"
+    def test_a_closed_channel_is_judged_by_its_sources(self, monkeypatch):
+        """
+        "closed" is an upstream fact about the channel, not a play outcome; it
+        no longer decides the row. With no evidence the row just says how many
+        sources there are.
+        """
+        journal(monkeypatch, {})
+        data = [stream("c", "C", "http://a/one", closed="2026-01-01")]
+        kind, text = mark(rows(data)[0])
+        assert (kind, text) == ("", "1 source")
 
     def test_a_later_success_clears_an_earlier_failure(self, monkeypatch):
         now = time.time()
@@ -231,39 +292,35 @@ class TestTheMark:
         kind, _text = mark(rows([stream("c", "C", "http://a/one")])[0])
         assert kind == "bad"
 
-    def test_any_working_mirror_is_a_working_channel(self, monkeypatch):
+
+class TestMovingToTheEnd:
+    def test_only_a_channel_with_every_source_failed_goes_last(self, monkeypatch):
         now = time.time()
         journal(
             monkeypatch,
             {
-                "http://a/bad": {"bad_at": now - 60},
-                "http://a/good": {"ok_at": now - 3600, "ok_seconds": 5},
+                "http://a/all": {"bad_at": now - 60},
+                "http://p/one": {"bad_at": now - 60},
+                "http://h/one": {"ok_at": now - 60, "ok_seconds": 5},
             },
         )
         data = [
-            stream("c", "C", "http://a/bad"),
-            stream("c", "C", "http://a/good"),
+            stream("partial", "Partial", "http://p/one"),
+            stream("partial", "Partial", "http://p/two"),
+            stream("all", "All failed", "http://a/all"),
+            stream("healthy", "Healthy", "http://h/one"),
         ]
-        kind, _text = mark(rows(data)[0])
-        assert kind == "ok"
+        assert [row.title for row in rows(data)] == ["Healthy", "Partial", "All failed"]
 
-    def test_a_closed_channel_with_no_evidence_says_closed(self, monkeypatch):
-        journal(monkeypatch, {})
-        data = [stream("c", "C", "http://a/one", closed="2026-01-01")]
-        kind, text = mark(rows(data)[0])
-        assert (kind, text) == ("bad", "closed")
-
-    def test_a_worked_closed_channel_is_shown_as_worked(self, monkeypatch):
+    def test_a_partial_channel_is_not_moved(self, monkeypatch):
         now = time.time()
-        journal(monkeypatch, {"http://a/one": {"ok_at": now - 60, "ok_seconds": 5}})
-        data = [stream("c", "C", "http://a/one", closed="2026-01-01")]
-        kind, _text = mark(rows(data)[0])
-        assert kind == "ok"
-
-    def test_an_unplayed_channel_has_no_mark(self, monkeypatch):
-        journal(monkeypatch, {})
-        kind, _text = mark(rows([stream("c", "C", "http://a/one")])[0])
-        assert kind is None
+        journal(monkeypatch, {"http://p/one": {"bad_at": now - 60}})
+        data = [
+            stream("p", "Partial", "http://p/one"),
+            stream("p", "Partial", "http://p/two"),
+        ]
+        # One source failed, one is untried: middle, not bottom.
+        assert iptv._channel_rank(data) == (1, 0.0)
 
 
 class TestTheClientChain:

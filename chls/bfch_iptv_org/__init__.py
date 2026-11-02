@@ -61,20 +61,6 @@ _FEEDLIST = [
 ]
 _MAXRESULTS = 300
 
-#: Mirrors carried with a row. The player tries them in order when the picture
-#: never starts; more than a handful is minutes of waiting rather than a better
-#: chance, and the first four have already been ordered by what worked.
-_MAX_SOURCES = 4
-
-#: How long a recorded outcome is worth showing. A stream that worked last
-#: month says nothing about the URL serving it now.
-_RECENT = 7 * 24 * 60 * 60
-
-#: A start slower than this is called slow rather than worked. The count this
-#: writes is measured from the attempt, not from the click, so failover does
-#: not make a working mirror look slow.
-_SLOW_START = 10
-
 
 def name():
     # No leading slash. It has been here since the channel was first written in
@@ -208,27 +194,8 @@ def _resolution(value):
 
 
 def _outcome(url):
-    """
-    The last thing this URL did, if it did anything worth remembering.
-
-    The latest event wins: a stream that worked and then failed is not a
-    working stream, and one that failed and then worked is. Stale entries are
-    ignored rather than deleted here -- the journal prunes itself.
-    """
-    entry = playquality.summary(url) or {}
-    events = []
-    if isinstance(entry.get("ok_at"), (int, float)):
-        events.append(("ok", entry["ok_at"], float(entry.get("ok_seconds") or 0)))
-    if isinstance(entry.get("bad_at"), (int, float)):
-        events.append(("bad", entry["bad_at"], 0.0))
-    if isinstance(entry.get("froze_at"), (int, float)):
-        events.append(("froze", entry["froze_at"], 0.0))
-    if not events:
-        return None
-    kind, at, seconds = max(events, key=lambda event: event[1])
-    if time.time() - at > _RECENT:
-        return None
-    return kind, at, seconds
+    """The last real play of this URL, if it is recent enough to matter."""
+    return playquality.latest(url)
 
 
 def _order_streams(streams):
@@ -257,68 +224,68 @@ def _order_streams(streams):
     return sorted(streams, key=key)
 
 
-def _channel_outcome(streams):
-    """The best evidence for the channel: a working mirror if there is one."""
-    working = []
-    broken = []
+def _counts(streams):
+    """
+    The channel as a set of sources: total, healthy, tested, fastest healthy.
+
+    A source is "tested" once it has a real play in the journal (a success, a
+    failure or a freeze), and "healthy" while its latest real play succeeded.
+    A probe is a hint for one play and never appears here; these numbers are
+    what this box has actually done, and they change when the person plays.
+    """
+    total = 0
+    healthy = 0
+    tested = 0
+    fastest = None
+    seen = set()
     for stream in streams:
-        outcome = _outcome(stream["url"])
+        url = stream.get("url")
+        if not url or url in seen:
+            continue
+        seen.add(url)
+        total += 1
+        outcome = _outcome(url)
         if outcome is None:
             continue
+        tested += 1
         if outcome[0] == "ok":
-            working.append(outcome)
-        else:
-            broken.append(outcome)
-    if working:
-        return max(working, key=lambda event: event[1])
-    if broken:
-        return max(broken, key=lambda event: event[1])
-    return None
+            healthy += 1
+            seconds = outcome[2]
+            if fastest is None or seconds < fastest:
+                fastest = seconds
+    return total, healthy, tested, fastest
 
 
-def _ago(when):
-    seconds = max(0, int(time.time() - when))
-    if seconds < 60:
-        return "just now"
-    if seconds < 3600:
-        return "%dm ago" % (seconds // 60)
-    if seconds < 86400:
-        return "%dh ago" % (seconds // 3600)
-    return "%dd ago" % (seconds // 86400)
-
-
-def _mark(streams, info):
+def _mark(streams):
     """
-    What the row says about how this channel behaved here, if anything.
+    How the channel is doing, in numbers about its sources.
 
-    A mark is a statement about this box, not about the stream: "failed 10m
-    ago" is true even when the channel is fine on somebody else's network.
+    "closed" and "froze" describe a source, not a channel: a channel with one
+    frozen source and three healthy ones is a healthy channel. The counts say
+    that without pretending the whole channel is one or the other.
     """
-    outcome = _channel_outcome(streams)
-    if outcome and outcome[0] == "ok":
-        seconds = max(1, int(round(outcome[2])))
-        when = _ago(outcome[1])
-        if seconds >= _SLOW_START:
-            return "warn", "slow · %ds · %s" % (seconds, when)
-        return "ok", "worked · %ds · %s" % (seconds, when)
-    if outcome:
-        kind, at, _ = outcome
-        if kind == "froze":
-            return "warn", "froze · %s" % _ago(at)
-        return "bad", "failed · %s" % _ago(at)
-    if info.get("closed"):
-        return "bad", "closed"
-    return None
+    total, healthy, tested, _fastest = _counts(streams)
+    if total == 0:
+        return None
+    noun = "source" if total == 1 else "sources"
+    if tested == 0:
+        return "", "%d %s" % (total, noun)
+    text = "%d %s · %d healthy · %d tested" % (total, noun, healthy, tested)
+    if healthy:
+        return "ok", text
+    if tested >= total:
+        return "bad", text
+    return "warn", text
 
 
-def _channel_rank(streams, info):
-    """Where the channel sits in the list: working, unknown, then failed."""
-    outcome = _channel_outcome(streams)
-    if outcome and outcome[0] == "ok":
-        return 0, float(outcome[2])
-    if outcome:
-        return 2, 0.0
-    if info.get("closed"):
+def _channel_rank(streams):
+    """Top while a source works, middle while untried ones remain, then last."""
+    total, healthy, tested, fastest = _counts(streams)
+    if healthy:
+        return 0, fastest if fastest is not None else 0.0
+    if total and tested >= total:
+        # Every source has been tried and none works. This is the only case
+        # that goes to the end.
         return 2, 0.0
     return 1, 0.0
 
@@ -352,8 +319,6 @@ def _extract(data):
             url = stream.get("url")
             if url and url not in sources:
                 sources.append(url)
-            if len(sources) >= _MAX_SOURCES:
-                break
         if not sources:
             continue
         first = streams[0]
@@ -372,15 +337,21 @@ def _extract(data):
             subtitle_strings.append(
                 f"categories: <b>{' '.join(info['categories'])}</b>"
             )
-        mark = _mark(streams, info)
+        mark = _mark(streams)
         if mark:
-            subtitle_strings.append(
-                '<span class="iptv-status %s">%s</span>' % mark
-            )
+            kind, text = mark
+            if kind:
+                subtitle_strings.append(
+                    '<span class="iptv-status %s">%s</span>' % (kind, text)
+                )
+            else:
+                subtitle_strings.append(
+                    '<span class="iptv-status">%s</span>' % text
+                )
         subtitle = " - ".join(subtitle_strings)
         item = PlayItem(info["name"], info.get("logo"), sources[0], subtitle)
         item.sources = sources
-        items.append((_channel_rank(streams, info), position, item))
+        items.append((_channel_rank(streams), position, item))
 
     items.sort(key=lambda row: (row[0][0], row[0][1], row[1]))
     results = PlayItemList()

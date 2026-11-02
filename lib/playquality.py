@@ -35,6 +35,10 @@ MAX_ENTRIES = 2000
 #: The failure reason is for the log, not the row, so it is only capped.
 MAX_REASON = 200
 
+#: How long a real play outcome is evidence. A stream that worked last month
+#: says nothing about the URL there now, and IPTV addresses change often.
+RECENT = 7 * 24 * 60 * 60
+
 
 class Journal:
     """One file of outcomes, keyed by stream URL."""
@@ -167,3 +171,28 @@ def summary(url):
 
 def summaries(urls):
     return _DEFAULT.summaries(urls)
+
+
+def latest(url, within=RECENT):
+    """
+    The most recent real play outcome for a URL: (kind, when, seconds).
+
+    kind is "ok", "bad" or "froze"; seconds is the time to picture for an ok
+    and 0 otherwise. None means nothing recent enough to be evidence. The
+    latest event wins: a source that worked and then failed is not working,
+    and one that failed and then worked is.
+    """
+    entry = summary(url) or {}
+    events = []
+    if isinstance(entry.get("ok_at"), (int, float)):
+        events.append(("ok", entry["ok_at"], float(entry.get("ok_seconds") or 0)))
+    if isinstance(entry.get("bad_at"), (int, float)):
+        events.append(("bad", entry["bad_at"], 0.0))
+    if isinstance(entry.get("froze_at"), (int, float)):
+        events.append(("froze", entry["froze_at"], 0.0))
+    if not events:
+        return None
+    kind, at, seconds = max(events, key=lambda event: event[1])
+    if within is not None and time.time() - at > within:
+        return None
+    return kind, at, seconds

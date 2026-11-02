@@ -14,6 +14,7 @@ from .dlsrvproc import DlsrvProcess
 from .localproc import LocalFileProcess
 from .ltproc import LibtorrentProcess
 from .processpipe import MSG_PLAYER_PIPE_STOPPED, ProcessPipe, _start_thread
+from .sourcecheck import SourceCheck
 from .subsproc import ChosenSubtitlesProcess
 from .ytdlproc import YoutubeDlProcess
 
@@ -39,10 +40,15 @@ _PLAY_ENQUEUE_TIMEOUT = 5
 #: interface went unresponsive while the film was still on screen.
 _PLAY_JOIN_TIMEOUT = 5
 
-#: How many sources of one row a play will try. A channel can have thirty-five
-#: mirrors; after a few, the minutes spent are worse than the channel being
-#: honestly marked as failed.
-_FAILOVER_TRIES = 4
+#: How long a live picture may be starved of input before the player moves the
+#: channel to another source. The bar warns at fifteen seconds; twenty gives
+#: the stream a little longer to come back by itself before the screen changes.
+_RECONNECT_AFTER = 20
+
+#: How long to wait for the parallel source check after a source fails before
+#: the picture: a second or two can save trying an address that is already
+#: known to be dead, without becoming a timeout of its own.
+_PROBE_WAIT = 5
 
 MSG_PLAYER_PLAY = 1
 MSG_PLAYER_STOP = 2
@@ -60,6 +66,10 @@ _STALL_SOURCE_AFTER = 30
 _PAUSE_SETTLE = 2.0#: Move to the neighbouring item of the playlist this film came from. The
 #: direction follows as its own message, the way a play is followed by its pipe.
 MSG_PLAYER_SKIP = 5
+#: The live picture has been frozen long enough: try another source. Followed by
+#: the play generation it belongs to, so a message that outlives its play is
+#: ignored rather than switching the next one.
+MSG_PLAYER_RECONNECT = 6
 
 #: One queued play: the pipeline to start, and where it sits in a playlist when
 #: it came from one.
@@ -70,7 +80,9 @@ MSG_PLAYER_SKIP = 5
 #: queue slots that _PLAY_QUEUE_SIZE is sized on, so that a stalled loop still
 #: refuses a play rather than blocking the request thread on the second half of
 #: one.
-_Play = namedtuple("_Play", "pipe playlist index")
+_Play = namedtuple(
+    "_Play", "pipe playlist index note keep_state", defaults=(None, False)
+)
 
 
 class _Player:
@@ -110,18 +122,28 @@ class _Player:
         self.attempt_started_at = None
         #: Whether the stall already reported for this attempt was recorded.
         self._stall_logged = False
-        #: "source 2 of 4", while a channel is failing over.
+        #: "source 2 of 12", while a channel is failing over.
         self._failover_note = None
         #: Whether the pipe being stopped was stopped on purpose. A stop reads
         #: like a failure at the pipe -- it reports any stage error -- and a
         #: stop must not be recorded, or failed over.
         self._stopped = False
+        #: The parallel check of this channel's unrated sources, and the URLs
+        #: this play has already tried. Both last for one play.
+        self._check = None
+        self._tried = set()
+        #: One reconnect request per stalled attempt, and a generation so a
+        #: request that outlives its play cannot switch the next one.
+        self._reconnect_sent = False
+        self._play_seq = 0
+        self._attempt_seq = 0
 
     def _stop(self):
         if self.play_pipe:
             self.play_pipe.stop()
 
     def _play(self, play, requested_at=None):
+        continuation = bool(getattr(play, "keep_state", False))
         self.error = None
         self.paused = False
         self.play_pipe = play.pipe
@@ -130,7 +152,9 @@ class _Player:
         # When this film was asked for, for the count the interface shows while
         # it is loading. Wall clock rather than a tick, because the loop is not
         # the thing being timed. A failover keeps the original moment: the
-        # person has been waiting since the click, not since the retry.
+        # person has been waiting since the click, not since the retry. A
+        # reconnect after a freeze starts a fresh count: they were watching,
+        # and this wait is new.
         self.play_requested_at = (
             time.time() if requested_at is None else requested_at
         )
@@ -141,9 +165,50 @@ class _Player:
         self._pos_last = None
         self._pos_changed_at = None
         self._stall_logged = False
-        self._failover_note = None
+        self._failover_note = getattr(play, "note", None)
         self._stopped = False
+        self._reconnect_sent = False
+        self._attempt_seq += 1
+        if not continuation:
+            # A new play: new sources, a new check, and a generation so a
+            # reconnect request from the old one cannot touch this one.
+            self._play_seq += 1
+            self._stop_check()
+            self._tried = set()
+            self._check = None
+            self._start_check()
+        current = self._current_url()
+        if current:
+            self._tried.add(current)
         self.play_thread = _start_thread(play.pipe.start, self.msgq)
+
+    def _stop_check(self):
+        if self._check is not None:
+            self._check.cancel()
+            self._check = None
+
+    def _start_check(self):
+        """
+        Probe this channel's other unrated sources, while the first one plays.
+
+        Only the unrated ones: a source with a recent real play already has
+        better evidence than a playlist fetch. Nothing waits on this.
+        """
+        pipe = self.play_pipe
+        if pipe is None or not getattr(pipe, "track", False):
+            return
+        sources = getattr(pipe, "sources", None) or []
+        current = self._current_url()
+        unrated = [
+            url
+            for url in sources
+            if url and url != current and playquality.latest(url) is None
+        ]
+        if len(sources) > 1 and unrated:
+            cherrypy.log(
+                "SOURCE CHECK: %d unrated of %d sources" % (len(unrated), len(sources))
+            )
+            self._check = SourceCheck(unrated)
 
     def _current_url(self):
         """The URL being tried now, when the row carried a list of them."""
@@ -177,16 +242,74 @@ class _Player:
         # The failed attempts before this one are no longer the news.
         self._failover_note = None
 
+    def _pick_source(self, sources):
+        """
+        The next source to try, best evidence first.
+
+        A real play here beats a probe, and a probe beats nothing:
+        real worked -> probe reachable -> untried -> probe dead -> real failed.
+        The source list is already ordered by the journal within those groups,
+        so the index breaks ties. Nothing is skipped: the last bad source is
+        still tried after every better one.
+        """
+        options = []
+        for index, url in enumerate(sources):
+            if not url or url in self._tried:
+                continue
+            real = playquality.latest(url)
+            if real and real[0] == "ok":
+                tier, seconds = 0, 0.0
+            elif real:
+                tier, seconds = 4, 0.0
+            else:
+                probe = self._check.result(url) if self._check is not None else None
+                if probe is True:
+                    tier = 1
+                    seconds = self._check.seconds(url) or 0.0
+                elif probe is False:
+                    tier, seconds = 3, 0.0
+                else:
+                    tier, seconds = 2, 0.0
+            options.append((tier, seconds, index, url))
+        if not options:
+            return None
+        tier, _seconds, _index, url = min(
+            options, key=lambda option: (option[0], option[1], option[2])
+        )
+        return tier, url
+
+    def _next_source(self, wait_for_probe=False):
+        """
+        The next source to try, or None when the list is exhausted.
+
+        After an instant failure the best remaining source may still be in
+        flight in the probe; wait a little for it rather than spend the same
+        seconds on a dead address. At most five seconds, and only when there is
+        nothing better already known.
+        """
+        pipe = self.play_pipe
+        if pipe is None:
+            return None
+        sources = getattr(pipe, "sources", None) or []
+        picked = self._pick_source(sources)
+        if picked is None:
+            return None
+        tier, url = picked
+        if wait_for_probe and tier == 2 and self._check is not None:
+            self._check.wait(_PROBE_WAIT)
+            picked = self._pick_source(sources)
+        return picked[1] if picked else None
+
     def _fail_over(self, title):
         """
         Try the next source of the same row, after this one failed to start.
 
-        Only before the picture: a stream that played and then died is a
-        different problem, and restarting it from a mirror would throw away
-        where the person was. Only for rows that carried a list -- a torrent
-        has one address and a YouTube row has one URL. Bounded, because a
-        channel with thirty-five mirrors should not take five minutes to
-        decide it is dead.
+        Only before the picture. A stream that played and then died is handled
+        by _reconnect_play, which is allowed to restart it because a live
+        channel has nothing to lose; a film would lose its place. Only for rows
+        that carried a list -- a torrent has one address and a YouTube row has
+        one URL. No attempt cap: the person chose the channel and does not care
+        which source answers.
         """
         pipe = self.play_pipe
         if pipe is None or not getattr(pipe, "track", False):
@@ -195,28 +318,53 @@ class _Player:
             return False
         sources = getattr(pipe, "sources", None) or []
         index = getattr(pipe, "source_index", 0)
-        if index + 1 >= min(len(sources), _FAILOVER_TRIES):
+        failed = sources[index] if 0 <= index < len(sources) else None
+        next_url = self._next_source(wait_for_probe=True)
+        if not next_url:
             return False
-        failed = sources[index]
         if failed:
             playquality.record_failed(failed, self.error)
-        next_url = sources[index + 1]
-        cherrypy.log(
-            "FAILOVER: %s, source %d of %d"
-            % (title, index + 2, min(len(sources), _FAILOVER_TRIES))
-        )
+        note = "source %d of %d" % (len(self._tried) + 1, len(sources))
+        cherrypy.log("FAILOVER: %s, %s" % (title, note))
         newpipe = self.buildYtdl(
             next_url, title, getattr(pipe, "subs", None), sources
         )
         self._play(
-            _Play(newpipe, self.playlist, self.index),
+            _Play(newpipe, self.playlist, self.index, note, True),
             requested_at=self.play_requested_at,
         )
-        self._failover_note = "source %d of %d" % (
-            index + 2,
-            min(len(sources), _FAILOVER_TRIES),
-        )
         return True
+
+    def _reconnect_play(self, title):
+        """
+        Another source for a live channel whose picture has frozen.
+
+        The freeze is recorded by status() once the input has been idle long
+        enough. This builds the next attempt; the loop stops the frozen pipe
+        and starts this one. A stream still waiting for its first picture is not
+        a freeze -- the stage's own timeout ends that -- and a film is never
+        restarted, because that would throw away where the person was.
+        """
+        if self._is_stopping():
+            return None
+        pipe = self.play_pipe
+        if pipe is None or not getattr(pipe, "track", False):
+            return None
+        ask = getattr(pipe, "is_live", None)
+        if not callable(ask) or not ask():
+            return None
+        if self._picture_after() is None:
+            return None
+        sources = getattr(pipe, "sources", None) or []
+        next_url = self._next_source(wait_for_probe=False)
+        if not next_url:
+            return None
+        note = "source %d of %d" % (len(self._tried) + 1, len(sources))
+        cherrypy.log("RECONNECT: %s, %s" % (title, note))
+        newpipe = self.buildYtdl(
+            next_url, title, getattr(pipe, "subs", None), sources
+        )
+        return _Play(newpipe, self.playlist, self.index, note, True)
 
     def _clear_place(self):
         """
@@ -276,6 +424,7 @@ class _Player:
         if index is None or not (ended or self.error):
             self.play_pipe = None
             self.play_thread = None
+            self._stop_check()
             self._clear_place()
             return
         skipped = self.error
@@ -343,6 +492,19 @@ class _Player:
                         self._stop()
                     else:
                         self._play(play)
+                elif m == MSG_PLAYER_RECONNECT:
+                    seq = msgq.get()
+                    attempt = msgq.get()
+                    if seq == self._play_seq and attempt == self._attempt_seq:
+                        title = (
+                            self.play_pipe.title
+                            if self.play_pipe is not None
+                            else ""
+                        )
+                        play = self._reconnect_play(title)
+                        if play is not None:
+                            nextplay = play
+                            self._stop()
                 elif m == MSG_PLAYER_PIPE_STOPPED:
                     nextplay = self._pipe_stopped(nextplay)
                 elif m == MSG_PLAYER_QUIT:
@@ -389,6 +551,7 @@ class _Player:
         if self.main_thread is not None:
             self.msgq.put(MSG_PLAYER_QUIT)
             self.main_thread.join()
+        self._stop_check()
 
     def _player_stage(self, http, dlsrv):
         """Return the player stage for a pipeline."""
@@ -613,11 +776,32 @@ class _Player:
             status["State"] = ST_STARTING
         if status["State"] == ST_RUNNING:
             self._add_playback(status, play_pipe)
-            if status.get("Stalled") and not self._stall_logged:
+            stalled = status.get("Stalled", 0)
+            # A freeze is a picture that had started and then stopped. A
+            # stream still waiting for its first frame is a slow start, and
+            # the stage's own timeout is what ends that.
+            picture = self._picture_after() is not None
+            if stalled and picture and not self._stall_logged:
                 self._stall_logged = True
                 url = self._current_url()
                 if url and getattr(play_pipe, "track", False):
                     playquality.record_froze(url)
+            if (
+                stalled >= _RECONNECT_AFTER
+                and status.get("Live")
+                and picture
+                and getattr(play_pipe, "track", False)
+                and not self._reconnect_sent
+            ):
+                self._reconnect_sent = True
+                try:
+                    self._enqueue(
+                        MSG_PLAYER_RECONNECT, self._play_seq, self._attempt_seq
+                    )
+                except RuntimeError:
+                    # A full queue means the loop is not answering; the next
+                    # poll gets another chance rather than failing the status.
+                    self._reconnect_sent = False
         status["Paused"] = self.paused
         return status
 

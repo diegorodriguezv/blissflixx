@@ -10,9 +10,9 @@ from .common import ApiError
 from .torrent import is_torrent_url
 
 
-#: Mirrors one play may carry. The player tries a handful of them; more than
-#: this is a longer wait, not a better chance.
-_MAX_SOURCES = 8
+#: Mirrors one play may carry. A channel can have thirty-five in the catalogue;
+#: the player tries them in order and keeps going until one works.
+_MAX_SOURCES = 50
 
 
 def _save_subs_prefs(subs):

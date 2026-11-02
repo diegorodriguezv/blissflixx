@@ -882,9 +882,13 @@ class TestSources:
             "http://a", ["magnet:?xt=urn:btih:x", "file:///a.mkv", "http://b"]
         ) == ["http://a", "http://b"]
 
-    def test_the_list_is_capped(self):
-        sources = ["http://%d" % i for i in range(20)]
+    def test_the_list_is_capped_only_to_stop_abuse(self):
+        sources = ["http://%d" % i for i in range(playr._MAX_SOURCES + 10)]
         assert len(playr._sources("http://0", sources)) == playr._MAX_SOURCES
+
+    def test_a_channel_with_many_mirrors_keeps_them_all(self):
+        sources = ["http://%d" % i for i in range(35)]
+        assert playr._sources("http://0", sources) == sources
 
     def test_a_playlist_item_keeps_its_mirrors(self, settings):
         builder = playr._item_builder(

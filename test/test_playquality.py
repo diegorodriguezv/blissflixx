@@ -124,3 +124,38 @@ class TestWhatIsRead:
         entry = journal.summary("http://a")
         entry["ok_seconds"] = 999
         assert journal.summary("http://a")["ok_seconds"] == 1.0
+
+
+class TestLatest:
+    """The one reading the IPTV channel and the player both order by."""
+
+    def test_the_most_recent_event_wins(self, monkeypatch):
+        now = time.time()
+        entry = {"ok_at": now - 600, "ok_seconds": 5, "bad_at": now - 60}
+        monkeypatch.setattr(playquality, "summary", lambda url: entry)
+        assert playquality.latest("u") == ("bad", entry["bad_at"], 0.0)
+
+    def test_a_later_success_wins(self, monkeypatch):
+        now = time.time()
+        entry = {"bad_at": now - 600, "ok_at": now - 60, "ok_seconds": 6}
+        monkeypatch.setattr(playquality, "summary", lambda url: entry)
+        kind, _at, seconds = playquality.latest("u")
+        assert kind == "ok"
+        assert seconds == 6.0
+
+    def test_nothing_known_is_none(self, monkeypatch):
+        monkeypatch.setattr(playquality, "summary", lambda url: None)
+        assert playquality.latest("u") is None
+
+    def test_stale_evidence_is_none(self, monkeypatch):
+        now = time.time()
+        entry = {"ok_at": now - playquality.RECENT - 1, "ok_seconds": 5}
+        monkeypatch.setattr(playquality, "summary", lambda url: entry)
+        assert playquality.latest("u") is None
+
+    def test_the_window_can_be_narrowed(self, monkeypatch):
+        now = time.time()
+        entry = {"ok_at": now - 120, "ok_seconds": 5}
+        monkeypatch.setattr(playquality, "summary", lambda url: entry)
+        assert playquality.latest("u", within=60) is None
+        assert playquality.latest("u", within=300)[0] == "ok"

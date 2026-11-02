@@ -165,10 +165,57 @@ class TestTheJournal:
         pipe.track = True
         pipe.sources = ["http://a"]
         pipe.source_index = 0
+        pipe._media_at = time.time()
         pl = _player(pipe)
         pl.status()
         pl.status()
         assert recorded == ["http://a"]
+
+
+class TestLiveReconnect:
+    """A live picture frozen for twenty seconds asks the loop for another source."""
+
+    def _live(self, read_idle, live=True, picture=True):
+        pipe = _Pipe(playback={"read_idle": read_idle}, live=live)
+        pipe.track = True
+        pipe.sources = ["http://a", "http://b"]
+        pipe.source_index = 0
+        if picture:
+            pipe._media_at = time.time()
+        return _player(pipe)
+
+    def _sent(self, monkeypatch, player):
+        monkeypatch.setattr(player_module.playquality, "record_froze", lambda url: None)
+        sent = []
+        player._enqueue = lambda *items: sent.append(items)
+        player.status()
+        return sent
+
+    def test_a_frozen_live_picture_asks_for_another_source(self, monkeypatch):
+        player = self._live(25)
+        sent = self._sent(monkeypatch, player)
+        assert sent
+        assert sent[0][0] == player_module.MSG_PLAYER_RECONNECT
+        assert sent[0][1] == player._play_seq
+        assert sent[0][2] == player._attempt_seq
+
+    def test_it_asks_only_once_per_attempt(self, monkeypatch):
+        player = self._live(25)
+        sent = self._sent(monkeypatch, player)
+        player.status()
+        assert len(sent) == 1
+
+    def test_nineteen_seconds_is_still_only_the_warning(self, monkeypatch):
+        player = self._live(19)
+        assert self._sent(monkeypatch, player) == []
+
+    def test_a_film_does_not_restart(self, monkeypatch):
+        player = self._live(25, live=False)
+        assert self._sent(monkeypatch, player) == []
+
+    def test_a_stream_without_a_picture_is_a_slow_start_not_a_freeze(self, monkeypatch):
+        player = self._live(25, picture=False)
+        assert self._sent(monkeypatch, player) == []
 
 
 class TestPlaybackFields:
