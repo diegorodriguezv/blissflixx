@@ -93,34 +93,36 @@ class TestTheChannelAnswers:
 
         assert seen["entry"] is bfch_youtube.feedlist()[0]
 
-    def test_search_asks_the_archive_about_this_subreddit(self):
+    def test_search_asks_youtube_not_the_subreddit(self):
+        """
+        A subreddit only knows what somebody submitted, so its search is not a
+        YouTube search. This one asks YouTube, through lib.chanutils.youtube.
+        """
         seen = {}
 
-        def fake_search(subreddit, q):
-            seen.update(subreddit=subreddit, q=q)
+        def fake_search(q):
+            seen["q"] = q
             return "the results"
 
-        original = bfch_youtube.reddit_search
-        bfch_youtube.reddit_search = fake_search
+        original = bfch_youtube.youtube.search
+        bfch_youtube.youtube.search = fake_search
         try:
             assert bfch_youtube.search("kayak") == "the results"
         finally:
-            bfch_youtube.reddit_search = original
+            bfch_youtube.youtube.search = original
 
-        assert seen == {"subreddit": "youtubevideos", "q": "kayak"}
+        assert seen == {"q": "kayak"}
 
 
 class TestTheChannelDescribesItself:
-    def test_it_says_where_the_posts_come_from(self):
+    def test_it_says_where_the_feeds_come_from_and_what_search_does(self):
         """
-        The channel is not YouTube's own listings and should not imply it is.
-        Every Reddit channel names its subreddit in the description.
+        The feeds are a subreddit and search is all of YouTube; the description
+        has to say which is which, or the channel implies one feeds the other.
         """
         described = bfch_youtube.description()
         assert "/r/youtubevideos" in described
-        assert "youtube.com" not in described.replace(
-            "http://www.reddit.com/r/youtubevideos", ""
-        )
+        assert "search covers all of YouTube" in described
 
     def test_it_is_named_apart_from_the_movies_channel(self):
         """

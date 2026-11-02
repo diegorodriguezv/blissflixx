@@ -1,5 +1,10 @@
 """
-YouTube videos, by way of /r/youtubevideos.
+YouTube videos: feeds from /r/youtubevideos, and a search of all of YouTube.
+
+The feeds are what people posted to that subreddit, which is a real answer to
+"what is new there". Search is not: a subreddit only knows what somebody
+happened to submit, so asking it to find a video about something is asking the
+wrong party. Search asks YouTube itself, through lib.chanutils.youtube.
 
 The channel this replaces reached for two things. One was a sitewide listing of
 every post on Reddit linking to youtube.com; the other was YouTube's own Data
@@ -30,10 +35,8 @@ belongs to lib.chanutils.reddit, which every Reddit channel goes through, so
 that a channel added later gets it by existing rather than by remembering.
 """
 
+from lib.chanutils import youtube
 from lib.chanutils.reddit import get_feed
-from lib.chanutils.reddit import search as reddit_search
-
-_SUBREDDIT = "youtubevideos"
 
 _FEEDLIST = [
     # Reddit offers five sorts and this archive answers by time and nothing
@@ -61,7 +64,12 @@ def image():
 
 
 def description():
-    return "YouTube videos posted to /r/youtubevideos (<a target='_blank' href='http://www.reddit.com/r/youtubevideos/'>http://www.reddit.com/r/youtubevideos</a>)."
+    return (
+        "New and Top are what was posted to /r/youtubevideos "
+        "(<a target='_blank' href='http://www.reddit.com/r/youtubevideos/'>"
+        "http://www.reddit.com/r/youtubevideos</a>); search covers all of "
+        "YouTube."
+    )
 
 
 def feedlist():
@@ -73,4 +81,5 @@ def feed(idx):
 
 
 def search(q):
-    return reddit_search(_SUBREDDIT, q)
+    """All of YouTube, not the subreddit: see lib.chanutils.youtube."""
+    return youtube.search(q)
