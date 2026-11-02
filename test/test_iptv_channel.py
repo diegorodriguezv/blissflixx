@@ -396,6 +396,8 @@ class TestTheClientChain:
         assert "{ detail }" in bar
         assert "fa-refresh" in bar
         assert "retrying" in bar
+        # The retry is the icon alone; the words are for the log, not the bar.
+        assert "show={ !retrying }" in bar
 
     def test_the_iptv_feed_is_not_kept_for_a_minute(self):
         root = pathlib.Path(__file__).resolve().parents[1]

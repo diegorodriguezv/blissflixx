@@ -9,7 +9,7 @@
             <i show={ starting } class="fa fa-circle-o-notch fa-spin"></i>
             <i show={ !starting } class="fa fa-play"></i>
             <span class="truncate">{ status.Title }</span>
-            <span show={ detail } class="play-detail"><i show={ retrying } class="fa fa-refresh fa-spin"></i>{ detail }</span>
+            <span show={ detail } class="play-detail"><i show={ retrying } class="fa fa-refresh fa-spin"></i><span show={ !retrying }>{ detail }</span></span>
             <span show={ pill } class="starting-time { pillClass }" onclick={ showDebug } title={ pillTitle }>
               { pill }
               <i show={ warning } class="fa fa-exclamation-triangle"></i>
