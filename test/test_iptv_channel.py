@@ -2,10 +2,15 @@
 The IPTV channel's rows.
 
 iptv-org lists streams, not channels, so one channel is often many rows -- and
-Caracol TV is thirty-five. The channel groups them into one row with the
-mirrors behind it, orders the mirrors by what the box has seen, and says in
-the row how the channel behaved here. Nothing is hidden: a channel that failed
-is still there, at the bottom, with the age of the failure on it.
+Caracol TV is thirty-five. The channel groups them into one row carrying every
+mirror, orders them by what the box has seen, and says how the channel is doing
+as a set of sources:
+
+    12 sources · 1 healthy · 2 tested
+
+Nothing is hidden. A channel only moves to the bottom when every source has
+been tried and none is healthy; while untried ones remain it stays in the
+middle, because another source may still work.
 
 The journal is monkeypatched rather than written: these are the ordering and
 wording rules, and test_playquality.py owns the file.
