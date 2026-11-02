@@ -290,6 +290,11 @@ class YoutubeDlProcess(ExternalProcess):
         # yt-dlp's words. The address is what matters, and it is gone.
         msg = self._EXTRACTOR_PREFIX.sub("", msg)
         msg = re.sub(r"\s*\(caused by <.*>\)\s*$", "", msg)
+        if "No video formats found" in msg:
+            # A playlist that is empty or has no playable variant -- the
+            # "Not 24/7" channels answer this way when they are off the air.
+            # The rest of yt-dlp's sentence is a request to file a bug report.
+            return "No playable stream found"
         for marker, text in (
             ("HTTP Error 404", "Stream not found"),
             ("HTTP Error 410", "Stream not found"),

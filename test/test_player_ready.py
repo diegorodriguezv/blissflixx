@@ -260,6 +260,13 @@ class TestYtdlErrorMessages:
                 "Stream server error",
             ),
             ("Unable to download webpage: timed out", "Stream not reachable"),
+            (
+                "No video formats found!; please report this issue on  "
+                "https://github.com/yt-dlp/yt-dlp/issues?q= , filling out the "
+                "appropriate issue template. Confirm you are on the latest "
+                "version using  yt-dlp -U",
+                "No playable stream found",
+            ),
         ],
     )
     def test_a_dead_address_is_said_short(self, raw, expected):
