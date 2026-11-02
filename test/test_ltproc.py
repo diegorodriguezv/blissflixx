@@ -57,14 +57,28 @@ STATUS = {
 }
 
 
+@pytest.fixture(autouse=True)
+def quick_settle(monkeypatch):
+    """The settle window is real time; keep the suite quick."""
+    monkeypatch.setattr(ltproc, "_SETTLE", 0.05)
+
+
 def feed(proc, *lines):
-    """Make proc._readline() yield the given lines, then run dry."""
+    """
+    Make proc._readline() yield the given lines, then run dry.
+
+    Running dry is a timeout when a timeout was asked for -- which is what the
+    settle window asks for, and what a process that is alive but quiet does --
+    and end of output otherwise.
+    """
     remaining = iter(lines)
 
     def _readline(timeout=None):
         try:
             return next(remaining)
         except StopIteration:
+            if timeout is not None:
+                raise ProcessException("Timed out waiting for input")
             raise ProcessException("no more output")
 
     proc._readline = _readline
@@ -148,6 +162,40 @@ class TestReady:
         assert wanted == [
             {"url": "http://127.0.0.1:9697/3", "name": "Film.eng.srt"}
         ]
+
+    def test_a_crash_and_retry_is_waited_out_before_the_player_starts(self, monkeypatch):
+        """
+        The crash lands after "serving", and the wrapper starts the process
+        again. If the stage reported ready in between, VLC connected to a port
+        nobody was listening on and the play was over. The settle restarts its
+        wait when the second serving line arrives.
+        """
+        import time as clock
+
+        monkeypatch.setattr(ltproc, "_SETTLE", 0.2)
+        remaining = [
+            SERVING,
+            "bf-bt: killed by signal 11; starting it again",
+            "<sleep>",
+            SERVING,
+        ]
+
+        def _readline(timeout=None):
+            if not remaining:
+                raise ProcessException("Timed out waiting for input")
+            line = remaining.pop(0)
+            if line == "<sleep>":
+                clock.sleep(0.25)
+                return _readline(timeout)
+            return line
+
+        proc = LibtorrentProcess(MAGNET, 0)
+        proc.args = {}
+        proc._readline = _readline
+        started = clock.time()
+        assert proc._ready()["outfile"] == "http://127.0.0.1:9697"
+        # :20 for the first line, then the second serving line resets the window
+        assert clock.time() - started >= 0.35
 
     def test_a_process_that_dies_carries_the_command_too(self):
         """

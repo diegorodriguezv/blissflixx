@@ -57,6 +57,16 @@ _STATUS_PREFIX = "bf-status: "
 _FILES_PREFIX = "bf-files: "
 _ERROR_PREFIX = "bf-bt: error "
 
+#: Seconds a process that has just said "serving" must stay alive before the
+#: player is pointed at it.
+#:
+#: libtorrent has crashed the torrent process about half a second after that
+#: line, and the retry wrapper starts it again -- but VLC, started immediately,
+#: had already been refused and the play was over. Waiting this long covers the
+#: crash without touching the normal case: it costs a second on every play, and
+#: a connection refused costs the play.
+_SETTLE = 1.0
+
 #: How long the numbers may stay identical before the bar says nothing is
 #: arriving. Long enough that one slow piece does not read as a dead torrent,
 #: short enough that a dead one is not left looking busy.
@@ -203,6 +213,7 @@ class LibtorrentProcess(ExternalProcess):
                     "TIMING libtorrent %.1fs to serve (%s, %d pieces)"
                     % (time.time() - self._started_at, info["name"], info["pieces"])
                 )
+                self._settle()
                 if self.subs:
                     # Where the subtitles live, not the subtitles: fetching one
                     # waits on pieces that may not be here yet, and waiting here
@@ -217,6 +228,28 @@ class LibtorrentProcess(ExternalProcess):
                         for s in self.subs
                     ]
                 return self.args
+
+    def _settle(self):
+        """
+        Wait out the moment a native crash would happen, before the URL is used.
+
+        A crash after "serving" and a successful retry is still a failed play if
+        the player was pointed at the port in between: it gets connection
+        refused, gives up, and never looks again. A second serving line (the
+        retry) restarts the wait.
+        """
+        deadline = time.time() + _SETTLE
+        while time.time() < deadline:
+            try:
+                line = self._readline(timeout=0.2)
+            except ProcessException as exc:
+                if "Timed out" in str(exc):
+                    continue
+                raise
+            if line.startswith(_ERROR_PREFIX):
+                raise ProcessException(line[len(_ERROR_PREFIX):])
+            if _SERVING_RE.search(line):
+                deadline = time.time() + _SETTLE
 
     def _watch_status(self, line):
         """Remember the latest numbers the torrent process printed."""

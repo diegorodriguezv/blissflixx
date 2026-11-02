@@ -335,7 +335,17 @@ def session_for(lt):
             "enable_lsd": True,
             "enable_upnp": False,
             "enable_natpmp": False,
-            "alert_mask": lt.alert.category_t.all_categories,
+            # Only the categories this process acts on. all_categories also
+            # turns on the log categories -- peer_log, dht_log, torrent_log,
+            # block_progress -- which with a busy swarm is thousands of alerts a
+            # second, all of them converted to Python objects and thrown away.
+            # That loop is where the armhf build has crashed twice, and the log
+            # categories are the ones nothing here reads.
+            "alert_mask": (
+                lt.alert.category_t.error_notification
+                | lt.alert.category_t.storage_notification
+                | lt.alert.category_t.piece_progress_notification
+            ),
             "cache_size": 16 * 1024 * 1024,
         }
     )
