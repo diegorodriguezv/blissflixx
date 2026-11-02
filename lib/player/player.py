@@ -137,6 +137,10 @@ class _Player:
         self._reconnect_sent = False
         self._play_seq = 0
         self._attempt_seq = 0
+        #: The play that has been asked for and not started yet: (pipe, when,
+        #: came from a playlist). The loop may still be stopping the old pipe,
+        #: which can take seconds; the bar shows this instead of going blank.
+        self.pending = None
 
     def _stop(self):
         if self.play_pipe:
@@ -144,6 +148,10 @@ class _Player:
 
     def _play(self, play, requested_at=None):
         continuation = bool(getattr(play, "keep_state", False))
+        pending_at = None
+        if self.pending is not None and self.pending[0] is play.pipe:
+            pending_at = self.pending[1]
+            self.pending = None
         self.error = None
         self.paused = False
         self.play_pipe = play.pipe
@@ -158,6 +166,10 @@ class _Player:
         self.play_requested_at = (
             time.time() if requested_at is None else requested_at
         )
+        if pending_at is not None and requested_at is None:
+            # The count starts when the person clicked, not when the old pipe
+            # finally let go of the display.
+            self.play_requested_at = pending_at
         # Per attempt, so the quality journal's "started in Ns" is about this
         # source rather than about the failed ones before it.
         self.attempt_started_at = time.time()
@@ -497,12 +509,20 @@ class _Player:
                     # already queued, which is not what the button says.
                     nextplay = None
                     self.notice = None
+                    self.pending = None
                     self._stopped = True
                     self._stop()
                     self._clear_place()
                 elif m == MSG_PLAYER_SKIP:
                     delta = msgq.get()
+                    self.pending = None
                     play = self._adjacent(delta)
+                    if play is not None:
+                        self.pending = (
+                            play.pipe,
+                            time.time(),
+                            play.playlist is not None,
+                        )
                     if play is None:
                         self.notice = self._no_neighbour(delta)
                     elif self.play_pipe is not None:
@@ -526,6 +546,7 @@ class _Player:
                 elif m == MSG_PLAYER_PIPE_STOPPED:
                     nextplay = self._pipe_stopped(nextplay)
                 elif m == MSG_PLAYER_QUIT:
+                    self.pending = None
                     self._stopped = True
                     self._stop()
                     break
@@ -634,7 +655,12 @@ class _Player:
         """
         if self.main_thread is None:
             self.main_thread = _start_thread(self.start)
-        self._enqueue(MSG_PLAYER_PLAY, _Play(pipe, playlist, index))
+        self.pending = (pipe, time.time(), playlist is not None)
+        try:
+            self._enqueue(MSG_PLAYER_PLAY, _Play(pipe, playlist, index))
+        except RuntimeError:
+            self.pending = None
+            raise
 
     def play(
         self, title, src, subs=None, http=False, dlsrv=True, playlist=None, index=None
@@ -769,6 +795,18 @@ class _Player:
 
         if self.notice is not None:
             status["Notice"] = self.notice
+
+        if self.pending is not None and self.error is None:
+            # A play has been asked for and the loop has not started it yet.
+            # The usual reason is that the old pipe is still stopping: VLC
+            # takes its time to let go of the display, and for those seconds
+            # the bar used to go blank. Show the waiting instead.
+            _pipe, started, from_playlist = self.pending
+            status["State"] = ST_STARTING
+            status["Title"] = "LOADING STREAM"
+            status["Elapsed"] = max(0, int(time.time() - started))
+            status["Playlist"] = from_playlist
+            return status
 
         if play_pipe is None or self.error is not None:
             return status

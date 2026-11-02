@@ -218,6 +218,63 @@ class TestLiveReconnect:
         assert self._sent(monkeypatch, player) == []
 
 
+class TestThePendingPlay:
+    """The bar should not go blank while the old pipe lets go of the display."""
+
+    def test_a_clicked_play_is_shown_before_the_loop_starts_it(self):
+        pl = player_module._Player()
+        pl.pending = (object(), time.time() - 3, False)
+        status = pl.status()
+        assert status["State"] == player_module.ST_STARTING
+        assert status["Title"] == "LOADING STREAM"
+        assert status["Elapsed"] >= 3
+
+    def test_it_says_when_the_play_came_from_a_playlist(self):
+        pl = player_module._Player()
+        pl.pending = (object(), time.time(), True)
+        assert pl.status()["Playlist"] is True
+
+    def test_an_error_is_not_hidden_by_a_pending_play(self):
+        pl = player_module._Player()
+        pl.pending = (object(), time.time(), False)
+        pl.error = "nope"
+        status = pl.status()
+        assert status["Error"] is True
+        assert status["State"] == player_module.ST_NOT_RUNNING
+
+    def test_starting_the_play_clears_it_and_keeps_the_click_time(self, monkeypatch):
+        pl = player_module._Player()
+        pipe = _Pipe()
+        pipe.start = lambda *args: None
+        pl.pending = (pipe, 100.0, False)
+        monkeypatch.setattr(player_module, "_start_thread", lambda *a, **k: None)
+        pl._play(player_module._Play(pipe, None, None))
+        assert pl.pending is None
+        assert pl.play_requested_at == 100.0
+
+    def test_queuing_a_play_announces_it_before_the_loop_runs(self, monkeypatch):
+        pl = player_module._Player()
+        pl.main_thread = object()
+        pipe = _Pipe()
+        sent = []
+        monkeypatch.setattr(pl, "_enqueue", lambda *items: sent.append(items))
+        pl.playPipe(pipe)
+        assert pl.pending[0] is pipe
+        assert sent
+
+    def test_a_play_that_cannot_be_queued_does_not_stay_pending(self, monkeypatch):
+        pl = player_module._Player()
+        pl.main_thread = object()
+
+        def full(*items):
+            raise RuntimeError("full")
+
+        monkeypatch.setattr(pl, "_enqueue", full)
+        with pytest.raises(RuntimeError):
+            pl.playPipe(_Pipe())
+        assert pl.pending is None
+
+
 class TestPlaybackFields:
     def test_position_and_length_come_from_the_player(self):
         pl = _player(_Pipe(playback={"position": 61.4, "length": 3000}))
