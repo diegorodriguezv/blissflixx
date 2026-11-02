@@ -27,6 +27,7 @@ Two traps this code is shaped around, both measured:
 """
 
 import argparse
+import faulthandler
 import json
 import os
 import signal
@@ -73,6 +74,12 @@ RESUME_GRACE = 2.0
 #: so that everything about a torrent is in one place, and hidden so that the
 #: buffer still reads as a list of downloads.
 RESUME_DIR = ".bf-torrent"
+
+# A native crash (libtorrent, the C++ underneath the bindings) otherwise leaves
+# nothing but "Process exit: -11": no line, no file, no thread. With this, the
+# signal handler prints every Python thread's stack to stderr, which the stage
+# logs, so the next one can be read instead of guessed at.
+faulthandler.enable()
 
 TAG = "bf-bt: "
 STATUS_TAG = "bf-status: "
@@ -937,8 +944,10 @@ def main(argv=None):
     app.metadata_after = time.time() - started
     app.crop()
     server = Server(("127.0.0.1", args.port), app)
+    print(TAG + "listening on 127.0.0.1:%d" % args.port, flush=True)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     app.prime()
+    print(TAG + "primed", flush=True)
 
     index = app.index
     print(
