@@ -60,9 +60,10 @@ class SourcePipe:
 
 
 class FakeCheck:
-    def __init__(self, results=None, seconds=None):
+    def __init__(self, results=None, seconds=None, done=True):
         self._results = results or {}
         self._seconds = seconds or {}
+        self._done = done
         self.waited = []
 
     def result(self, url):
@@ -71,8 +72,12 @@ class FakeCheck:
     def seconds(self, url):
         return self._seconds.get(url)
 
+    def done(self):
+        return self._done
+
     def wait(self, timeout):
         self.waited.append(timeout)
+        self._done = True
         return []
 
     def cancel(self):
@@ -204,6 +209,16 @@ class TestFailover:
 
 
 class TestChoosingTheNextSource:
+    """
+    The player follows the order the channel handed over.
+
+    The channel puts the best quality first among the sources that have not
+    failed here, then what worked, then the ones that failed. The player only
+    moves the probed-dead and the already-failed after the rest; within those
+    groups the channel's order stands, which is what keeps a 1080p source
+    ahead of a 720p one.
+    """
+
     def _pick(self, player, sources, current=0, check=None, tried=None):
         prepared(player, sources, index=current)
         player._check = check
@@ -211,39 +226,36 @@ class TestChoosingTheNextSource:
             player._tried = set(tried)
         return player._next_source()
 
-    def test_a_real_success_goes_before_a_probe(self, player, latest):
-        sources = ["http://a", "http://b", "http://c", "http://d"]
-        latest["http://d"] = ("ok", time.time() - 60, 5)
+    def test_the_channel_order_is_kept(self, player, latest):
+        sources = ["http://a", "http://b", "http://c"]
+        assert self._pick(player, sources) == "http://b"
+
+    def test_a_lower_quality_real_success_does_not_jump_ahead(self, player, latest):
+        """The 1080p untried source is ahead of the 720p that worked."""
+        sources = ["http://a", "http://1080", "http://720"]
+        latest["http://720"] = ("ok", time.time() - 60, 5)
+        assert self._pick(player, sources) == "http://1080"
+
+    def test_a_probed_dead_source_goes_after_the_untried(self, player, latest):
+        sources = ["http://a", "http://dead", "http://untried"]
         assert (
-            self._pick(player, sources, check=FakeCheck({"http://b": True}))
-            == "http://d"
+            self._pick(player, sources, check=FakeCheck({"http://dead": False}))
+            == "http://untried"
         )
 
-    def test_a_probed_good_goes_before_an_untried(self, player, latest):
-        sources = ["http://a", "http://b", "http://c"]
-        assert (
-            self._pick(player, sources, check=FakeCheck({"http://c": True}))
-            == "http://c"
-        )
-
-    def test_an_untried_goes_before_a_probed_bad(self, player, latest):
-        sources = ["http://a", "http://b", "http://c"]
-        assert (
-            self._pick(player, sources, check=FakeCheck({"http://c": False}))
-            == "http://b"
-        )
-
-    def test_a_probed_bad_goes_before_a_real_failure(self, player, latest):
-        sources = ["http://a", "http://b", "http://c"]
-        latest["http://c"] = ("bad", time.time() - 60, 0)
+    def test_a_probed_dead_source_goes_before_a_real_failure(self, player, latest):
+        sources = ["http://a", "http://dead", "http://failed"]
+        latest["http://failed"] = ("bad", time.time() - 60, 0)
         assert (
             self._pick(
-                player, sources, check=FakeCheck({"http://b": False, "http://c": False})
+                player,
+                sources,
+                check=FakeCheck({"http://dead": False, "http://failed": False}),
             )
-            == "http://b"
+            == "http://dead"
         )
 
-    def test_the_real_failure_is_tried_last(self, player, latest):
+    def test_a_real_failure_is_tried_last(self, player, latest):
         sources = ["http://a", "http://b", "http://c"]
         latest["http://c"] = ("froze", time.time() - 60, 0)
         assert (
@@ -257,8 +269,7 @@ class TestChoosingTheNextSource:
         )
 
     def test_nothing_left_is_none(self, player, latest):
-        sources = ["http://a"]
-        prepared(player, sources)
+        prepared(player, ["http://a"])
         assert player._next_source() is None
 
     def test_every_source_is_tried_eventually(self, player, latest):
@@ -275,13 +286,22 @@ class TestChoosingTheNextSource:
 
     def test_the_probe_is_waited_on_for_an_untried_choice(self, player, latest):
         sources = ["http://a", "http://b"]
-        check = FakeCheck()
+        check = FakeCheck(done=False)
         prepared(player, sources)
         player._check = check
         assert player._next_source(wait_for_probe=True) == "http://b"
         assert check.waited == [5.0]
 
-    def test_no_wait_when_a_probed_good_is_ready(self, player, latest):
+    def test_no_wait_when_a_real_play_is_known(self, player, latest):
+        sources = ["http://a", "http://b"]
+        latest["http://b"] = ("ok", time.time() - 60, 5)
+        check = FakeCheck(done=False)
+        prepared(player, sources)
+        player._check = check
+        assert player._next_source(wait_for_probe=True) == "http://b"
+        assert check.waited == []
+
+    def test_no_wait_when_the_probe_already_answered(self, player, latest):
         sources = ["http://a", "http://b"]
         check = FakeCheck({"http://b": True})
         prepared(player, sources)

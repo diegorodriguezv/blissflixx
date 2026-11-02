@@ -90,12 +90,28 @@ class TestOneRowPerChannel:
         ]
         assert urls(rows(data)[0]) == ["http://a/plain", "http://a/geo"]
 
-    def test_the_row_shows_the_chosen_streams_quality(self):
+    def test_the_row_says_up_to_the_best_quality(self):
+        """
+        The label is about the channel's sources, not the first one: a 720p
+        source with a 1080p sibling is "up to 1080p".
+        """
         data = [
             stream("c", "C", "http://a/720", "720p"),
             stream("c", "C", "http://a/1080", "1080p"),
         ]
-        assert "1080p" in rows(data)[0].subtitle
+        assert "quality: <b>up to 1080p</b>" in rows(data)[0].subtitle
+
+    def test_a_channel_with_one_quality_names_it_plainly(self):
+        data = [
+            stream("c", "C", "http://a/1", "1080p"),
+            stream("c", "C", "http://a/2", "1080p"),
+        ]
+        assert "quality: <b>1080p</b>" in rows(data)[0].subtitle
+        assert "up to" not in rows(data)[0].subtitle
+
+    def test_a_channel_without_quality_says_nothing_about_it(self):
+        data = [stream("c", "C", "http://a/1")]
+        assert "quality:" not in rows(data)[0].subtitle
 
     def test_every_mirror_is_carried(self):
         """
@@ -116,7 +132,11 @@ class TestOneRowPerChannel:
 
 
 class TestOrderingByWhatWorked:
-    def test_a_mirror_that_worked_goes_first(self, monkeypatch):
+    def test_the_best_quality_wins_over_a_lower_one_that_worked(self, monkeypatch):
+        """
+        The person asked to watch the channel, not the safest picture. A
+        1080p URL that has not been tried goes before a 720p that worked.
+        """
         now = time.time()
         journal(
             monkeypatch,
@@ -130,7 +150,35 @@ class TestOrderingByWhatWorked:
             stream("c", "C", "http://a/unknown", "1080p"),
             stream("c", "C", "http://a/good", "720p"),
         ]
-        assert urls(rows(data)[0])[0] == "http://a/good"
+        assert urls(rows(data)[0])[0] == "http://a/unknown"
+
+    def test_a_failed_1080p_does_not_jump_a_working_720p(self, monkeypatch):
+        """Bad ones are last whatever they claim to be."""
+        now = time.time()
+        journal(
+            monkeypatch,
+            {
+                "http://a/bad": {"bad_at": now - 60},
+                "http://a/720": {"ok_at": now - 60, "ok_seconds": 6},
+            },
+        )
+        data = [
+            stream("c", "C", "http://a/bad", "1080p"),
+            stream("c", "C", "http://a/720", "720p"),
+        ]
+        assert urls(rows(data)[0]) == ["http://a/720", "http://a/bad"]
+
+    def test_within_one_quality_the_one_that_worked_goes_first(self, monkeypatch):
+        now = time.time()
+        journal(
+            monkeypatch,
+            {"http://a/good": {"ok_at": now - 60, "ok_seconds": 6}},
+        )
+        data = [
+            stream("c", "C", "http://a/unknown", "1080p"),
+            stream("c", "C", "http://a/good", "1080p"),
+        ]
+        assert urls(rows(data)[0]) == ["http://a/good", "http://a/unknown"]
 
     def test_a_working_channel_sorts_before_an_untested_one(self, monkeypatch):
         now = time.time()

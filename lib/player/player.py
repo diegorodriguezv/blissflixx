@@ -256,37 +256,32 @@ class _Player:
 
     def _pick_source(self, sources):
         """
-        The next source to try, best evidence first.
+        The next source to try, in the order the channel handed them over.
 
-        A real play here beats a probe, and a probe beats nothing:
-        real worked -> probe reachable -> untried -> probe dead -> real failed.
-        The source list is already ordered by the journal within those groups,
-        so the index breaks ties. Nothing is skipped: the last bad source is
-        still tried after every better one.
+        The channel orders the sources by quality first, then by what worked,
+        with the ones that failed here last. The player only moves the probed
+        dead and the already-failed after the rest; within those groups the
+        channel's order stands, which is what keeps a 1080p source ahead of a
+        720p one. Nothing is skipped: the last bad source is still tried after
+        every better one.
         """
         options = []
         for index, url in enumerate(sources):
             if not url or url in self._tried:
                 continue
             real = playquality.latest(url)
-            if real and real[0] == "ok":
-                tier, seconds = 0, 0.0
-            elif real:
-                tier, seconds = 4, 0.0
+            probe = self._check.result(url) if self._check is not None else None
+            if real and real[0] != "ok":
+                tier = 2
+            elif real is None and probe is False:
+                tier = 1
             else:
-                probe = self._check.result(url) if self._check is not None else None
-                if probe is True:
-                    tier = 1
-                    seconds = self._check.seconds(url) or 0.0
-                elif probe is False:
-                    tier, seconds = 3, 0.0
-                else:
-                    tier, seconds = 2, 0.0
-            options.append((tier, seconds, index, url))
+                tier = 0
+            options.append((tier, index, url))
         if not options:
             return None
-        tier, _seconds, _index, url = min(
-            options, key=lambda option: (option[0], option[1], option[2])
+        tier, _index, url = min(
+            options, key=lambda option: (option[0], option[1])
         )
         return tier, url
 
@@ -296,8 +291,8 @@ class _Player:
 
         After an instant failure the best remaining source may still be in
         flight in the probe; wait a little for it rather than spend the same
-        seconds on a dead address. At most five seconds, and only when there is
-        nothing better already known.
+        seconds on a dead address. At most five seconds, and only when the
+        chosen source has no real play yet and the probe has not answered.
         """
         pipe = self.play_pipe
         if pipe is None:
@@ -307,9 +302,15 @@ class _Player:
         if picked is None:
             return None
         tier, url = picked
-        if wait_for_probe and tier == 2 and self._check is not None:
-            self._check.wait(_PROBE_WAIT)
-            picked = self._pick_source(sources)
+        if wait_for_probe and tier == 0 and self._check is not None:
+            real = playquality.latest(url)
+            if (
+                real is None
+                and self._check.result(url) is None
+                and not self._check.done()
+            ):
+                self._check.wait(_PROBE_WAIT)
+                picked = self._pick_source(sources)
         return picked[1] if picked else None
 
     def _fail_over(self, title):

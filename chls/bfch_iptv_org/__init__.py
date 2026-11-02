@@ -202,11 +202,12 @@ def _order_streams(streams):
     """
     The mirrors, best first, without removing the ones that failed.
 
-    The order is also the failover order, so it is the same evidence the row
-    shows: a recent success first, then the quality of an untested URL, and a
-    recent failure last. Within the working ones the freshest goes first --
-    whether a URL answered an hour ago says more about the one there now than
-    how fast it answered six days ago.
+    The order is also the failover order. Quality comes first among the
+    sources that have not failed here: a 1080p URL is worth trying before a
+    720p one, because the person asked to watch the channel, not the safest
+    picture. Within the same quality a source that worked goes first, then
+    the untried. A source that failed is last whatever its quality -- the bad
+    ones are tried only after everything else.
     """
 
     def key(stream):
@@ -214,14 +215,39 @@ def _order_streams(streams):
         labels = stream.get("labels") or []
         discouraged = ("Geo-blocked" in labels) + ("Not 24/7" in labels)
         quality = -_resolution(stream.get("quality"))
-        if outcome and outcome[0] == "ok":
-            return (0, -outcome[1], outcome[2], discouraged, quality)
+        if outcome and outcome[0] != "ok":
+            # A source that failed here is last whatever it claims to be:
+            # trying a 1080p that has already died before a working 720p is
+            # how the old four-row list wasted a click.
+            return (1, quality, outcome[1], discouraged)
         if outcome:
-            # The oldest failure first: it has had the most time to be fixed.
-            return (2, outcome[1], 0.0, discouraged, quality)
-        return (1, 0.0, 0.0, discouraged, quality)
+            # The same quality, a source that worked: newest, then fastest.
+            return (0, quality, 0, -outcome[1], outcome[2], discouraged)
+        return (0, quality, 1, 0.0, 0.0, discouraged)
 
     return sorted(streams, key=key)
+
+
+def _quality_label(streams):
+    """
+    The quality the channel offers, not the quality of one source.
+
+    "up to 1080p" when the mirrors differ; the plain value when they are all
+    the same. The label is about the catalogue, so it keeps naming the best
+    quality even while a lower one is the one playing -- the counts say what
+    is working.
+    """
+    values = [
+        (_resolution(stream.get("quality")), stream["quality"])
+        for stream in streams
+        if stream.get("quality")
+    ]
+    if not values:
+        return None
+    best = max(values, key=lambda pair: pair[0])[1]
+    if len({rank for rank, _value in values}) > 1:
+        return "up to %s" % best
+    return best
 
 
 def _counts(streams):
@@ -323,8 +349,9 @@ def _extract(data):
             continue
         first = streams[0]
         subtitle_strings = []
-        if first.get("quality"):
-            subtitle_strings.append(f"quality: <b>{first['quality']}</b>")
+        quality = _quality_label(streams)
+        if quality:
+            subtitle_strings.append(f"quality: <b>{quality}</b>")
         if first.get("labels"):
             subtitle_strings.append(f"labels: <b>{' '.join(first['labels'])}</b>")
         if "country" in info:
