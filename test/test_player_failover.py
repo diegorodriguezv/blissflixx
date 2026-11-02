@@ -471,12 +471,43 @@ class TestTheStoppedPipe:
         assert calls["after"] == []
         assert calls["recorded"] == []
 
-    def test_an_end_with_no_error_is_not_a_failure(self, player, monkeypatch):
-        player.play_pipe = SourcePipe(["http://a"], index=0)
+    def test_a_film_that_ends_is_not_reconnected(self, player, monkeypatch):
+        player.play_pipe = SourcePipe(["http://a"], index=0, live=False)
         player._tried = {"http://a"}
         calls = self._stopped(player, monkeypatch, None)
         assert calls["after"] == [("A Channel", True)]
         assert calls["recorded"] == []
+
+    def test_a_live_stream_that_ends_tries_another_source(self, player, monkeypatch):
+        """
+        VLC calls a closed live stream "end of playlist, exiting", which looks
+        like a film ending. For a live channel it is not: another source may
+        still be broadcasting.
+        """
+        pipe = SourcePipe(
+            ["http://a", "http://b"], index=0, media_at=time.time(), live=True
+        )
+        player.play_pipe = pipe
+        player._tried = {"http://a"}
+        calls = self._stopped(player, monkeypatch, None)
+        assert calls["after"] == []
+        assert calls["recorded"] == [("http://a", "Stream ended")]
+        assert len(calls["played"]) == 1
+        play = calls["played"][0]
+        assert play.pipe.source_index == 1
+        assert play.note == "source 2 of 2"
+        assert play.keep_state is True
+
+    def test_a_live_stream_that_ends_with_no_sources_left_moves_on(
+        self, player, monkeypatch
+    ):
+        player.play_pipe = SourcePipe(
+            ["http://a"], index=0, media_at=time.time(), live=True
+        )
+        player._tried = {"http://a"}
+        calls = self._stopped(player, monkeypatch, None)
+        assert calls["after"] == [("A Channel", True)]
+        assert calls["recorded"] == [("http://a", "Stream ended")]
 
     def test_a_row_without_mirrors_is_not_written_down(self, player, monkeypatch):
         """The journal is about channels; a YouTube film has no mark to earn."""

@@ -335,17 +335,28 @@ class _Player:
         )
         return True
 
-    def _reconnect_play(self, title):
+    def _reconnect_play(
+        self,
+        title,
+        allow_stopped=False,
+        allow_unstarted=False,
+        record_end=False,
+    ):
         """
-        Another source for a live channel whose picture has frozen.
+        Another source for a live channel that stopped showing its picture.
 
         The freeze is recorded by status() once the input has been idle long
         enough. This builds the next attempt; the loop stops the frozen pipe
         and starts this one. A stream still waiting for its first picture is not
         a freeze -- the stage's own timeout ends that -- and a film is never
         restarted, because that would throw away where the person was.
+
+        A live stream that ends on its own is the other way this happens; VLC
+        reports it as "end of playlist, exiting", which is not an ending for a
+        live channel. That path records the source as ended and also tries the
+        next one.
         """
-        if self._is_stopping():
+        if not allow_stopped and self._is_stopping():
             return None
         pipe = self.play_pipe
         if pipe is None or not getattr(pipe, "track", False):
@@ -353,14 +364,21 @@ class _Player:
         ask = getattr(pipe, "is_live", None)
         if not callable(ask) or not ask():
             return None
-        if self._picture_after() is None:
+        if not allow_unstarted and self._picture_after() is None:
             return None
+        if record_end:
+            ended_url = self._current_url()
+            if ended_url:
+                playquality.record_failed(ended_url, "Stream ended")
         sources = getattr(pipe, "sources", None) or []
         next_url = self._next_source(wait_for_probe=False)
         if not next_url:
             return None
         note = "source %d of %d" % (len(self._tried) + 1, len(sources))
-        cherrypy.log("RECONNECT: %s, %s" % (title, note))
+        cherrypy.log(
+            "%s: %s, %s"
+            % ("STREAM ENDED" if record_end else "RECONNECT", title, note)
+        )
         newpipe = self.buildYtdl(
             next_url, title, getattr(pipe, "subs", None), sources
         )
@@ -537,13 +555,29 @@ class _Player:
         self._stopped = False
         if nextplay is not None:
             self._play(nextplay)
-        elif self.error and not intentional and self._fail_over(title):
-            pass
-        else:
-            if self.error and not intentional:
+        elif self.error and not intentional:
+            if self._fail_over(title):
+                pass
+            else:
                 failed = self._current_url()
                 if failed and getattr(self.play_pipe, "track", False):
                     playquality.record_failed(failed, self.error)
+                self._after(title, ended)
+        elif ended and not intentional:
+            # A live stream that ends has not ended for the person; VLC calls
+            # it "end of playlist, exiting". Try the next source, and only move
+            # on when there is none.
+            play = self._reconnect_play(
+                title,
+                allow_stopped=True,
+                allow_unstarted=True,
+                record_end=True,
+            )
+            if play is not None:
+                self._play(play)
+            else:
+                self._after(title, ended)
+        else:
             self._after(title, ended)
         return None
 
