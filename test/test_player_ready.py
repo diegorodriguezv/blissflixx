@@ -245,6 +245,52 @@ class TestYtdlErrorMessages:
         out = YoutubeDlProcess("u")._get_ytdl_err("YouTube said: private video")
         assert out == "private video"
 
+    @pytest.mark.parametrize(
+        "raw,expected",
+        [
+            (
+                "[generic] 69b2cdf98815b9b6c48c2532: Unable to download webpage: "
+                "HTTP Error 404: Not Found (caused by <HTTPError 404: Not Found>)",
+                "Stream not found",
+            ),
+            ("[generic] some-id: HTTP Error 404: Not Found", "Stream not found"),
+            ("HTTP Error 410: Gone", "Stream not found"),
+            (
+                "[generic] some-id: HTTP Error 503: Service Unavailable",
+                "Stream server error",
+            ),
+            ("Unable to download webpage: timed out", "Stream not reachable"),
+        ],
+    )
+    def test_a_dead_address_is_said_short(self, raw, expected):
+        """
+        yt-dlp says a 404 three times in one sentence, with the extractor and
+        the media id in front. On the bar that was a page of noise for a dead
+        IPTV address; what matters is that the address is gone.
+        """
+        assert YoutubeDlProcess("u")._get_ytdl_err(raw) == expected
+
+
+class TestYtdlErrorIsNotRepeated:
+    class Tail:
+        def summary(self):
+            return (
+                "ERROR: [generic] 69b2cdf: Unable to download webpage: "
+                "HTTP Error 404: Not Found"
+            )
+
+    def test_the_raw_line_is_not_appended_to_its_own_rewrite(self):
+        proc = YoutubeDlProcess("u")
+        proc.errors.append("Stream not found")
+        proc._add_output_to_error(self.Tail())
+        assert proc.errors == ["Stream not found"]
+
+    def test_a_process_that_died_without_a_message_still_gets_its_output(self):
+        proc = YoutubeDlProcess("u")
+        proc._add_output_to_error(self.Tail())
+        assert proc.errors
+        assert proc.errors[0].startswith("yt-dlp failed: ")
+
 
 class TestSubtitlesReady:
     def test_filename_is_returned_as_the_subtitles_arg(self):

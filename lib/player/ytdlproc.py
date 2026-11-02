@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import sys
 
 from ..locations import COOKIES_PATH
@@ -250,6 +251,11 @@ class YoutubeDlProcess(ExternalProcess):
         self.args["is_live"] = _printed_live(printed.get("BFLIVE", ""))
         return self.args
 
+    #: yt-dlp prefixes a failure with its extractor and the media id:
+    #: "[generic] 69b2cdf: ...". The row already names the channel, and the id
+    #: means nothing on a television, so neither belongs in the message.
+    _EXTRACTOR_PREFIX = re.compile(r"^\[[^\]]+\]\s+[^:]+:\s*")
+
     def _get_ytdl_err(self, msg):
         if msg.strip() == "":
             return
@@ -279,4 +285,33 @@ class YoutubeDlProcess(ExternalProcess):
             idx = msg.find(" ", idx)
             msg = msg[idx + 1 :]
 
+        # "Unable to download webpage: HTTP Error 404: Not Found (caused by
+        # <HTTPError 404: Not Found>)" is the whole failure said three times in
+        # yt-dlp's words. The address is what matters, and it is gone.
+        msg = self._EXTRACTOR_PREFIX.sub("", msg)
+        msg = re.sub(r"\s*\(caused by <.*>\)\s*$", "", msg)
+        for marker, text in (
+            ("HTTP Error 404", "Stream not found"),
+            ("HTTP Error 410", "Stream not found"),
+            ("HTTP Error 5", "Stream server error"),
+        ):
+            if marker in msg:
+                return text
+        if "Unable to download webpage" in msg:
+            return "Stream not reachable"
+
         return msg
+
+    def _add_output_to_error(self, tail):
+        """
+        yt-dlp's own ERROR line is already the error.
+
+        _ready() has turned it into one short sentence. Appending the raw line
+        would only repeat it with the extractor's id in front --
+        "Stream not found | ERROR: [generic] ..." -- which is what a dead IPTV
+        address looked like on the bar. A process that died without saying why
+        still gets its output, which is the case the hook exists for.
+        """
+        if self.errors:
+            return
+        super()._add_output_to_error(tail)
