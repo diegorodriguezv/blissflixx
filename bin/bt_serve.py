@@ -248,6 +248,14 @@ def hash_text(hashes):
     return str(hashes.v1) if hashes.has_v1() else str(hashes.v2)
 
 
+#: The priority a file that must be written in place is given. 4 is
+#: libtorrent's default: definitely wanted, but not top priority. Low (1) is
+#: not usable here -- with another file in the torrent skipped, libtorrent
+#: leaves the low-priority file's pieces at 0, so "wanted" and "not wanted"
+#: look the same and the crop can never be observed.
+WANTED = 4
+
+
 def file_priorities(count, playing, subs):
     """
     Every file unwanted, except the one being played and the subtitles.
@@ -260,19 +268,19 @@ def file_priorities(count, playing, subs):
     """
     priorities = [0] * count
     if 0 <= playing < count:
-        priorities[playing] = 1
+        priorities[playing] = WANTED
     for i in subs:
         if 0 <= i < count:
-            priorities[i] = 1
+            priorities[i] = WANTED
     return priorities
 
 
 def subtitle_pieces(count, ranges):
-    """Ones for the given (first, last) piece ranges, zero elsewhere."""
+    """Wanted for the given (first, last) piece ranges, zero elsewhere."""
     priorities = [0] * count
     for first, last in ranges:
         for piece in range(max(0, first), min(count - 1, last) + 1):
-            priorities[piece] = 1
+            priorities[piece] = WANTED
     return priorities
 
 
@@ -551,6 +559,13 @@ class App:
         priority instead would be fewer calls, and would put the film in
         libtorrent's part file rather than on the card: see file_priorities.
         """
+        # Clear whatever piece priorities the last session left in its resume
+        # data first. They are runtime state -- the old window and deadlines --
+        # and two things go wrong with them: the pieces they mark are fetched
+        # before the ones this play wants, and the crop check below cannot tell
+        # a restored 7 from the 1 it is waiting for, so every rewatch waited out
+        # the whole CROP_TIMEOUT. Measured: 5.15s of a 5.7s start was this wait.
+        self.handle.prioritize_pieces([0] * self.info.num_pieces())
         self.handle.prioritize_files(
             file_priorities(self.files.num_files(), self.index, self.subs)
         )
@@ -560,7 +575,7 @@ class App:
         first = self.first_piece(self.index)
         deadline = time.time() + CROP_TIMEOUT
         while time.time() < deadline:
-            if self.handle.piece_priority(first) == 1:
+            if self.handle.piece_priority(first) == WANTED:
                 break
             time.sleep(0.05)
         # The played file is wanted, so its pieces are all on: switch every one

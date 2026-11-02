@@ -198,10 +198,10 @@ class TestAtomicWrite:
 
 class TestPriorities:
     def test_only_the_played_file_is_wanted(self):
-        assert bt.file_priorities(3, 1, []) == [0, 1, 0]
+        assert bt.file_priorities(3, 1, []) == [0, bt.WANTED, 0]
 
     def test_the_subtitles_are_wanted_too(self):
-        assert bt.file_priorities(4, 2, [3]) == [0, 0, 1, 1]
+        assert bt.file_priorities(4, 2, [3]) == [0, 0, bt.WANTED, bt.WANTED]
 
     def test_a_file_named_out_of_range_is_ignored(self):
         assert bt.file_priorities(2, 9, [7]) == [0, 0]
@@ -212,17 +212,18 @@ class TestPriorities:
         file instead of a hidden part file. Switching it off to control pieces
         one by one left a play that worked and no film on the card.
         """
-        assert bt.file_priorities(2, 0, [])[0] == 1
+        assert bt.file_priorities(2, 0, [])[0] == bt.WANTED
 
     def test_no_pieces_are_wanted_without_subtitles(self):
         assert bt.subtitle_pieces(4, []) == [0, 0, 0, 0]
 
     def test_only_the_subtitle_ranges_are_wanted(self):
-        assert bt.subtitle_pieces(10, [(6, 7)]) == [0, 0, 0, 0, 0, 0, 1, 1, 0, 0]
+        w = bt.WANTED
+        assert bt.subtitle_pieces(10, [(6, 7)]) == [0, 0, 0, 0, 0, 0, w, w, 0, 0]
 
     def test_ranges_are_clamped_to_the_torrent(self):
-        assert bt.subtitle_pieces(3, [(2, 9)]) == [0, 0, 1]
-        assert bt.subtitle_pieces(3, [(-2, 0)]) == [1, 0, 0]
+        assert bt.subtitle_pieces(3, [(2, 9)]) == [0, 0, bt.WANTED]
+        assert bt.subtitle_pieces(3, [(-2, 0)]) == [bt.WANTED, 0, 0]
 
 
 class TestTopEntry:
