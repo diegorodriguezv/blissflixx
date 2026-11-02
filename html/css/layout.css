@@ -401,6 +401,21 @@ ul.navitems-left>li {
   cursor: default;
 }
 
+/* The dropdown used when a channel has more feeds than a row of tabs can
+ * hold. Sized and coloured for the bar it sits under, not for a desktop. */
+.feed-select {
+  max-width: 460px;
+  font-size: 18px;
+  background-color: #2A435A;
+  color: #FFFFFF;
+  border-color: #4C7488;
+}
+.feed-select option,
+.feed-select optgroup {
+  background-color: #2A435A;
+  color: #FFFFFF;
+}
+
 /* item list */
 .item-list-msg {
   font-size: 18px;

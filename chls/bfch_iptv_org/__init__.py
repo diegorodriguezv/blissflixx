@@ -40,26 +40,30 @@ def _get_cached(key, **kwargs):
 
 
 _FEEDLIST = [
-    {"title": "Colombia", "filter": {"country": "CO"}},
-    {"title": "Great Britain", "filter": {"country": "UK"}},
-    {"title": "China", "filter": {"country": "CN"}},
-    {"title": "India", "filter": {"country": "IN"}},
-    {"title": "Indonesia", "filter": {"country": "ID"}},
-    {"title": "Pakistan", "filter": {"country": "PK"}},
-    {"title": "Nigeria", "filter": {"country": "NG"}},
-    {"title": "Brazil", "filter": {"country": "BR"}},
-    {"title": "Bangladesh", "filter": {"country": "BD"}},
-    {"title": "Russia", "filter": {"country": "RU"}},
-    {"title": "Mexico", "filter": {"country": "MX"}},
-    {"title": "United States", "filter": {"country": "US"}},
-    {"title": "Spanish", "filter": {"language": "es"}},
-    {"title": "English", "filter": {"language": "en"}},
-    {"title": "French", "filter": {"language": "fr"}},
-    {"title": "German", "filter": {"language": "de"}},
-    {"title": "Japanese", "filter": {"language": "ja"}},
-    {"title": "Portuguese", "filter": {"language": "pt"}},
+    {"title": "Colombia", "group": "Countries", "filter": {"country": "CO"}},
+    {"title": "Great Britain", "group": "Countries", "filter": {"country": "UK"}},
+    {"title": "China", "group": "Countries", "filter": {"country": "CN"}},
+    {"title": "India", "group": "Countries", "filter": {"country": "IN"}},
+    {"title": "Indonesia", "group": "Countries", "filter": {"country": "ID"}},
+    {"title": "Pakistan", "group": "Countries", "filter": {"country": "PK"}},
+    {"title": "Nigeria", "group": "Countries", "filter": {"country": "NG"}},
+    {"title": "Brazil", "group": "Countries", "filter": {"country": "BR"}},
+    {"title": "Bangladesh", "group": "Countries", "filter": {"country": "BD"}},
+    {"title": "Russia", "group": "Countries", "filter": {"country": "RU"}},
+    {"title": "Mexico", "group": "Countries", "filter": {"country": "MX"}},
+    {"title": "United States", "group": "Countries", "filter": {"country": "US"}},
+    {"title": "Spanish", "group": "Languages", "filter": {"language": "es"}},
+    {"title": "English", "group": "Languages", "filter": {"language": "en"}},
+    {"title": "French", "group": "Languages", "filter": {"language": "fr"}},
+    {"title": "German", "group": "Languages", "filter": {"language": "de"}},
+    {"title": "Japanese", "group": "Languages", "filter": {"language": "ja"}},
+    {"title": "Portuguese", "group": "Languages", "filter": {"language": "pt"}},
 ]
 _MAXRESULTS = 300
+
+#: Categories that do not get a menu entry. "xxx" is the catalogue's adult
+#: category; this channel has no adult feed and is not gaining one.
+_SKIP_CATEGORIES = {"xxx"}
 
 
 def name():
@@ -80,7 +84,75 @@ def description():
 
 
 def feedlist():
+    """
+    The feeds the channel page starts with.
+
+    Kept static and small so building the installed-channel list never needs
+    the catalogue: this is the curated set that has always been here, and the
+    full list of countries and categories is asked for when the channel page
+    opens. See feedlist_full().
+    """
     return _FEEDLIST
+
+
+def _other_country_feeds():
+    known = {
+        f["filter"]["country"] for f in _FEEDLIST if "country" in f["filter"]
+    }
+    rows = []
+    for country in _get_cached("countries"):
+        code = country.get("code")
+        if not code or code in known:
+            continue
+        rows.append(
+            {
+                "title": country.get("name") or code,
+                "group": "More countries",
+                "filter": {"country": code},
+            }
+        )
+    rows.sort(key=lambda feed: feed["title"].lower())
+    return rows
+
+
+def _category_feeds():
+    rows = []
+    for category in _get_cached("categories"):
+        cid = category.get("id")
+        if not cid or cid in _SKIP_CATEGORIES:
+            continue
+        rows.append(
+            {
+                "title": category.get("name") or cid,
+                "group": "Categories",
+                "filter": {"category": cid},
+            }
+        )
+    rows.sort(key=lambda feed: feed["title"].lower())
+    return rows
+
+
+def _full_feeds():
+    # The curated feeds keep their indices: a route saved before the dropdown
+    # existed still opens the same country or language. The rest follows.
+    feeds = list(_FEEDLIST)
+    feeds.extend(_other_country_feeds())
+    feeds.extend(_category_feeds())
+    return feeds
+
+
+def _feeds():
+    try:
+        return _cached("full_feeds", _full_feeds)
+    except Exception:
+        # The catalogue cannot be reached. The curated feeds still open the
+        # channel; the feed itself will report the error.
+        return _FEEDLIST
+
+
+def feedlist_full():
+    """Every country and category, for the channel page's dropdown."""
+    return _feeds()
 
 
 def _build_logo_index():
@@ -145,7 +217,7 @@ def load_all_streams():
 
 
 def feed(idx):
-    filter = _FEEDLIST[idx]["filter"]
+    filter = _feeds()[idx]["filter"]
     # only the language feeds need guides.json, so pay for it only there
     if "language" in filter:
         _language_index()
@@ -163,6 +235,13 @@ def feed(idx):
             for s in streams
             if "channel_info" in s
             and filter["language"] in s["channel_info"]["languages"]
+        ]
+    elif "category" in filter:
+        data = [
+            s
+            for s in streams
+            if "channel_info" in s
+            and filter["category"] in s["channel_info"].get("categories", [])
         ]
     elif "nsfw" in filter:
         # Kept because the filter is a general mechanism, not because there is a

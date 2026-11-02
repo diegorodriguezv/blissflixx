@@ -1,13 +1,25 @@
 <feedlist>
-   <div class="row">
+  <div class="row">
     <div class="channel-feeds col-xs-12">
-       <span each={ f, i in opts.feeds }>
-         <a class={ selected : ChannelStore.getParams() && ChannelStore.getParams()['name'] && 
-            f.name == ChannelStore.getParams()['name'] || i == parent.opts.active} 
-          href={ parent.opts.page + '/' + i + '?name=' + f.name } if={ f.name }>{ f.title }</a>
-         <a class={ selected : i == parent.opts.active } href={ parent.opts.page + '/' + i } if={ !f.name }>{ f.title }</a>
-         <span hide={ i == parent.lastIdx } class="dot-sep">&#9679;</span>
-       </span>
+      <!--
+      A dropdown when there are enough feeds to need one: the IPTV channel
+      has every country and category, which is hundreds of links. Channels
+      with a handful keep the tabs they have always had.
+      -->
+      <select show={ many } class="form-control feed-select" onchange={ change }>
+        <optgroup each={ group in grouped } label={ group.label }>
+          <option each={ feed in group.feeds } value={ feed.index } __selected={ feed.index == chosen }>{ feed.title }</option>
+        </optgroup>
+      </select>
+      <span show={ !many }>
+        <span each={ f, i in opts.feeds }>
+          <a class={ selected : ChannelStore.getParams() && ChannelStore.getParams()['name'] && 
+             f.name == ChannelStore.getParams()['name'] || i == parent.opts.active} 
+           href={ parent.opts.page + '/' + i + '?name=' + f.name } if={ f.name }>{ f.title }</a>
+          <a class={ selected : i == parent.opts.active } href={ parent.opts.page + '/' + i } if={ !f.name }>{ f.title }</a>
+          <span hide={ i == parent.lastIdx } class="dot-sep">&#9679;</span>
+        </span>
+      </span>
     </div>
   </div>
   <hr />
@@ -15,10 +27,61 @@
   <script>
     var self = this
 
+    //: Below this, a row of tabs reads better than a dropdown.
+    var MANY = 4
+
+    function groupFeeds() {
+      var labels = []
+      var byLabel = {}
+      ;(opts.feeds || []).forEach(function(feed, index) {
+        var label = feed.group || 'Feeds'
+        if (!byLabel[label]) {
+          byLabel[label] = []
+          labels.push(label)
+        }
+        byLabel[label].push({ index: index, title: feed.title, name: feed.name })
+      })
+      self.grouped = labels.map(function(label) {
+        return { label: label, feeds: byLabel[label] }
+      })
+    }
+
+    function chosenIndex() {
+      var params = ChannelStore.getParams()
+      var i
+      if (params && params['name']) {
+        for (i = 0; i < (opts.feeds || []).length; i++) {
+          if (opts.feeds[i].name == params['name']) return i
+        }
+      }
+      return opts.active || 0
+    }
+
     this.on('update', function() {
-      if (opts.feeds) {
-        self.lastIdx = opts.feeds.length - 1 
+      if (!opts.feeds) return
+      self.lastIdx = opts.feeds.length - 1
+      self.many = opts.feeds.length > MANY
+      groupFeeds()
+      self.chosen = chosenIndex()
+      if (self.root) {
+        var picker = self.root.querySelector('select.feed-select')
+        if (picker) picker.value = String(self.chosen)
       }
     })
+
+    this.on('updated', function() {
+      if (!opts.feeds || !self.many) return
+      var picker = self.root && self.root.querySelector('select.feed-select')
+      if (picker) picker.value = String(self.chosen)
+    })
+
+    change(e) {
+      var index = parseInt(e.target.value, 10)
+      var feed = (opts.feeds || [])[index]
+      if (!feed) return
+      var page = opts.page + '/' + index
+      if (feed.name) page += '?name=' + encodeURIComponent(feed.name)
+      window.location.hash = page
+    }
   </script>
 </feedlist>

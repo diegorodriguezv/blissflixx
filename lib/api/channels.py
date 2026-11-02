@@ -377,7 +377,13 @@ def info(chid=None):
 def feedlist(chid=None):
     if chid is None:
         raise ApiError("Channel ID is missing")
-    return get_installed().getChannel(chid).getFeeds()
+    channel = get_installed().getChannel(chid)
+    # A channel whose list is larger than the one it starts with can build it
+    # on demand: the installed-channel list must not wait for the catalogue.
+    full = getattr(channel.module, "feedlist_full", None)
+    if callable(full):
+        return full()
+    return channel.getFeeds()
 
 
 def _reading_a_feed(call, *args):

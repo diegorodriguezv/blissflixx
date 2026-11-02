@@ -22,12 +22,22 @@ import time
 import bfch_iptv_org as iptv
 
 
-def stream(chid, name, url, quality=None, labels=None, closed=None, country="CO"):
+def stream(
+    chid,
+    name,
+    url,
+    quality=None,
+    labels=None,
+    closed=None,
+    country="CO",
+    categories=None,
+):
     info = {
         "id": chid,
         "name": name,
         "country": country,
         "closed": closed,
+        "categories": categories or [],
     }
     return {
         "channel": chid,
@@ -376,6 +386,82 @@ class TestMovingToTheEnd:
         assert iptv._channel_rank(data) == (1, 0.0)
 
 
+class TestTheFeeds:
+    def test_the_page_starts_with_the_curated_list(self):
+        """
+        No network while the installed-channel list is built: this is the
+        list that was always here, and the full one is asked for when the
+        channel page opens.
+        """
+        feeds = iptv.feedlist()
+        assert feeds[0]["title"] == "Colombia"
+        assert feeds[12]["filter"] == {"language": "es"}
+        assert feeds[0]["group"] == "Countries"
+        assert feeds[12]["group"] == "Languages"
+
+    def test_the_full_list_adds_countries_and_categories(self, monkeypatch):
+        countries = [
+            {"name": "Colombia", "code": "CO"},
+            {"name": "Austria", "code": "AT"},
+            {"name": "Zimbabwe", "code": "ZW"},
+        ]
+        categories = [
+            {"id": "news", "name": "News"},
+            {"id": "sports", "name": "Sports"},
+            {"id": "xxx", "name": "Adult"},
+        ]
+
+        def fake_get(key, **kwargs):
+            return {"countries": countries, "categories": categories}[key]
+
+        monkeypatch.setattr(iptv, "_get_cached", fake_get)
+        monkeypatch.setattr(iptv, "_CACHE", {})
+        feeds = iptv.feedlist_full()
+        # The curated indices are untouched, so an old route still works.
+        assert feeds[0]["title"] == "Colombia"
+        assert feeds[12]["filter"] == {"language": "es"}
+        titles = [f["title"] for f in feeds]
+        assert "Austria" in titles
+        assert "News" in titles
+        assert "Adult" not in titles
+        assert [f for f in feeds if f["title"] == "Austria"][0]["group"] == "More countries"
+        assert [f for f in feeds if f["title"] == "News"][0]["group"] == "Categories"
+
+    def test_a_category_feed_keeps_only_that_category(self, monkeypatch):
+        monkeypatch.setattr(
+            iptv,
+            "load_all_streams",
+            lambda: [
+                stream("n", "News One", "http://n", categories=["news"]),
+                stream("s", "Sport One", "http://s", categories=["sports"]),
+            ],
+        )
+        monkeypatch.setattr(
+            iptv,
+            "_feeds",
+            lambda: [
+                {
+                    "title": "News",
+                    "group": "Categories",
+                    "filter": {"category": "news"},
+                }
+            ],
+        )
+        rows = iptv.feed(0).to_list()
+        assert [row.title for row in rows] == ["News One"]
+
+    def test_a_category_feed_can_be_empty(self, monkeypatch):
+        monkeypatch.setattr(iptv, "load_all_streams", lambda: [])
+        monkeypatch.setattr(
+            iptv,
+            "_feeds",
+            lambda: [
+                {"title": "News", "group": "Categories", "filter": {"category": "news"}}
+            ],
+        )
+        assert iptv.feed(0).to_list() == []
+
+
 class TestTheClientChain:
     """The row's mirrors have to survive the trip to the play request."""
 
@@ -404,3 +490,18 @@ class TestTheClientChain:
         store = (root / "html" / "js" / "ChannelStore.js").read_text()
         assert "bfch_iptv_org' ? 0" in store
         assert "ttl !== 0" in store
+
+    def test_the_channel_page_asks_for_the_full_feed_list(self):
+        root = pathlib.Path(__file__).resolve().parents[1]
+        page = (root / "html" / "pages" / "channel.html").read_text()
+        store = (root / "html" / "js" / "ChannelStore.js").read_text()
+        assert "channelStore.getFeeds" in page
+        assert "self.getFeeds" in store
+        assert "'feedlist'" in store
+
+    def test_many_feeds_become_a_dropdown(self):
+        root = pathlib.Path(__file__).resolve().parents[1]
+        tag = (root / "html" / "tags" / "feedlist.html").read_text()
+        assert "<select" in tag
+        assert "<optgroup" in tag
+        assert "MANY" in tag

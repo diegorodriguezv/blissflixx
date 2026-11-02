@@ -101,6 +101,7 @@ if (!riot || typeof riot.compile !== 'function') {
 const TAGS = [
   'app.html',
   'tags/playbar.html',
+  'tags/feedlist.html',
   'tags/playerr.html',
   'pages/settings.html',
 ];

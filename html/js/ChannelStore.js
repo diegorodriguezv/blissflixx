@@ -102,6 +102,12 @@ function ChannelStore() {
     self.getResults(key, 'channels', 'showmore', {chid:chid, link:link}, cb)
   }
 
+  // The larger list a channel only builds when its page is opened: every
+  // country and category, on top of the feeds it starts with.
+  self.getFeeds = function(chid, cb) {
+    Utils.rpc('channels', 'feedlist', {chid: chid}, cb)
+  }
+
   self.searchChannel = function(chid, q, cb) {
     var key = self.createKey(chid, q)
     var ttl = chid === 'bfch_iptv_org' ? 0 : undefined
