@@ -21,6 +21,7 @@ import pytest
 import lib.player.buffer as buffer
 import lib.player.ltproc as ltproc
 import lib.player.player as player_module
+import lib.player.processpipe as processpipe
 import lib.player.vlcproc as vlcproc
 import lib.player.ytdlproc as ytdlproc
 
@@ -651,8 +652,21 @@ class TestPanelFields:
         info = proc.debug()
         assert info["is_source"] is True
         assert info["url"] == "https://www.youtube.com/watch?v=abc"
+        assert info["download"] is False
         assert info["split"] is True
         assert info["live"] is False
+
+    def test_a_source_that_downloads_does_not_claim_a_stream_shape(self):
+        """
+        A site yt-dlp has to download rather than resolve never answers "one
+        stream or two": saying "one stream" there would be a guess.
+        """
+        proc = ytdlproc.YoutubeDlProcess("https://www.itv.com/watch")
+        proc.args = {"outfile": processpipe.OUT_FILE, "pid": 123}
+        info = proc.debug()
+        assert info["download"] is True
+        assert "split" not in info
+        assert "live" not in info
 
     def test_a_source_that_has_not_answered_yet_still_answers(self):
         info = ytdlproc.YoutubeDlProcess("https://youtu.be/abc").debug()
@@ -667,6 +681,7 @@ class TestPanelFields:
         text = (root / "html" / "tags" / "playbar.html").read_text()
         assert "line('prepared in'" in text
         assert "picture and sound separately" in text
+        assert "downloading to disk" in text
         assert "line('source', src.name)" in text
 
     def test_speed_is_read_from_the_field_the_source_sends(self):

@@ -92,9 +92,13 @@ class YoutubeDlProcess(ExternalProcess):
         args = getattr(self, "args", None)
         if args:
             # Only once the source has answered: before that, "one stream" and
-            # "not live" would be guesses presented as readings.
-            base["split"] = bool(args.get("slave"))
-            base["live"] = bool(args.get("is_live"))
+            # "not live" would be guesses presented as readings. A site that is
+            # downloaded rather than resolved never answers those questions, and
+            # says so instead -- see the download flag.
+            base["download"] = args.get("outfile") == OUT_FILE
+            if not base["download"]:
+                base["split"] = bool(args.get("slave"))
+                base["live"] = bool(args.get("is_live"))
         return base
 
     def _get_cmd(self, args):

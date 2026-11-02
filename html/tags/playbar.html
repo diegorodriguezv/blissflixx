@@ -390,6 +390,9 @@
         line('prepared in', src.ready_after === null || src.ready_after === undefined
           ? '—' : src.ready_after + 's')
         if (src.url) line('url', src.url)
+        if (src.download !== undefined) {
+          line('mode', src.download ? 'downloading to disk' : 'streamed')
+        }
         if (src.split !== undefined) {
           line('streams', src.split ? 'picture and sound separately' : 'one stream')
         }
