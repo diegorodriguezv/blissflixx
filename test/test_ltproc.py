@@ -18,7 +18,12 @@ import pytest
 
 from lib.player import ltproc
 from lib.player import player as player_module
-from lib.player.ltproc import BT_SERVE, SYSTEM_PYTHON, LibtorrentProcess
+from lib.player.ltproc import (
+    BT_SERVE,
+    BT_SERVE_RETRY,
+    SYSTEM_PYTHON,
+    LibtorrentProcess,
+)
 from lib.player.processpipe import ProcessException
 from lib.player.buffer import BUFFER_DIR
 
@@ -78,15 +83,16 @@ def with_status(proc, **fields):
 
 
 class TestCommand:
-    def test_runs_the_torrent_process_under_the_system_python(self):
+    def test_runs_the_torrent_process_through_the_retry_wrapper(self):
         """
-        libtorrent comes from python3-libtorrent, which is installed into the
-        system interpreter; the application runs in a virtualenv that cannot see
-        it. Getting this wrong is an ImportError at play time.
+        The wrapper is what starts bt_serve.py under the system interpreter --
+        libtorrent comes from python3-libtorrent, which the virtualenv cannot
+        see -- and what starts it again once if libtorrent kills it before the
+        port opens. See test_bt_serve_retry.py.
         """
         proc = LibtorrentProcess(MAGNET, 0)
-        assert proc.cmd[0] == SYSTEM_PYTHON
-        assert proc.cmd[1] == BT_SERVE
+        assert proc.cmd[0] == BT_SERVE_RETRY
+        assert proc.cmd[1].startswith("magnet:?xt=urn:btih:")
 
     def test_what_it_plays_is_said_in_the_arguments(self):
         proc = LibtorrentProcess(MAGNET, 2)
@@ -101,7 +107,7 @@ class TestCommand:
         for years, and the swarm is found through the ones we add.
         """
         proc = LibtorrentProcess(MAGNET + "&tr=udp://mine.example:80/announce", 0)
-        magnet = proc.cmd[2]
+        magnet = proc.cmd[1]
         assert "mine.example" in magnet
         assert "tracker.opentrackr.org" in magnet
 
@@ -293,7 +299,7 @@ class TestDebug:
         assert debug["buffer"]["dir"] == BUFFER_DIR
         assert "needed" in debug["buffer"]
         assert "free" in debug["buffer"]
-        assert "bt_serve.py" in debug["command"]
+        assert "bt_serve" in debug["command"]
 
 
 class TestBufferSpace:

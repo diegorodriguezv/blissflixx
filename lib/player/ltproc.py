@@ -44,6 +44,10 @@ BT_SERVE = os.path.join(
     "bt_serve.py",
 )
 
+#: bt_serve.py behind one retry for a native crash. See the script: it is the
+#: only failure with nothing to act on, and it lands before the play starts.
+BT_SERVE_RETRY = os.path.join(os.path.dirname(BT_SERVE), "bt_serve_retry.sh")
+
 _SERVING_RE = re.compile(
     r"bf-bt: serving (http://\S+) index=(-?\d+) name=(.*?) length=(\d+) "
     r"pieces=(\d+) top=(.*)$"
@@ -146,8 +150,7 @@ class LibtorrentProcess(ExternalProcess):
         #: after the port opens, which is when _ready() has already returned.
         self.on_output_line = self._watch_status
         cmd = [
-            SYSTEM_PYTHON,
-            BT_SERVE,
+            BT_SERVE_RETRY,
             torrent2magnet(torrent),
             "--dir",
             BUFFER_DIR,
