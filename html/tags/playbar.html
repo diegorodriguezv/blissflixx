@@ -201,11 +201,21 @@
       if (!self.starting && !self.lingering) self.lastCount = ''
       // The sample the clock runs from, and when it was taken. The ticker adds
       // the time since then; see clockText.
+      //
+      // A poll without a position is not a player without one: VLC's http
+      // interface times out now and then, and for a live stream it answers with
+      // a position only some of the time. Clearing posBase on those polls hid
+      // the pill -- which is also the button for the diagnostics panel -- for a
+      // second at a time, and on a live stream it hid it for good once the
+      // loading count's five seconds were up. The last reading stays until a
+      // newer one arrives. A new play is the exception: where the old film was
+      // is not where the new one is.
+      var newPlay = self.status.Title !== self.lastTitle || !self.status.State
+      self.lastTitle = self.status.Title
+      if (newPlay) self.posBase = null
       if (typeof self.status.Position === 'number') {
         self.posBase = self.status.Position
         self.posAt = Date.now()
-      } else {
-        self.posBase = null
       }
       // Stalled is two different problems and two different colours: the
       // picture not moving is happening now, the swarm going quiet is going to
@@ -249,11 +259,22 @@
 
     //: Where the film is, as a clock. See CLOCK_LEAD.
     clockText() {
-      if (self.posBase === null || self.posBase === undefined) return ''
-      var lead = self.status && self.status.Paused
-        ? 0
-        : Math.min((Date.now() - self.posAt) / 1000, CLOCK_LEAD)
-      return self.formatClock(self.posBase + lead)
+      if (self.posBase !== null && self.posBase !== undefined) {
+        var lead = self.status && self.status.Paused
+          ? 0
+          : Math.min((Date.now() - self.posAt) / 1000, CLOCK_LEAD)
+        return self.formatClock(self.posBase + lead)
+      }
+      // The player has not said where the film is. The pill is also the only
+      // way into the diagnostics panel, so it does not go blank while
+      // something is playing: count from the play request instead. For a live
+      // stream, whose player reports a position only now and then, that is
+      // also the only clock there is.
+      if (self.status && self.status.State == 3 &&
+          typeof self.status.Elapsed === 'number') {
+        return self.formatClock(self.status.Elapsed)
+      }
+      return ''
     }
 
     formatClock(seconds) {
