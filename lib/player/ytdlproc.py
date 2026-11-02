@@ -61,6 +61,10 @@ def _printed_live(value):
 
 
 class YoutubeDlProcess(ExternalProcess):
+    #: This stage brings the film from somewhere, like the torrent stage: the
+    #: panel has one Source section and asks the stage, not its name.
+    is_source = True
+
     def __init__(self, url):
         super().__init__()
         self.url = url
@@ -72,6 +76,26 @@ class YoutubeDlProcess(ExternalProcess):
 
     def name(self):
         return "yt-dlp"
+
+    def debug(self):
+        """
+        The panel's Source section for a resolved stream.
+
+        A yt-dlp play has no file, swarm or buffer to report -- those lines are
+        the torrent stage's, and printing them here would show a page of dashes
+        that reads like a broken download. The useful answers are which page
+        was asked for, how long resolving took (the base's ready_after), and
+        whether the source handed back one stream or a picture and a sound.
+        """
+        base = super().debug()
+        base["url"] = self.url
+        args = getattr(self, "args", None)
+        if args:
+            # Only once the source has answered: before that, "one stream" and
+            # "not live" would be guesses presented as readings.
+            base["split"] = bool(args.get("slave"))
+            base["live"] = bool(args.get("is_live"))
+        return base
 
     def _get_cmd(self, args):
         self.args = args

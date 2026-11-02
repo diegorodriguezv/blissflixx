@@ -360,22 +360,41 @@
       if (p.error) line('error', p.error)
       out.push('')
       out.push('SOURCE')
-      line('file', file.name)
-      line('on disk', file.length
-        ? self.bytes(file.present) + ' of ' + self.bytes(file.length) + ' (' + file.percent + '%)'
-        : '—')
-      var space = []
-      if (buf.needed) space.push('needed ' + self.bytes(buf.needed))
-      if (buf.evicted) space.push('freed ' + self.bytes(buf.evicted) + ' (' + buf.removed + ')')
-      if (buf.free !== undefined && buf.free >= 0) space.push(self.bytes(buf.free) + ' free')
-      line('space', space.length ? space.join(' · ') : '—')
-      line('speed', self.bytes(sw.speed || 0) + '/s')
-      line('peers', (sw.peers || 0) + ' connected, ' + (sw.active_peers || 0) + ' active')
-      line('this run', self.bytes(sw.downloaded || 0) + ' down · ' + self.bytes(sw.uploaded || 0) + ' up')
-      line('verify', src.verifying === null || src.verifying === undefined ? 'not running' : src.verifying + '%')
-      line('served in', src.serve_after === null || src.serve_after === undefined
-        ? '—' : src.serve_after + 's' + (src.cache_hit ? ' · from verify cache' : ''))
-      line('no data', src.stalled_for ? src.stalled_for + 's · no peers with pieces missing' : 'no')
+      if (!src.name) {
+        // A local file plays from the card and has no stage of its own. Saying
+        // so is the whole answer; the torrent lines below would be a page of
+        // dashes that reads like a broken swarm.
+        line('source', '—')
+      } else if (src.swarm || src.file) {
+        line('file', file.name)
+        line('on disk', file.length
+          ? self.bytes(file.present) + ' of ' + self.bytes(file.length) + ' (' + file.percent + '%)'
+          : '—')
+        var space = []
+        if (buf.needed) space.push('needed ' + self.bytes(buf.needed))
+        if (buf.evicted) space.push('freed ' + self.bytes(buf.evicted) + ' (' + buf.removed + ')')
+        if (buf.free !== undefined && buf.free >= 0) space.push(self.bytes(buf.free) + ' free')
+        line('space', space.length ? space.join(' · ') : '—')
+        line('speed', self.bytes(sw.speed || 0) + '/s')
+        line('peers', (sw.peers || 0) + ' connected, ' + (sw.active_peers || 0) + ' active')
+        line('this run', self.bytes(sw.downloaded || 0) + ' down · ' + self.bytes(sw.uploaded || 0) + ' up')
+        line('verify', src.verifying === null || src.verifying === undefined ? 'not running' : src.verifying + '%')
+        line('served in', src.serve_after === null || src.serve_after === undefined
+          ? '—' : src.serve_after + 's' + (src.cache_hit ? ' · from verify cache' : ''))
+        line('no data', src.stalled_for ? src.stalled_for + 's · no peers with pieces missing' : 'no')
+      } else {
+        // A stream source: yt-dlp answers with URLs, not with a torrent, so
+        // there is no file, no swarm and no buffer. What it can say is where
+        // it was asked to look, how long it took, and what came back.
+        line('source', src.name)
+        line('prepared in', src.ready_after === null || src.ready_after === undefined
+          ? '—' : src.ready_after + 's')
+        if (src.url) line('url', src.url)
+        if (src.split !== undefined) {
+          line('streams', src.split ? 'picture and sound separately' : 'one stream')
+        }
+        if (src.live !== undefined) line('live', src.live ? 'yes' : 'no')
+      }
       out.push('')
       out.push('PLAYER')
       line('state', pb.state)

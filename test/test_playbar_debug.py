@@ -22,6 +22,7 @@ import lib.player.buffer as buffer
 import lib.player.ltproc as ltproc
 import lib.player.player as player_module
 import lib.player.vlcproc as vlcproc
+import lib.player.ytdlproc as ytdlproc
 
 
 class _Pipe:
@@ -299,6 +300,20 @@ class TestPlayerDebug:
         pl.play_pipe = pipe
         debug = pl.debug()
         assert debug["Source"]["name"] == "libtorrent"
+        assert debug["Player"]["name"] == "vlc"
+
+    def test_a_stream_play_reaches_the_source_section(self):
+        """
+        yt-dlp is a source without a swarm or a file inside it, and the panel
+        took "no swarm" to mean "no source": a YouTube play showed no Source
+        section at all.
+        """
+        pl = _player(_Pipe(playback={"position": 10, "length": 100}))
+        pipe = _FakePipe()
+        pipe.procs = [ytdlproc.YoutubeDlProcess("https://youtu.be/abc"), _Stage("vlc")]
+        pl.play_pipe = pipe
+        debug = pl.debug()
+        assert debug["Source"]["name"] == "yt-dlp"
         assert debug["Player"]["name"] == "vlc"
 
     def test_without_a_pipe_it_still_answers(self):
@@ -620,6 +635,40 @@ class _FakePipe(_Pipe):
 
 
 class TestPanelFields:
+    def test_a_stream_source_says_what_it_prepared(self):
+        """
+        The Source section for yt-dlp:  the page asked for, how long resolving
+        took, and whether the source answered with one stream or two. These are
+        the things that explain a stream that will not open; a swarm of zeroes
+        explains nothing.
+        """
+        proc = ytdlproc.YoutubeDlProcess("https://www.youtube.com/watch?v=abc")
+        proc.args = {
+            "outfile": "https://media.example/v",
+            "slave": "https://media.example/a",
+            "is_live": False,
+        }
+        info = proc.debug()
+        assert info["is_source"] is True
+        assert info["url"] == "https://www.youtube.com/watch?v=abc"
+        assert info["split"] is True
+        assert info["live"] is False
+
+    def test_a_source_that_has_not_answered_yet_still_answers(self):
+        info = ytdlproc.YoutubeDlProcess("https://youtu.be/abc").debug()
+        assert info["name"] == "yt-dlp"
+        assert info["url"] == "https://youtu.be/abc"
+        # "one stream" and "not live" would be guesses until it has resolved.
+        assert "split" not in info
+        assert "live" not in info
+
+    def test_the_panel_shows_a_stream_source_without_torrent_lines(self):
+        root = pathlib.Path(__file__).resolve().parents[1]
+        text = (root / "html" / "tags" / "playbar.html").read_text()
+        assert "line('prepared in'" in text
+        assert "picture and sound separately" in text
+        assert "line('source', src.name)" in text
+
     def test_speed_is_read_from_the_field_the_source_sends(self):
         """
         The panel showed 0 B/s for every play because it asked the source for
