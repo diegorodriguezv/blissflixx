@@ -190,6 +190,29 @@ class TestNormalizeStatus:
         assert snapshot["streams"] == []
         assert snapshot["position"] is None
 
+    def test_vlcs_own_field_names_become_the_labels_the_panel_reads(self):
+        """
+        The lua interface spells them "Video_resolution" and "Frame_rate"; the
+        panel asks for "Video resolution" and "Frame rate". With the underscore
+        passing through, the STREAMS section showed the codec and nothing else,
+        on every play, which is why the panel never had a resolution to show.
+        """
+        payload = {
+            "information": {
+                "category": {
+                    "Stream 0": {
+                        "Type": "Video",
+                        "Codec": "HEVC",
+                        "Video_resolution": "1920x802",
+                        "Frame_rate": "23.976216",
+                    }
+                }
+            }
+        }
+        stream = vlcproc._normalize_status(payload)["streams"][0]
+        assert stream["Video resolution"] == "1920x802"
+        assert stream["Frame rate"] == "23.976216"
+
     def test_category_as_a_list(self):
         """The lua interface emits either a table or a list, depending."""
         payload = {

@@ -139,7 +139,7 @@ def _extract(data):
     for r in rtree:
         if "torrents" not in r:
             continue
-        torrent = _smallest_size(r["torrents"])
+        torrent = _choose(r["torrents"])
         title = r["title_long"]
         img = r["medium_cover_image"]
         # Proxy
@@ -148,7 +148,7 @@ def _extract(data):
         size = torrent["size"]
         seeds = torrent["seeds"]
         peers = torrent["peers"]
-        st = subtitle(size, seeds, peers)
+        st = torrent["quality"] + " · " + subtitle(size, seeds, peers)
         rating = str(r["rating"])
         if rating[-1] == "0":
             rating = rating[:-1]
@@ -170,6 +170,27 @@ def _extract(data):
         (seeds, title, img, url, st, synopsis, subs) = result
         pil.add(TorrentPlayItem(title, img, url, st, synopsis, subs))
     return pil
+
+
+#: Which quality a release is played at, best first. 1080p is what this
+#: hardware decodes in hardware and what a television wants; 720p is the step
+#: down, not the default. 2160p is left out because a Pi 3 cannot decode it.
+_PREFERRED = ("1080p", "720p")
+
+
+def _choose(torrlist):
+    """
+    The torrent to play, preferring 1080p over a smaller file.
+
+    This used to take the smallest torrent, which is 720p whenever a release has
+    both -- a lower quality, and often fewer seeds as well: measured on one
+    film, 720p had 2 seeds where 1080p had 9.
+    """
+    for quality in _PREFERRED:
+        for torrent in torrlist:
+            if torrent.get("quality") == quality:
+                return torrent
+    return _smallest_size(torrlist)
 
 
 def _smallest_size(torrlist):

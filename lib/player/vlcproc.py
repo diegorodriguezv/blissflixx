@@ -402,7 +402,13 @@ def _normalize_status(data):
         fields = categories[name]
         if not isinstance(fields, dict):
             continue
-        streams.append({str(k): str(v) for k, v in fields.items()})
+        # VLC's lua interface names these with underscores ("Video_resolution",
+        # "Frame_rate") while the panel reads them as labels. Kept as one map
+        # here rather than matching both spellings in the page: the page asks
+        # for a resolution and the reader does not care how the key was spelled.
+        streams.append(
+            {str(k).replace("_", " "): str(v) for k, v in fields.items()}
+        )
     return {
         "state": str(data.get("state") or ""),
         "position": _number(data.get("time")),
