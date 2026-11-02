@@ -398,6 +398,7 @@ class TestStatus:
             "Elapsed",
             "Playlist",
             "Detail",
+            "Live",
         }
 
     def test_idle_player_is_not_running(self):

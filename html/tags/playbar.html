@@ -199,6 +199,39 @@
         }, PILL_LINGER)
       }
       if (!self.starting && !self.lingering) self.lastCount = ''
+      // A new play starts by not being the same film: its title, or the state
+      // that carries it, has changed. Where the old one was is not where the
+      // new one is.
+      var newPlay = self.status.Title !== self.lastTitle || !self.status.State
+      self.lastTitle = self.status.Title
+      if (newPlay) {
+        self.posBase = null
+        self.pictureAt = null
+        self.pausedAt = null
+      }
+      // When the picture started, for a live stream's clock. A live stream has
+      // no position to show: the player's number is the rolling HLS window,
+      // which climbs past the length it reports and never comes back. Its clock
+      // is instead the time since the picture appeared -- taken from the moment
+      // the loading count starts lingering, or, for a play the bar never saw
+      // loading, from the play's own age.
+      if (wasStarting && !self.starting && self.status.State == 3) {
+        self.pictureAt = Date.now()
+      } else if (!self.starting && self.status.State == 3 &&
+                 (self.pictureAt === undefined || self.pictureAt === null)) {
+        self.pictureAt = Date.now() - (self.status.Elapsed || 0) * 1000
+      }
+      // Time spent paused is not time the stream has been playing.
+      if (self.status.Paused) {
+        if (self.pausedAt === undefined || self.pausedAt === null) {
+          self.pausedAt = Date.now()
+        }
+      } else if (self.pausedAt !== undefined && self.pausedAt !== null) {
+        if (self.pictureAt !== undefined && self.pictureAt !== null) {
+          self.pictureAt += Date.now() - self.pausedAt
+        }
+        self.pausedAt = null
+      }
       // The sample the clock runs from, and when it was taken. The ticker adds
       // the time since then; see clockText.
       //
@@ -208,11 +241,7 @@
       // the pill -- which is also the button for the diagnostics panel -- for a
       // second at a time, and on a live stream it hid it for good once the
       // loading count's five seconds were up. The last reading stays until a
-      // newer one arrives. A new play is the exception: where the old film was
-      // is not where the new one is.
-      var newPlay = self.status.Title !== self.lastTitle || !self.status.State
-      self.lastTitle = self.status.Title
-      if (newPlay) self.posBase = null
+      // newer one arrives.
       if (typeof self.status.Position === 'number') {
         self.posBase = self.status.Position
         self.posAt = Date.now()
@@ -259,6 +288,19 @@
 
     //: Where the film is, as a clock. See CLOCK_LEAD.
     clockText() {
+      // A live stream has no position worth showing: the player reports the
+      // rolling HLS window, which climbs past the length it reports and never
+      // comes back. It has a picture that started at a known time, so the clock
+      // counts from there. It ticks once a second on its own -- no status poll
+      // needed -- which is also the reading that says the thing is running.
+      if (self.status && self.status.Live) {
+        if (self.pictureAt === undefined || self.pictureAt === null) return ''
+        var until = Date.now()
+        if (self.status.Paused && self.pausedAt !== undefined && self.pausedAt !== null) {
+          until = self.pausedAt
+        }
+        return self.formatClock((until - self.pictureAt) / 1000)
+      }
       if (self.posBase !== null && self.posBase !== undefined) {
         var lead = self.status && self.status.Paused
           ? 0
@@ -267,9 +309,7 @@
       }
       // The player has not said where the film is. The pill is also the only
       // way into the diagnostics panel, so it does not go blank while
-      // something is playing: count from the play request instead. For a live
-      // stream, whose player reports a position only now and then, that is
-      // also the only clock there is.
+      // something is playing: count from the play request instead.
       if (self.status && self.status.State == 3 &&
           typeof self.status.Elapsed === 'number') {
         return self.formatClock(self.status.Elapsed)

@@ -29,10 +29,14 @@ import lib.player.ytdlproc as ytdlproc
 class _Pipe:
     """A pipeline that only says where the film is and how it is stuck."""
 
-    def __init__(self, playback=None, stalled=0):
+    def __init__(self, playback=None, stalled=0, live=False):
         self._playback = playback or {}
         self._stalled = stalled
+        self._live = live
         self.procs = [self]
+
+    def is_live(self):
+        return self._live
 
     def playback(self):
         return self._playback
@@ -316,6 +320,19 @@ class TestPlayerDebug:
         debug = pl.debug()
         assert debug["Source"]["name"] == "yt-dlp"
         assert debug["Player"]["name"] == "vlc"
+
+    def test_a_live_stream_is_said_so(self):
+        """
+        The bar needs to know: a live stream has no position, only a rolling
+        window, so its pill is a clock of its own rather than the player's
+        number. Only a source that can know (yt-dlp) says yes.
+        """
+        pl = _player(_Pipe(live=True))
+        assert pl.status()["Live"] is True
+
+    def test_a_film_is_not_live(self):
+        pl = _player(_Pipe())
+        assert pl.status()["Live"] is False
 
     def test_without_a_pipe_it_still_answers(self):
         pl = player_module._Player()

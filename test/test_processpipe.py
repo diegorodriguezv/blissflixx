@@ -239,6 +239,44 @@ class TestPipeHappyPath:
         assert all(t.daemon for t in pipe.threads)
 
 
+class TestPipeLive:
+    """
+    Whether the source said the stream is live.
+
+    Only a source that can know says anything, and only after it has resolved
+    the URL: a torrent or a local file has no such question. False therefore
+    means "not known to be live", which is what keeps a film's position clock.
+    """
+
+    def _pipe(self, *stages):
+        pipe = ProcessPipe("t")
+        pipe.procs = list(stages)
+        return pipe
+
+    def test_the_source_is_asked(self):
+        source = FakeProcess("yt-dlp")
+        source.is_source = True
+        source.args = {"is_live": True}
+        assert self._pipe(source, FakeProcess("vlc")).is_live() is True
+
+    def test_a_resolved_film_is_not_live(self):
+        source = FakeProcess("yt-dlp")
+        source.is_source = True
+        source.args = {"is_live": False}
+        assert self._pipe(source).is_live() is False
+
+    def test_a_source_that_cannot_say_is_not_live(self):
+        source = FakeProcess("libtorrent")
+        source.is_source = True
+        source.args = {"outfile": "http://127.0.0.1:9697/"}
+        assert self._pipe(source).is_live() is False
+
+    def test_a_stage_that_is_not_the_source_is_not_asked(self):
+        stage = FakeProcess("vlc")
+        stage.args = {"is_live": True}
+        assert self._pipe(stage).is_live() is False
+
+
 class TestPipeErrors:
     def test_halt_propagates_to_parent(self):
         pipe = ProcessPipe("title")

@@ -6,6 +6,11 @@
 // cleared its clock on every such poll. On a live stream, once the loading
 // count's five seconds were up, the pill was gone for good.
 //
+// The pill is also where a live stream says it is running. The player's
+// position for one is the rolling HLS window (it climbs past the length it
+// reports and never comes back), so the bar shows the time since the picture started
+// instead, ticking on its own rather than whenever a poll happens to arrive.
+//
 // This compiles the real tag with the same riot and DOM shim as
 // riot_tags_check.js, then calls updateStatus with status objects shaped like
 // the server's. No browser: the tag only needs a clock, timers, and
@@ -135,6 +140,7 @@ function status(extra) {
       Paused: false,
       Stalled: 0,
       StallReason: '',
+      Live: false,
     },
     extra
   );
@@ -192,18 +198,64 @@ now = 0;
   check('which counts from the play request', tag.pill, '0:05');
 }
 
-// A live stream: VLC answers with a position some polls and none on others.
+// A film whose player answers only some polls (the live-channel pattern):
+// the last position is kept, so the clock neither vanishes nor jumps back.
 {
   const tag = newTag();
   poll(tag, status({ State: 1, Title: 'LOADING STREAM', Elapsed: 3 }));
   poll(tag, status({ Elapsed: 3 }));
   fireLinger();
-  check('a live stream with a position shows it', poll(tag, status({ Elapsed: 6, Position: 4 })), '0:04');
+  check('a film with a position shows it', poll(tag, status({ Elapsed: 6, Position: 4 })), '0:04');
   tick(1000);
   checkNotEmpty('a poll with no position does not hide it', poll(tag, status({ Elapsed: 7 })));
   check('and keeps the last reading', tag.pill, '0:05');
   tick(1000);
   check('the next reading takes over', poll(tag, status({ Elapsed: 8, Position: 9 })), '0:09');
+}
+
+// A live stream: the player's number is the rolling window, so it is not a
+// position at all. The clock counts from the picture and ticks on its own,
+// which is what shows the thing is running.
+{
+  const tag = newTag();
+  check('live: the count while loading',
+    poll(tag, status({ State: 1, Title: 'LOADING STREAM', Elapsed: 7, Live: true })), '7s');
+  check('live: held when the picture starts', poll(tag, status({ Elapsed: 8, Live: true })), '7s');
+  tick(5000);
+  fireLinger();
+  check('live: the clock starts at the picture', tag.pill, '0:05');
+  tick(1000);
+  check('live: it ticks without a status poll', tag.clockText(), '0:06');
+  check('live: a position does not become the clock',
+    poll(tag, status({ Elapsed: 20, Position: 4, Live: true })), '0:06');
+}
+
+// Paused live: the picture is not running, so neither is its clock.
+{
+  const tag = newTag();
+  poll(tag, status({ State: 1, Title: 'LOADING STREAM', Elapsed: 4, Live: true }));
+  poll(tag, status({ Title: 'Live', Elapsed: 5, Live: true }));
+  tick(5000);
+  fireLinger();
+  check('live: the clock runs', tag.pill, '0:05');
+  check('live: pause freezes it',
+    poll(tag, status({ Title: 'Live', Elapsed: 6, Live: true, Paused: true })), '0:05');
+  tick(3000);
+  check('live: it stays frozen', tag.clockText(), '0:05');
+  check('live: resume carries on from where it stopped',
+    poll(tag, status({ Title: 'Live', Elapsed: 9, Live: true })), '0:05');
+  tick(1000);
+  check('live: and ticks again', tag.clockText(), '0:06');
+}
+
+// A live stream already playing when the page opens: there is no picture
+// start to have seen, so its own age is the closest thing.
+{
+  const tag = newTag();
+  check('live: a stream found mid-play counts its age',
+    poll(tag, status({ Title: 'Live', Elapsed: 600, Live: true })), '10:00');
+  tick(1000);
+  check('live: and keeps ticking', tag.clockText(), '10:01');
 }
 
 // A film: the same missed sample, without handing the pill to the count.

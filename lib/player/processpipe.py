@@ -298,6 +298,23 @@ class ProcessPipe:
             return False
         return self.procs[-1].waiting()
 
+    def is_live(self):
+        """
+        Whether the source said this is a live stream.
+
+        Only a source that can know says anything: yt-dlp reports it with the
+        stream. False means "not known to be live", not "known not to be",
+        which is the safe way round -- a film keeps its position clock unless
+        the source has said the number does not mean anything.
+        """
+        for proc in self.procs:
+            if not getattr(proc, "is_source", False):
+                continue
+            args = getattr(proc, "args", None)
+            if isinstance(args, dict) and "is_live" in args:
+                return bool(args["is_live"])
+        return False
+
     def add_process(self, proc):
         self.procs.append(proc)
 
