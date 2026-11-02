@@ -178,6 +178,24 @@ a.underline {
   color: #90B8DD;
 }
 
+/*
+ * How a channel behaved here, in the IPTV rows. The words are the mark --
+ * "worked 6s 2h ago" -- and the colour is only a second reading of the same
+ * thing, for the glance from the sofa.
+ */
+.iptv-status {
+  font-weight: bold;
+}
+.iptv-status.ok {
+  color: #8FD18F;
+}
+.iptv-status.warn {
+  color: #F5C46B;
+}
+.iptv-status.bad {
+  color: #F28B82;
+}
+
 a.item-action {
   border-color: #FFFFFF;
   border: 1px solid #A9A9A9;

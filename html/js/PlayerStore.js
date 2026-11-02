@@ -39,7 +39,7 @@ function PlayerStore() {
   // They are what lets the server keep going with the next item once this film
   // ends, or when the playbar's item buttons are pressed. A row from a channel
   // or a search has neither, and plays on its own as it always did.
-  self.play = function(url, title, cb, plid, itemnum, subs) {
+  self.play = function(url, title, cb, plid, itemnum, subs, sources) {
     var args = {url: url, title: title}
     if (plid !== undefined && itemnum !== undefined) {
       args.plid = plid
@@ -49,6 +49,11 @@ function PlayerStore() {
     // picked in a previous session. The server decides what each shape means.
     if (subs) {
       args.subs = subs
+    }
+    // A channel's mirrors, best first. The player falls back to the next one
+    // only if this one never shows a picture.
+    if (sources && sources.length) {
+      args.sources = sources
     }
     Utils.rpc('playr', 'play', args, cb)
   }

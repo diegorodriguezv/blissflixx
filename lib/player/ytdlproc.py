@@ -149,6 +149,14 @@ class YoutubeDlProcess(ExternalProcess):
             "--no-continue",
             "--no-playlist",
             "--no-progress",
+            # A mirror whose host has gone should fail in seconds rather than
+            # sit in a socket read until the stage's timeout: the bar may be
+            # about to try the channel's next one. A slow but working stream is
+            # unaffected -- this is idle time, not total time.
+            "--socket-timeout",
+            "5",
+            "--retries",
+            "1",
             "--output",
             OUT_FILE,
         ]

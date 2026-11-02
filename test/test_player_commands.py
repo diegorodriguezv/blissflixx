@@ -73,6 +73,19 @@ class TestYoutubeDl:
         ):
             assert flag in cmd, flag
 
+    def test_a_dead_mirror_is_given_up_on_quickly(self):
+        """
+        The IPTV rows carry a list of mirrors and the player tries the next one
+        when this one never starts. A socket read that waits the stage's whole
+        timeout makes that fallback useless, so the idle timeout is short. It
+        is idle time, not total time: a slow but working stream is unaffected.
+        """
+        cmd = YoutubeDlProcess(SHORT_URL)._get_cmd({})
+        timeout = cmd[cmd.index("--socket-timeout") + 1]
+        retries = cmd[cmd.index("--retries") + 1]
+        assert int(timeout) <= 5, cmd
+        assert int(retries) <= 1, cmd
+
     def test_invoked_by_the_interpreter_that_is_running_us(self):
         """
         sys.executable, and not "python" from PATH.

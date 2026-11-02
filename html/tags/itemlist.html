@@ -114,7 +114,7 @@
           // film rather than behind a button.
           playerStore.play(item.url, item.title, function(err) {
             if (err) return Utils.showError(err)
-          }, item.playlist, item.itemnum, item.subs)
+          }, item.playlist, item.itemnum, item.subs, item.sources)
         }
       }
     }

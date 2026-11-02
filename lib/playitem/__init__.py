@@ -198,6 +198,10 @@ class PlayItem:
         self.subtitle = subtitle
         self.synopsis = synopsis
         self.subs = self._set_subs_lang(subs)
+        #: Other URLs for the same thing, best first. A channel with several
+        #: mirrors carries them here so the player can try the next one when
+        #: this one never shows a picture; most rows have none.
+        self.sources = None
         self.actions = ActionList()
         self.add_default_actions()
 
@@ -239,6 +243,8 @@ class PlayItem:
             d["synopsis"] = self.synopsis
         if self.subs is not None:
             d["subs"] = self.subs
+        if self.sources:
+            d["sources"] = list(self.sources)
         if not self.actions.empty():
             d["actions"] = self.actions.to_dict()
         return d
@@ -270,6 +276,7 @@ class PlaylistItem(PlayItem):
         if "target" in item:
             self.target = item["target"]
         PlayItem.__init__(self, title, img, url, subtitle, synopsis, subs)
+        self.sources = item.get("sources")
 
     def add_default_actions(self):
         PlayItem.add_default_actions(self)

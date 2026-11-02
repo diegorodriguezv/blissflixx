@@ -156,6 +156,14 @@ class TestPlayItem:
         assert d["synopsis"] == "syn"
         assert "subs" not in d
 
+    def test_mirrors_are_carried_when_a_row_has_them(self):
+        item = PlayItem("T", "/i", "http://a")
+        item.sources = ["http://a", "http://b"]
+        assert item.to_dict()["sources"] == ["http://a", "http://b"]
+
+    def test_a_row_without_mirrors_omits_the_field(self):
+        assert "sources" not in PlayItem("T", "/i", "http://a").to_dict()
+
     def test_add_to_playlist_action_always_present(self):
         types = [
             a["type"] for a in PlayItem("T", "/i", "http://x").to_dict()["actions"]
@@ -283,6 +291,16 @@ class TestItemSubclasses:
         assert d["playlist"] == "myplaylist"
         assert d["itemnum"] == 3
         assert d["subtitle"] == "s"
+
+    def test_playlist_item_keeps_its_mirrors(self):
+        raw = {
+            "title": "T",
+            "img": "/i",
+            "url": "http://a",
+            "sources": ["http://a", "http://b"],
+        }
+        d = PlaylistItem(raw, "p", 0, False).to_dict()
+        assert d["sources"] == ["http://a", "http://b"]
 
     def test_playlist_item_remote_omits_edit_actions(self):
         raw = {"title": "T", "img": "/i", "url": "http://x"}

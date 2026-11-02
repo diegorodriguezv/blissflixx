@@ -193,7 +193,17 @@ class TestPlayrRouting:
     def test_plain_url_goes_to_ytdl(self):
         url = "https://youtu.be/dQw4w9WgXcQ"
         mocks = self._route(url)
-        mocks["playYtdl"].assert_called_once_with(url, "T", None, None, None)
+        mocks["playYtdl"].assert_called_once_with(
+            url, "T", None, None, None, None
+        )
+
+    def test_a_play_can_carry_the_channel_mirrors(self):
+        ytdl = m.Mock()
+        with m.patch.object(player_module._Player, "playYtdl", ytdl):
+            playr.play(url="http://a", title="T", sources=["http://b"])
+        ytdl.assert_called_once_with(
+            "http://a", "T", None, None, None, ["http://a", "http://b"]
+        )
 
     def test_missing_url_is_rejected(self):
         from lib.api.common import ApiError
@@ -843,6 +853,50 @@ class TestPlaylistRuns:
         assert pl.status()["Notice"] == ""
 
 
+class TestSources:
+    """
+    The mirrors a row may carry, and the rules for what counts as one.
+
+    Only the IPTV channel builds a list; every other row has none, which is
+    what keeps a YouTube film untracked and without fallbacks.
+    """
+
+    def test_no_list_means_none(self):
+        assert playr._sources("http://a", None) is None
+
+    def test_a_single_source_is_still_a_list(self):
+        assert playr._sources("http://a", ["http://a"]) == ["http://a"]
+
+    def test_the_url_asked_for_comes_first_and_only_once(self):
+        assert playr._sources("http://a", ["http://a", "http://b"]) == [
+            "http://a",
+            "http://b",
+        ]
+        assert playr._sources("http://a", ["http://b", "http://a"]) == [
+            "http://a",
+            "http://b",
+        ]
+
+    def test_anything_that_is_not_a_stream_url_is_dropped(self):
+        assert playr._sources(
+            "http://a", ["magnet:?xt=urn:btih:x", "file:///a.mkv", "http://b"]
+        ) == ["http://a", "http://b"]
+
+    def test_the_list_is_capped(self):
+        sources = ["http://%d" % i for i in range(20)]
+        assert len(playr._sources("http://0", sources)) == playr._MAX_SOURCES
+
+    def test_a_playlist_item_keeps_its_mirrors(self, settings):
+        builder = playr._item_builder(
+            {
+                "url": "http://a",
+                "title": "T",
+                "sources": ["http://a", "http://b"],
+            }
+        )
+        assert builder().sources == ["http://a", "http://b"]
+
+
 class TestPlaylistContext:
     """
     Which play belongs to a playlist, and which does not.
@@ -904,7 +958,7 @@ class TestPlaylistContext:
             url="https://example.com/2", title="two", plid="Run", itemnum=1
         )
 
-        url, _title, _subs, playlist, index = ytdl.call_args[0]
+        url, _title, _subs, playlist, index, _sources = ytdl.call_args[0]
         assert url == "https://example.com/2"
         assert index == 1
         assert len(playlist) == 3, "every item, so either direction can be reached"
@@ -922,7 +976,7 @@ class TestPlaylistContext:
             url="https://example.com/other", title="other", plid="Run", itemnum=0
         )
 
-        _url, _title, _subs, playlist, index = ytdl.call_args[0]
+        _url, _title, _subs, playlist, index, _sources = ytdl.call_args[0]
         assert playlist is None
         assert index is None
 
@@ -935,7 +989,7 @@ class TestPlaylistContext:
             url="https://example.com/1", title="one", plid="NoSuchList", itemnum=0
         )
 
-        _url, _title, _subs, playlist, index = ytdl.call_args[0]
+        _url, _title, _subs, playlist, index, _sources = ytdl.call_args[0]
         assert playlist is None
         assert index is None
 

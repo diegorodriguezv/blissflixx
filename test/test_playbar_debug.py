@@ -106,11 +106,69 @@ class TestStallWarning:
         pl = _player(_Pipe(playback={"position": 10, "length": 100}, stalled=12))
         assert "Stalled" not in pl.status()
 
+    def test_a_live_stream_with_no_position_is_not_stalled(self):
+        """
+        A live stream answers with a position only now and then -- the rolling
+        HLS window -- so the position clock reported every live channel as a
+        frozen picture fifteen seconds after it started. Its clock is the input.
+        """
+        pl = _player(_Pipe(playback={"read_idle": 0}, live=True))
+        pl._pos_last = 10
+        pl._pos_changed_at = time.time() - 60
+        assert "Stalled" not in pl.status()
+
+    def test_a_live_stream_with_no_data_is_stalled(self):
+        pl = _player(_Pipe(playback={"read_idle": 20}, live=True))
+        status = pl.status()
+        assert status["Stalled"] >= 15
+        assert status["StallReason"] == "source"
+
+    def test_a_live_stream_under_the_threshold_is_quiet(self):
+        pl = _player(_Pipe(playback={"read_idle": 10}, live=True))
+        assert "Stalled" not in pl.status()
+
+    def test_a_live_stream_the_player_cannot_read_says_nothing(self):
+        """No fresh snapshot is not the same as no data."""
+        pl = _player(_Pipe(playback={}, live=True))
+        pl._pos_changed_at = time.time() - 60
+        assert "Stalled" not in pl.status()
+
     def test_picture_wins_over_source(self):
         pl = _player(_Pipe(playback={"position": 10, "length": 100}, stalled=45))
         pl._pos_last = 10
         pl._pos_changed_at = time.time() - 20
         assert pl.status()["StallReason"] == "picture"
+
+
+class TestFailoverNote:
+    def test_the_bar_is_told_which_source_is_being_tried(self):
+        pl = _player(_Pipe())
+        pl._failover_note = "source 2 of 4"
+        assert pl.status()["Detail"] == "source 2 of 4"
+
+    def test_the_sources_own_line_is_kept_alongside_it(self):
+        pl = _player(_Pipe())
+        pl.play_pipe.detail = lambda: "12% · 1.4 MB/s"
+        pl._failover_note = "source 2 of 4"
+        assert pl.status()["Detail"] == "source 2 of 4 · 12% · 1.4 MB/s"
+
+
+class TestTheJournal:
+    def test_a_frozen_stream_is_written_down_once(self, monkeypatch):
+        recorded = []
+        monkeypatch.setattr(
+            player_module.playquality,
+            "record_froze",
+            lambda url: recorded.append(url),
+        )
+        pipe = _Pipe(playback={"read_idle": 20}, live=True)
+        pipe.track = True
+        pipe.sources = ["http://a"]
+        pipe.source_index = 0
+        pl = _player(pipe)
+        pl.status()
+        pl.status()
+        assert recorded == ["http://a"]
 
 
 class TestPlaybackFields:
@@ -449,6 +507,24 @@ class TestInputIdle:
         now[0] += 1
         second = proc.playback()
         assert second["read_speed"] == 4000
+        assert second["read_idle"] == 0
+
+    def test_a_stream_with_no_bytes_from_the_start_does_not_raise(self, monkeypatch):
+        """
+        The first sample has no previous one, so the idle clock is only set on
+        the second. If that one also carries no new bytes, the clock used to be
+        read before it was ever written -- an exception inside the status the
+        bar asks for once a second.
+        """
+        proc = self._proc(monkeypatch, [1000, 1000])
+        now = [100.0]
+        monkeypatch.setattr(vlcproc, "time", type("T", (), {
+            "time": staticmethod(lambda: now[0]),
+        }))
+        proc.playback()
+        now[0] += 1
+        second = proc.playback()
+        assert second["read_speed"] == 0
         assert second["read_idle"] == 0
 
     def test_a_dead_input_shows_nothing_arriving(self, monkeypatch):

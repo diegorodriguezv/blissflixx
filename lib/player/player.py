@@ -5,6 +5,7 @@ from queue import Full, Queue
 
 import cherrypy
 
+from .. import playquality
 from ..locations import DATA_PATH
 from ..settings import load
 from . import ythelper
@@ -37,6 +38,11 @@ _PLAY_ENQUEUE_TIMEOUT = 5
 #: back reads every later stop and play as no answer at all. The whole
 #: interface went unresponsive while the film was still on screen.
 _PLAY_JOIN_TIMEOUT = 5
+
+#: How many sources of one row a play will try. A channel can have thirty-five
+#: mirrors; after a few, the minutes spent are worse than the channel being
+#: honestly marked as failed.
+_FAILOVER_TRIES = 4
 
 MSG_PLAYER_PLAY = 1
 MSG_PLAYER_STOP = 2
@@ -98,12 +104,24 @@ class _Player:
         #: When the pause state was last asked for by the interface. See
         #: _sync_paused: the player's answer wins after a moment.
         self._paused_at = 0.0
+        #: When the source now being tried started, for the quality journal.
+        #: Not the same as play_requested_at: a failover must not make the
+        #: working mirror look as slow as the attempts before it.
+        self.attempt_started_at = None
+        #: Whether the stall already reported for this attempt was recorded.
+        self._stall_logged = False
+        #: "source 2 of 4", while a channel is failing over.
+        self._failover_note = None
+        #: Whether the pipe being stopped was stopped on purpose. A stop reads
+        #: like a failure at the pipe -- it reports any stage error -- and a
+        #: stop must not be recorded, or failed over.
+        self._stopped = False
 
     def _stop(self):
         if self.play_pipe:
             self.play_pipe.stop()
 
-    def _play(self, play):
+    def _play(self, play, requested_at=None):
         self.error = None
         self.paused = False
         self.play_pipe = play.pipe
@@ -111,12 +129,94 @@ class _Player:
         self.index = play.index
         # When this film was asked for, for the count the interface shows while
         # it is loading. Wall clock rather than a tick, because the loop is not
-        # the thing being timed.
-        self.play_requested_at = time.time()
+        # the thing being timed. A failover keeps the original moment: the
+        # person has been waiting since the click, not since the retry.
+        self.play_requested_at = (
+            time.time() if requested_at is None else requested_at
+        )
+        # Per attempt, so the quality journal's "started in Ns" is about this
+        # source rather than about the failed ones before it.
+        self.attempt_started_at = time.time()
         self.start_logged = False
         self._pos_last = None
         self._pos_changed_at = None
+        self._stall_logged = False
+        self._failover_note = None
+        self._stopped = False
         self.play_thread = _start_thread(play.pipe.start, self.msgq)
+
+    def _current_url(self):
+        """The URL being tried now, when the row carried a list of them."""
+        pipe = self.play_pipe
+        if pipe is None:
+            return None
+        sources = getattr(pipe, "sources", None) or []
+        index = getattr(pipe, "source_index", 0)
+        if 0 <= index < len(sources):
+            return sources[index]
+        return None
+
+    def _media_time(self):
+        """When the player first decoded a frame, from a stage that knows."""
+        for stage in getattr(self.play_pipe, "procs", None) or []:
+            media_at = getattr(stage, "_media_at", None)
+            if media_at is not None:
+                return media_at
+        return None
+
+    def _note_picture(self):
+        """Write down how long this source took to show a picture."""
+        pipe = self.play_pipe
+        if pipe is None or not getattr(pipe, "track", False):
+            return
+        url = self._current_url()
+        media_at = self._media_time()
+        if not url or media_at is None or self.attempt_started_at is None:
+            return
+        playquality.record_ok(url, media_at - self.attempt_started_at)
+        # The failed attempts before this one are no longer the news.
+        self._failover_note = None
+
+    def _fail_over(self, title):
+        """
+        Try the next source of the same row, after this one failed to start.
+
+        Only before the picture: a stream that played and then died is a
+        different problem, and restarting it from a mirror would throw away
+        where the person was. Only for rows that carried a list -- a torrent
+        has one address and a YouTube row has one URL. Bounded, because a
+        channel with thirty-five mirrors should not take five minutes to
+        decide it is dead.
+        """
+        pipe = self.play_pipe
+        if pipe is None or not getattr(pipe, "track", False):
+            return False
+        if self._picture_after() is not None:
+            return False
+        sources = getattr(pipe, "sources", None) or []
+        index = getattr(pipe, "source_index", 0)
+        if index + 1 >= min(len(sources), _FAILOVER_TRIES):
+            return False
+        failed = sources[index]
+        if failed:
+            playquality.record_failed(failed, self.error)
+        next_url = sources[index + 1]
+        cherrypy.log(
+            "FAILOVER: %s, source %d of %d"
+            % (title, index + 2, min(len(sources), _FAILOVER_TRIES))
+        )
+        newpipe = self.buildYtdl(
+            next_url, title, getattr(pipe, "subs", None), sources
+        )
+        self._play(
+            _Play(newpipe, self.playlist, self.index),
+            requested_at=self.play_requested_at,
+        )
+        self._failover_note = "source %d of %d" % (
+            index + 2,
+            min(len(sources), _FAILOVER_TRIES),
+        )
+        return True
 
     def _clear_place(self):
         """
@@ -230,6 +330,7 @@ class _Player:
                     # already queued, which is not what the button says.
                     nextplay = None
                     self.notice = None
+                    self._stopped = True
                     self._stop()
                     self._clear_place()
                 elif m == MSG_PLAYER_SKIP:
@@ -243,28 +344,46 @@ class _Player:
                     else:
                         self._play(play)
                 elif m == MSG_PLAYER_PIPE_STOPPED:
-                    self.error = msgq.get()
-                    ended = msgq.get()
-                    title = self.play_pipe.title if self.play_pipe is not None else ""
-                    # Bounded, and the state is cleared either way. Waiting on a
-                    # thread that may never finish left the loop unable to answer
-                    # anything, which is worse than a thread still winding down in
-                    # the background: it cannot stop the film, and it cannot start
-                    # the next one either.
-                    self.play_thread.join(timeout=_PLAY_JOIN_TIMEOUT)
-                    if self.play_thread.is_alive():
-                        cherrypy.log("PLAY THREAD DID NOT EXIT")
-                    cherrypy.log("PIPE STOPPED")
-                    if nextplay is not None:
-                        self._play(nextplay)
-                        nextplay = None
-                    else:
-                        self._after(title, ended)
+                    nextplay = self._pipe_stopped(nextplay)
                 elif m == MSG_PLAYER_QUIT:
+                    self._stopped = True
                     self._stop()
                     break
             except Exception as exc:
                 cherrypy.log("PLAYER LOOP ERROR on message %r: %s" % (m, exc))
+
+    def _pipe_stopped(self, nextplay):
+        """
+        The pipe stopped: play the queued one, fail over, or move on.
+
+        A stop reports any stage error, so an error here is not enough to call
+        the source broken: the person may have pressed stop or skip while it
+        was winding down. Only an error nobody asked for can fail over.
+        """
+        self.error = self.msgq.get()
+        ended = self.msgq.get()
+        title = self.play_pipe.title if self.play_pipe is not None else ""
+        # Bounded, and the state is cleared either way. Waiting on a thread
+        # that may never finish left the loop unable to answer anything, which
+        # is worse than a thread still winding down in the background: it
+        # cannot stop the film, and it cannot start the next one either.
+        self.play_thread.join(timeout=_PLAY_JOIN_TIMEOUT)
+        if self.play_thread.is_alive():
+            cherrypy.log("PLAY THREAD DID NOT EXIT")
+        cherrypy.log("PIPE STOPPED")
+        intentional = nextplay is not None or self._stopped
+        self._stopped = False
+        if nextplay is not None:
+            self._play(nextplay)
+        elif self.error and not intentional and self._fail_over(title):
+            pass
+        else:
+            if self.error and not intentional:
+                failed = self._current_url()
+                if failed and getattr(self.play_pipe, "track", False):
+                    playquality.record_failed(failed, self.error)
+            self._after(title, ended)
+        return None
 
     def quit(self):
         if self.main_thread is not None:
@@ -302,6 +421,10 @@ class _Player:
             # piped, which is what lets the player follow it.
             pipe.add_process(DlsrvProcess())
         pipe.add_process(self._player_stage(http, dlsrv))
+        # What a failover would rebuild this play with, when the source is a
+        # stream with mirrors. Kept on the pipe so a playlist item carries it
+        # too; see buildYtdl.
+        pipe.subs = subs
         return pipe
 
     def playPipe(self, pipe, playlist=None, index=None):
@@ -341,6 +464,7 @@ class _Player:
         """
         self.error = None
         self.notice = None
+        self._failover_note = None
         for item in items:
             try:
                 self.msgq.put(item, timeout=_PLAY_ENQUEUE_TIMEOUT)
@@ -352,17 +476,27 @@ class _Player:
                 cherrypy.log(self.error)
                 raise RuntimeError(self.error)
 
-    def playYtdl(self, url, title=None, subs=None, playlist=None, index=None):
-        self.playPipe(self.buildYtdl(url, title, subs), playlist, index)
+    def playYtdl(
+        self, url, title=None, subs=None, playlist=None, index=None, sources=None
+    ):
+        self.playPipe(self.buildYtdl(url, title, subs, sources), playlist, index)
 
-    def buildYtdl(self, url, title=None, subs=None):
+    def buildYtdl(self, url, title=None, subs=None, sources=None):
         if title is None:
             title = url
         # True means yt-dlp should only resolve the stream (--simulate), so the
         # bytes are piped straight to the player instead of buffered to disk.
-        return self.build(
+        pipe = self.build(
             title, YoutubeDlProcess(url), subs, ythelper.skip_download(url)
         )
+        # A row that carried mirrors: the player may try the next one when this
+        # URL never shows a picture. A row with none gets the single URL and is
+        # not tracked -- the quality journal is about channels, and a YouTube
+        # film or a torrent has nothing to fail over to.
+        pipe.sources = list(sources) if sources else [url]
+        pipe.source_index = pipe.sources.index(url) if url in pipe.sources else 0
+        pipe.track = sources is not None
+        return pipe
 
     def playTorrent(self, url, idx, title, subs, playlist=None, index=None):
         self.playPipe(self.buildTorrent(url, idx, title, subs), playlist, index)
@@ -449,7 +583,14 @@ class _Player:
         status["Waiting"] = play_pipe.waiting()
         ask_live = getattr(play_pipe, "is_live", None)
         status["Live"] = bool(ask_live()) if callable(ask_live) else False
-        status["Detail"] = play_pipe.detail()
+        detail = play_pipe.detail()
+        if self._failover_note:
+            detail = (
+                self._failover_note + " · " + detail
+                if detail
+                else self._failover_note
+            )
+        status["Detail"] = detail
         # How long it took, once, for the question that keeps coming back:
         # "was that slower than it used to be". Everything a play waits on is
         # already logged with a timestamp -- the torrent source arming, yt-dlp
@@ -461,6 +602,7 @@ class _Player:
             and not status["Waiting"]
         ):
             self.start_logged = True
+            self._note_picture()
             cherrypy.log(
                 "PLAY STARTED after %.1fs: %s"
                 % (time.time() - self.play_requested_at, status["Title"])
@@ -471,6 +613,11 @@ class _Player:
             status["State"] = ST_STARTING
         if status["State"] == ST_RUNNING:
             self._add_playback(status, play_pipe)
+            if status.get("Stalled") and not self._stall_logged:
+                self._stall_logged = True
+                url = self._current_url()
+                if url and getattr(play_pipe, "track", False):
+                    playquality.record_froze(url)
         status["Paused"] = self.paused
         return status
 
@@ -485,12 +632,17 @@ class _Player:
         interface rather than the cli, which is the one that stops answering
         when it is asked too often. See VlcProcess._status_snapshot.
 
-        Stalled is the pairing of two clocks. The picture clock is the player's
-        own position: if it has not moved in fifteen seconds with the film
-        neither paused nor followed, nothing is coming through and the screen
-        is frozen. The source clock is the swarm's -- no peers and pieces still
-        missing -- and it fires earlier, while the picture is still fine,
-        because that is when there is still time to do something about it.
+        Stalled is the pairing of two clocks. For a film the picture clock is
+        the player's own position: if it has not moved in fifteen seconds with
+        the film neither paused nor followed, nothing is coming through and the
+        screen is frozen. A live stream cannot use it -- VLC reports the rolling
+        HLS window there, and answers with no position at all most of the time,
+        so every live channel was reported frozen after fifteen seconds -- so
+        it uses the input clock instead: no bytes arriving is the one reading
+        that means the picture has stopped. The source clock is the swarm's --
+        no peers and pieces still missing -- and it fires earlier, while the
+        picture is still fine, because that is when there is still time to do
+        something about it.
         """
         playback = pipe.playback() if hasattr(pipe, "playback") else {}
         self._sync_paused(playback.get("state"))
@@ -504,7 +656,7 @@ class _Player:
             if length and length > 0:
                 status["Length"] = int(length)
             self._note_position(position)
-        stalled, reason = self._stalled(pipe)
+        stalled, reason = self._stalled(pipe, playback)
         if stalled:
             status["Stalled"] = stalled
             status["StallReason"] = reason
@@ -538,10 +690,28 @@ class _Player:
             self._pos_last = position
             self._pos_changed_at = now
 
-    def _stalled(self, pipe):
-        """(seconds, reason) if something is stuck, else (0, "")."""
+    def _stalled(self, pipe, playback=None):
+        """
+        (seconds, reason) if something is stuck, else (0, "").
+
+        A live stream is judged on the input, not the position: its position is
+        the player's rolling window and often not reported at all, so using it
+        as a clock said every live channel had frozen after fifteen seconds.
+        Bytes still arriving means the stream is still being fed; none for
+        fifteen seconds means the picture has stopped for everyone.
+        """
         if self.paused:
             # A paused film looks exactly like a frozen one, and is not.
+            return 0, ""
+        ask = getattr(pipe, "is_live", None)
+        if callable(ask) and ask():
+            idle = (playback or {}).get("read_idle")
+            if idle is None:
+                # No fresh reading from the player: claiming a freeze would be
+                # a guess, and the panel is the place for "cannot say".
+                return 0, ""
+            if idle >= _STALL_PICTURE_AFTER:
+                return int(idle), "source"
             return 0, ""
         if self._pos_changed_at is not None:
             frozen = int(time.time() - self._pos_changed_at)

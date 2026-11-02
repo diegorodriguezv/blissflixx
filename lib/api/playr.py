@@ -10,9 +10,38 @@ from .common import ApiError
 from .torrent import is_torrent_url
 
 
+#: Mirrors one play may carry. The player tries a handful of them; more than
+#: this is a longer wait, not a better chance.
+_MAX_SOURCES = 8
+
+
 def _save_subs_prefs(subs):
     if "lang" in subs:
         save("subtitles", {"lang": subs["lang"]})
+
+
+def _sources(url, sources):
+    """
+    The URLs this play may try, the one asked for first.
+
+    Only http(s): the player's fallback builds another stream stage, and a
+    magnet or a file path there would be a different kind of play pretending to
+    be the same one. None means the row carried no list at all, which is how a
+    YouTube film or a torrent stays untracked and without fallbacks.
+    """
+    if not isinstance(sources, (list, tuple)):
+        return None
+    wanted = []
+    for candidate in [url] + list(sources):
+        if not isinstance(candidate, str) or not candidate:
+            continue
+        if urllib.parse.urlparse(candidate).scheme not in ("http", "https"):
+            continue
+        if candidate not in wanted:
+            wanted.append(candidate)
+        if len(wanted) >= _MAX_SOURCES:
+            break
+    return wanted or None
 
 
 def _item_builder(item):
@@ -26,12 +55,13 @@ def _item_builder(item):
     url = item.get("url", "")
     title = item.get("title", "")
     subs = item.get("subs")
+    sources = item.get("sources")
     obj = urllib.parse.urlparse(url)
     if obj.scheme == "file":
         return lambda: Player.buildLocalFile(obj.path, title)
     if is_torrent_url(url):
         return lambda: Player.buildTorrent(url, torrent_idx(url), title, subs)
-    return lambda: Player.buildYtdl(url, title, subs)
+    return lambda: Player.buildYtdl(url, title, subs, sources)
 
 
 def _place_in_playlist(plid, itemnum, url):
@@ -60,19 +90,20 @@ def _place_in_playlist(plid, itemnum, url):
     return [_item_builder(item) for item in items], index
 
 
-def play(url=None, title=None, subs=None, plid=None, itemnum=None):
+def play(url=None, title=None, subs=None, plid=None, itemnum=None, sources=None):
     if url is None:
         raise ApiError("Play url is undefined")
     if subs is not None:
         _save_subs_prefs(subs)
     playlist, index = _place_in_playlist(plid, itemnum, url)
+    mirrors = _sources(url, sources)
     obj = urllib.parse.urlparse(url)
     if obj.scheme == "file":
         Player.playLocalFile(obj.path, title, playlist, index)
     elif is_torrent_url(url):
         Player.playTorrent(url, torrent_idx(url), title, subs, playlist, index)
     else:
-        Player.playYtdl(url, title, subs, playlist, index)
+        Player.playYtdl(url, title, subs, playlist, index, mirrors)
 
 
 def add_subtitles(chosen=None, lang=None):

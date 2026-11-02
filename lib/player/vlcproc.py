@@ -835,6 +835,10 @@ class VlcProcess(PlayerBackend):
         self._media_at = None
         #: The cached status.json reading, (when, snapshot). See _status_snapshot.
         self._snapshot = None
+        #: The last readbytes sample and when bytes last arrived, for the input
+        #: clock. See _note_input.
+        self._input_sample = None
+        self._input_at = None
         #: Frames the display refused, when the first and last of them arrived.
         #: See _watch_display.
         self._display_failures = 0

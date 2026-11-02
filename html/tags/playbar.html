@@ -9,6 +9,7 @@
             <i show={ starting } class="fa fa-circle-o-notch fa-spin"></i>
             <i show={ !starting } class="fa fa-play"></i>
             <span class="truncate">{ status.Title }</span>
+            <span show={ detail } class="play-detail">{ detail }</span>
             <span show={ pill } class="starting-time { pillClass }" onclick={ showDebug } title={ pillTitle }>
               { pill }
               <i show={ warning } class="fa fa-exclamation-triangle"></i>
@@ -257,7 +258,7 @@
       if (stalled) {
         self.pillTitle = (reason == 'picture'
           ? 'The picture has not moved for ' + stalled + ' seconds.'
-          : 'Nothing has arrived from the torrent for ' + stalled + ' seconds.') +
+          : 'Nothing has arrived for ' + stalled + ' seconds.') +
           ' Click for details.'
       } else {
         self.pillTitle = 'Click for details'
