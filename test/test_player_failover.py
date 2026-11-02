@@ -99,7 +99,7 @@ class WatchedPlayer(player_module._Player):
         self.index = play.index
         self.error = None
 
-    def buildYtdl(self, url, title=None, subs=None, sources=None):
+    def buildYtdl(self, url, title=None, subs=None, sources=None, choose_first=True):
         pipe = SourcePipe(
             list(sources or [url]),
             list(sources or [url]).index(url),
@@ -157,7 +157,7 @@ class TestFailover:
         play, requested = player.played[0]
         assert play.pipe.sources == ["http://a", "http://b"]
         assert play.pipe.source_index == 1
-        assert play.note == "source 2 of 2"
+        assert play.note == "retrying 2/2"
         assert play.keep_state is True
         assert requested == 100.0
 
@@ -168,7 +168,7 @@ class TestFailover:
         player.error = "gone"
         assert player._fail_over("A Channel") is True
         assert player.built[0][0] == "http://6"
-        assert player.played[0][0].note == "source 7 of 10"
+        assert player.played[0][0].note == "retrying 7/10"
 
     def test_the_playlist_place_is_kept(self, player, failures):
         prepared(player, ["http://a", "http://b"])
@@ -206,6 +206,35 @@ class TestFailover:
     def test_no_pipe_is_not_a_failure(self, player, failures):
         player.play_pipe = None
         assert player._fail_over("A Channel") is False
+
+
+class TestTheFirstSource:
+    def test_the_last_good_source_is_started_from_a_stale_row(self, latest):
+        """
+        The browser keeps a channel's rows for a minute, so a source that just
+        failed can still be listed first. The journal is current; the first
+        attempt is chosen from it.
+        """
+        sources = ["http://bad", "http://good", "http://unknown"]
+        latest["http://bad"] = ("bad", time.time() - 60, 0)
+        latest["http://good"] = ("ok", time.time() - 60, 5)
+        player = player_module._Player()
+        pipe = player.buildYtdl("http://bad", "A Channel", None, sources)
+        assert pipe.sources == ["http://good", "http://unknown", "http://bad"]
+        assert pipe.source_index == 0
+        assert pipe.procs[0].url == "http://good"
+
+    def test_a_failover_keeps_the_source_it_chose(self, latest):
+        sources = ["http://bad", "http://good"]
+        latest["http://bad"] = ("bad", time.time() - 60, 0)
+        latest["http://good"] = ("ok", time.time() - 60, 5)
+        player = player_module._Player()
+        pipe = player.buildYtdl(
+            "http://bad", "A Channel", None, sources, choose_first=False
+        )
+        assert pipe.sources == ["http://bad", "http://good"]
+        assert pipe.source_index == 0
+        assert pipe.procs[0].url == "http://bad"
 
 
 class TestChoosingTheNextSource:
@@ -354,7 +383,7 @@ class TestReconnect:
         play = player._reconnect_play("A Channel")
         assert play is not None
         assert play.pipe.source_index == 1
-        assert play.note == "source 2 of 2"
+        assert play.note == "retrying 2/2"
         assert play.keep_state is True
         assert player.built[0][0] == "http://b"
 
@@ -406,7 +435,7 @@ class TestTimeToPicture:
         monkeypatch.setattr(playquality, "record_ok", lambda url, seconds: None)
         prepared(player, ["http://a"], media_at=106.2)
         player.attempt_started_at = 100.0
-        player._failover_note = "source 2 of 4"
+        player._failover_note = "retrying 2/4"
         player._note_picture()
         assert player._failover_note is None
 
@@ -515,7 +544,7 @@ class TestTheStoppedPipe:
         assert len(calls["played"]) == 1
         play = calls["played"][0]
         assert play.pipe.source_index == 1
-        assert play.note == "source 2 of 2"
+        assert play.note == "retrying 2/2"
         assert play.keep_state is True
 
     def test_a_live_stream_that_ends_with_no_sources_left_moves_on(

@@ -394,3 +394,11 @@ class TestTheClientChain:
         bar = (root / "html" / "tags" / "playbar.html").read_text()
         assert 'class="play-detail"' in bar
         assert "{ detail }" in bar
+        assert "fa-refresh" in bar
+        assert "retrying" in bar
+
+    def test_the_iptv_feed_is_not_kept_for_a_minute(self):
+        root = pathlib.Path(__file__).resolve().parents[1]
+        store = (root / "html" / "js" / "ChannelStore.js").read_text()
+        assert "bfch_iptv_org' ? 0" in store
+        assert "ttl !== 0" in store

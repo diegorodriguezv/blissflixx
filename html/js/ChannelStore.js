@@ -48,14 +48,19 @@ function ChannelStore() {
     return key
   }
 
-  self.getResults = function(key, module, fn, args, cb) {
-    results = self.cache.getItem(key)
+  // ttl === 0 means "always ask": a feed whose order depends on what the box
+  // just played is not worth keeping for a minute. Everything else keeps the
+  // minute it always had.
+  self.getResults = function(key, module, fn, args, cb, ttl) {
+    var results = ttl === 0 ? null : self.cache.getItem(key)
     if (results) {
       cb(null, results) 
     } else {
       Utils.rpc(module, fn, args, function(err, data) {
         if (err) return cb(err)
-        self.cache.setItem(key, data, {expirationSliding: 60})
+        if (ttl !== 0) {
+          self.cache.setItem(key, data, {expirationSliding: ttl || 60})
+        }
         cb(err, data) 
       })
     }
@@ -79,12 +84,16 @@ function ChannelStore() {
 
   self.getFeed = function(chid, idx, cb) {
     var key = self.createKey(chid, idx)
+    // IPTV's rows carry the source order the journal has learned; a cached
+    // copy for a minute is how a channel comes back on the source that just
+    // failed. Other channels keep the cache.
+    var ttl = chid === 'bfch_iptv_org' ? 0 : undefined
     const params = self.getParams()
     if (params && params['name']){
-      self.getResults(key, 'channels', 'feed_by_name', {chid:chid, idx:idx, name:params['name']}, cb)
+      self.getResults(key, 'channels', 'feed_by_name', {chid:chid, idx:idx, name:params['name']}, cb, ttl)
     }
     else {
-      self.getResults(key, 'channels', 'feed', {chid:chid, idx:idx}, cb)
+      self.getResults(key, 'channels', 'feed', {chid:chid, idx:idx}, cb, ttl)
     }
   }
 
@@ -95,7 +104,8 @@ function ChannelStore() {
 
   self.searchChannel = function(chid, q, cb) {
     var key = self.createKey(chid, q)
-    self.getResults(key, 'channels', 'search', {chid:chid, q:q}, cb)
+    var ttl = chid === 'bfch_iptv_org' ? 0 : undefined
+    self.getResults(key, 'channels', 'search', {chid:chid, q:q}, cb, ttl)
   }
 
   self.searchAll = function(q, cb) {

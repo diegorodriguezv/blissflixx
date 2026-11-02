@@ -143,14 +143,14 @@ class TestStallWarning:
 class TestFailoverNote:
     def test_the_bar_is_told_which_source_is_being_tried(self):
         pl = _player(_Pipe())
-        pl._failover_note = "source 2 of 4"
-        assert pl.status()["Detail"] == "source 2 of 4"
+        pl._failover_note = "retrying 2/4"
+        assert pl.status()["Detail"] == "retrying 2/4"
 
     def test_the_sources_own_line_is_kept_alongside_it(self):
         pl = _player(_Pipe())
         pl.play_pipe.detail = lambda: "12% · 1.4 MB/s"
-        pl._failover_note = "source 2 of 4"
-        assert pl.status()["Detail"] == "source 2 of 4 · 12% · 1.4 MB/s"
+        pl._failover_note = "retrying 2/4"
+        assert pl.status()["Detail"] == "retrying 2/4 · 12% · 1.4 MB/s"
 
 
 class TestTheJournal:

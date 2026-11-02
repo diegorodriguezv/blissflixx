@@ -199,6 +199,31 @@ class _Player:
             self._check.cancel()
             self._check = None
 
+    def _ordered_sources(self, sources):
+        """
+        The row's sources in the order this box's evidence says to try them.
+
+        The feed may be a stale copy: the browser keeps a channel's rows for a
+        minute, so a source that just ended can still be listed first. The
+        journal is current, so the first attempt is chosen from it -- a source
+        that worked here, then the untried, then the ones that failed. The
+        channel's own order stands inside each group, which keeps its quality
+        order intact.
+        """
+        groups = {0: [], 1: [], 2: []}
+        for source in sources:
+            if not source:
+                continue
+            real = playquality.latest(source)
+            if real and real[0] != "ok":
+                group = 2
+            elif real:
+                group = 0
+            else:
+                group = 1
+            groups[group].append(source)
+        return groups[0] + groups[1] + groups[2]
+
     def _start_check(self):
         """
         Probe this channel's other unrated sources, while the first one plays.
@@ -337,10 +362,14 @@ class _Player:
             return False
         if failed:
             playquality.record_failed(failed, self.error)
-        note = "source %d of %d" % (len(self._tried) + 1, len(sources))
+        note = "retrying %d/%d" % (len(self._tried) + 1, len(sources))
         cherrypy.log("FAILOVER: %s, %s" % (title, note))
         newpipe = self.buildYtdl(
-            next_url, title, getattr(pipe, "subs", None), sources
+            next_url,
+            title,
+            getattr(pipe, "subs", None),
+            sources,
+            choose_first=False,
         )
         self._play(
             _Play(newpipe, self.playlist, self.index, note, True),
@@ -387,13 +416,17 @@ class _Player:
         next_url = self._next_source(wait_for_probe=False)
         if not next_url:
             return None
-        note = "source %d of %d" % (len(self._tried) + 1, len(sources))
+        note = "retrying %d/%d" % (len(self._tried) + 1, len(sources))
         cherrypy.log(
             "%s: %s, %s"
             % ("STREAM ENDED" if record_end else "RECONNECT", title, note)
         )
         newpipe = self.buildYtdl(
-            next_url, title, getattr(pipe, "subs", None), sources
+            next_url,
+            title,
+            getattr(pipe, "subs", None),
+            sources,
+            choose_first=False,
         )
         return _Play(newpipe, self.playlist, self.index, note, True)
 
@@ -705,7 +738,16 @@ class _Player:
     ):
         self.playPipe(self.buildYtdl(url, title, subs, sources), playlist, index)
 
-    def buildYtdl(self, url, title=None, subs=None, sources=None):
+    def buildYtdl(
+        self, url, title=None, subs=None, sources=None, choose_first=True
+    ):
+        if sources:
+            sources = list(sources)
+            if choose_first:
+                # The row may have been built before the last play; the
+                # journal knows which of its sources actually works now.
+                sources = self._ordered_sources(sources)
+                url = sources[0]
         if title is None:
             title = url
         # True means yt-dlp should only resolve the stream (--simulate), so the

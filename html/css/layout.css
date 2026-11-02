@@ -261,6 +261,10 @@ ul.navitems-left>li {
   color: #4a6b8a;
 }
 
+.play-detail .fa {
+  margin-right: 6px;
+}
+
 /*
  * The count beside a film that has not started yet.
  *

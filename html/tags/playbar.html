@@ -9,7 +9,7 @@
             <i show={ starting } class="fa fa-circle-o-notch fa-spin"></i>
             <i show={ !starting } class="fa fa-play"></i>
             <span class="truncate">{ status.Title }</span>
-            <span show={ detail } class="play-detail">{ detail }</span>
+            <span show={ detail } class="play-detail"><i show={ retrying } class="fa fa-refresh fa-spin"></i>{ detail }</span>
             <span show={ pill } class="starting-time { pillClass }" onclick={ showDebug } title={ pillTitle }>
               { pill }
               <i show={ warning } class="fa fa-exclamation-triangle"></i>
@@ -273,6 +273,9 @@
       // What the source is doing. Only while the film is not on screen: once it
       // plays, the picture says more than a percentage can.
       self.detail = self.starting ? (self.status.Detail || '') : ''
+      // A source switch says so in words; the icon is the same thing for a
+      // glance from the sofa.
+      self.retrying = self.starting && /^retrying /.test(self.status.Detail || '')
       // The bar stays closed once closed until there is nothing to say, so a
       // notice about a film that has since been dealt with does not come back
       // on the next poll. Both kinds count, not just errors.
