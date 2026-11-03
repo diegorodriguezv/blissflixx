@@ -487,3 +487,10 @@ class TestTheHoverText:
             "openItem still reaches into item.url without checking, which "
             "throws on any row that is not a media item"
         )
+
+
+class TestFullFeedLists:
+    def test_only_channels_that_can_build_one_say_so(self):
+        for channel in InstalledChannels().getAll():
+            expected = hasattr(channel.module, "feedlist_full")
+            assert channel.getInfo()["full_feeds"] is expected

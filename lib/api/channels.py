@@ -79,6 +79,10 @@ class Channel:
             # channel and a list of its items.
             "desc": desc,
             "feeds": feeds,
+            # Whether the channel can build a larger list than the one it
+            # starts with. Only IPTV does; the page asks for that list after
+            # the feed has loaded, and never for a channel that has none.
+            "full_feeds": hasattr(module, "feedlist_full"),
             # The channel's website. Carried as "link" and not as "url": a media
             # item's "url" is the thing to play, and the interface plays what it
             # finds there. A channel is not playable and putting its website in

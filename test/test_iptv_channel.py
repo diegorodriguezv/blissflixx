@@ -496,6 +496,7 @@ class TestTheClientChain:
         page = (root / "html" / "pages" / "channel.html").read_text()
         store = (root / "html" / "js" / "ChannelStore.js").read_text()
         assert "channelStore.getFeeds" in page
+        assert "channel.full_feeds" in page
         assert "self.getFeeds" in store
         assert "'feedlist'" in store
 

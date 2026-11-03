@@ -60,12 +60,14 @@
         self.channel = channel
         if (!channel.feeds) channel.feeds = []
         self.lastIdx = channel.feeds.length - 1
-        channelStore.getFeeds(self.chid, function(err, feeds) {
-          if (err || !feeds) return
-          self.channel.feeds = feeds
-          self.update()
-        })
         self.query ? self.showSearch() : self.showFeed()
+        if (channel.full_feeds) {
+          channelStore.getFeeds(self.chid, function(err, feeds) {
+            if (err || !feeds) return
+            self.channel.feeds = feeds
+            self.update()
+          })
+        }
       })
     }
 
