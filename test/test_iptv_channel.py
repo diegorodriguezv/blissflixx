@@ -491,6 +491,17 @@ class TestTheClientChain:
         assert "bfch_iptv_org' ? 0" in store
         assert "ttl !== 0" in store
 
+    def test_the_feed_list_uses_the_store_instance(self):
+        """
+        ChannelStore is the constructor; channelStore is the instance the app
+        creates. ChannelStore.getParams() is not a function, and it threw
+        while the channel page was drawing its feed list.
+        """
+        root = pathlib.Path(__file__).resolve().parents[1]
+        tag = (root / "html" / "tags" / "feedlist.html").read_text()
+        assert "ChannelStore.getParams" not in tag
+        assert "channelStore.getParams" in tag
+
     def test_the_channel_page_asks_for_the_full_feed_list(self):
         root = pathlib.Path(__file__).resolve().parents[1]
         page = (root / "html" / "pages" / "channel.html").read_text()

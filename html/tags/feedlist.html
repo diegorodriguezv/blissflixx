@@ -11,10 +11,9 @@
       </select>
       <span show={ !many }>
         <span each={ f, i in opts.feeds }>
-          <a class={ selected : ChannelStore.getParams() && ChannelStore.getParams()['name'] && 
-             f.name == ChannelStore.getParams()['name'] || i == parent.opts.active} 
+          <a class={ selected : parent.isSelected(f, i) }
            href={ parent.opts.page + '/' + i + '?name=' + f.name } if={ f.name }>{ f.title }</a>
-          <a class={ selected : i == parent.opts.active } href={ parent.opts.page + '/' + i } if={ !f.name }>{ f.title }</a>
+          <a class={ selected : parent.isSelected(f, i) } href={ parent.opts.page + '/' + i } if={ !f.name }>{ f.title }</a>
           <span hide={ i == parent.lastIdx } class="dot-sep">&#9679;</span>
         </span>
       </span>
@@ -52,7 +51,7 @@
     }
 
     function chosenIndex() {
-      var params = ChannelStore.getParams()
+      var params = channelStore.getParams()
       var i
       if (params && params['name']) {
         for (i = 0; i < (opts.feeds || []).length; i++) {
@@ -60,6 +59,12 @@
         }
       }
       return opts.active || 0
+    }
+
+    isSelected(feed, index) {
+      var params = channelStore.getParams()
+      return !!(params && params['name'] && feed.name == params['name']) ||
+        index == opts.active
     }
 
     this.on('update', function() {
