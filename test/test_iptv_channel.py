@@ -502,6 +502,23 @@ class TestTheClientChain:
         assert "ChannelStore.getParams" not in tag
         assert "channelStore.getParams" in tag
 
+    def test_no_class_expression_contains_a_comma(self):
+        """
+        Riot 2 parses class={ name : value } as an object literal and splits
+        the value on commas. A call with two arguments was cut in half and the
+        page failed with "missing ) after argument list".
+        """
+        root = pathlib.Path(__file__).resolve().parents[1]
+        tag = (root / "html" / "tags" / "feedlist.html").read_text()
+        classes = [
+            line.split("class={", 1)[1].split("}", 1)[0]
+            for line in tag.splitlines()
+            if "class={" in line
+        ]
+        assert classes
+        for expr in classes:
+            assert "," not in expr, expr
+
     def test_the_channel_page_asks_for_the_full_feed_list(self):
         root = pathlib.Path(__file__).resolve().parents[1]
         page = (root / "html" / "pages" / "channel.html").read_text()

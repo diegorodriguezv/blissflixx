@@ -11,9 +11,9 @@
       </select>
       <span show={ !many }>
         <span each={ f, i in opts.feeds }>
-          <a class={ selected : parent.isSelected(f, i) }
+          <a class={ parent.isSelected(f) ? 'selected' : '' }
            href={ parent.opts.page + '/' + i + '?name=' + f.name } if={ f.name }>{ f.title }</a>
-          <a class={ selected : parent.isSelected(f, i) } href={ parent.opts.page + '/' + i } if={ !f.name }>{ f.title }</a>
+          <a class={ parent.isSelected(f) ? 'selected' : '' } href={ parent.opts.page + '/' + i } if={ !f.name }>{ f.title }</a>
           <span hide={ i == parent.lastIdx } class="dot-sep">&#9679;</span>
         </span>
       </span>
@@ -61,10 +61,18 @@
       return opts.active || 0
     }
 
-    isSelected(feed, index) {
+    /*
+     * One argument, and no commas anywhere in the class expression.
+     *
+     * Riot 2 reads `class={ name : value }` as an object literal and splits
+     * the value on commas, so `isSelected(f, i)` became `isSelected(f` and the
+     * page failed with "missing ) after argument list". The index is looked up
+     * from the feed instead; the template says the same thing without a comma.
+     */
+    isSelected(feed) {
       var params = channelStore.getParams()
-      return !!(params && params['name'] && feed.name == params['name']) ||
-        index == opts.active
+      if (params && params['name'] && feed.name == params['name']) return true
+      return opts.feeds.indexOf(feed) == opts.active
     }
 
     this.on('update', function() {
