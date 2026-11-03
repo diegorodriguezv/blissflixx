@@ -504,5 +504,6 @@ class TestTheClientChain:
         root = pathlib.Path(__file__).resolve().parents[1]
         tag = (root / "html" / "tags" / "feedlist.html").read_text()
         assert "<select" in tag
-        assert "<optgroup" in tag
+        assert "flat" in tag
+        assert "__disabled" in tag
         assert "MANY" in tag

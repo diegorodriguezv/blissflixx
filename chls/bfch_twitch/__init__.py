@@ -3,11 +3,31 @@ from lib.playitem import LiveStreamPlayItem, PlayItemList
 
 _CLIENT_ID = "yicd1x2uyr" + "hazbdc4n7zba4yzrjlx0"
 _CLIENT_SECRET = "9dbytqxr6vpza42wexs1zjx" + "2cmjq56"
-_TOP_GAMES_URL = "https://api.twitch.tv/helix/games/top"
 _STREAM_URL = "https://api.twitch.tv/helix/streams"
 _SEARCH_URL = "https://api.twitch.tv/helix/search/channels"
 _TOKEN_URL = "https://id.twitch.tv/oauth2/token"
 __access_headers = dict()
+
+#: The feeds are a fixed set of the games people watch most, not a live "top
+#: games" call. feedlist() is called while the installed-channel list is being
+#: built, and that must not wait on Twitch: a slow or rejected token there held
+#: every channel's page at "loading" and, on a rejection, dropped the channel
+#: from the list entirely. The live part of this channel is the streams inside
+#: a feed; those still come from Twitch.
+_FEEDLIST = [
+    {"title": "Just Chatting", "id": "509658"},
+    {"title": "League of Legends", "id": "21779"},
+    {"title": "Fortnite", "id": "33214"},
+    {"title": "Grand Theft Auto V", "id": "32982"},
+    {"title": "Valorant", "id": "516575"},
+    {"title": "Counter-Strike", "id": "32399"},
+    {"title": "Dota 2", "id": "29595"},
+    {"title": "Minecraft", "id": "27471"},
+    {"title": "World of Warcraft", "id": "18122"},
+    {"title": "Overwatch", "id": "488552"},
+    {"title": "Apex Legends", "id": "511224"},
+    {"title": "Call of Duty: Warzone", "id": "512710"},
+]
 
 
 def get_acccess_token():
@@ -56,12 +76,11 @@ def description():
 
 
 def feedlist():
-    data = get_json(_TOP_GAMES_URL, headers=__access_headers)["data"]
-    return list(map(lambda x: {"title": x["name"], "id": x["id"]}, data))
+    return _FEEDLIST
 
 
 def feed(idx):
-    game_id = feedlist()[idx]["id"]
+    game_id = _FEEDLIST[idx]["id"]
     streams = get_json(
         _STREAM_URL, {"first": "50", "game_id": game_id}, headers=__access_headers
     )["data"]

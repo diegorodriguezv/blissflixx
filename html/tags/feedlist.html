@@ -7,9 +7,7 @@
       with a handful keep the tabs they have always had.
       -->
       <select show={ many } class="form-control feed-select" onchange={ change }>
-        <optgroup each={ group in grouped } label={ group.label }>
-          <option each={ feed in group.feeds } value={ feed.index } __selected={ feed.index == chosen }>{ feed.title }</option>
-        </optgroup>
+        <option each={ f in flat } value={ f.index } __selected={ f.index == chosen } __disabled={ f.disabled }>{ f.title }</option>
       </select>
       <span show={ !many }>
         <span each={ f, i in opts.feeds }>
@@ -41,8 +39,15 @@
         }
         byLabel[label].push({ index: index, title: feed.title, name: feed.name })
       })
-      self.grouped = labels.map(function(label) {
-        return { label: label, feeds: byLabel[label] }
+      // One flat list with the group names as disabled options. The native
+      // optgroup needs a second `each` inside the first, which this tag can
+      // do without: one list is less for Riot to get wrong on a television.
+      self.flat = []
+      labels.forEach(function(label) {
+        self.flat.push({ title: label, index: -1, disabled: true })
+        byLabel[label].forEach(function(feed) {
+          self.flat.push(feed)
+        })
       })
     }
 
@@ -77,6 +82,7 @@
 
     change(e) {
       var index = parseInt(e.target.value, 10)
+      if (isNaN(index) || index < 0) return
       var feed = (opts.feeds || [])[index]
       if (!feed) return
       var page = opts.page + '/' + index

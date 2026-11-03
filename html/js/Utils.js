@@ -1,22 +1,36 @@
 var Utils = {
   rpc: function(module, fn, data, cb) {
     var url = '/api/' +  module
-    payload = { fn: fn }
+    var payload = { fn: fn }
     if (data) payload['data'] = JSON.stringify(data)
-    $.getJSON(url, payload, function(data) {
-      cb(null, data)
-    }).fail(function(xhr, textStatus) {
-      var msg = ''
-      if (xhr.status === 0) {
-        return cb(Utils.createError('offline','offline'))
+    // Bounded. A server that has accepted the connection and then stopped
+    // answering used to leave the page spinning for ever; twenty seconds is
+    // longer than the slowest feed here (the IPTV catalogue on a cold start
+    // takes about five) and short enough to say something went wrong.
+    $.ajax({
+      url: url,
+      data: payload,
+      dataType: 'json',
+      timeout: 20000,
+      success: function(data) {
+        cb(null, data)
+      },
+      error: function(xhr, textStatus) {
+        if (textStatus === 'timeout') {
+          return cb(Utils.createError('timeout', 'The server did not answer'))
+        }
+        var msg = ''
+        if (xhr.status === 0) {
+          return cb(Utils.createError('offline','offline'))
+        }
+        else if ((xhr.responseText || '').lastIndexOf('{', 0) === 0) {
+          obj = JSON.parse(xhr.responseText)
+          msg = obj.error
+        } else {
+          msg = xhr.responseText || textStatus
+        }
+        cb(Utils.createError(textStatus + ": " + xhr.status, msg))
       }
-      else if (xhr.responseText.lastIndexOf('{', 0) === 0) {
-        obj = JSON.parse(xhr.responseText)
-        msg = obj.error
-      } else {
-        msg = xhr.responseText
-      }
-      cb(Utils.createError(textStatus + ": " + xhr.status, msg))
     })
   },
 isOffline: function(err) {

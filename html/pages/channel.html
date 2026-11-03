@@ -35,6 +35,10 @@
       });
       riot.route.exec(function(page, chid, feed, q) {
         self.chid = chid
+        // A search from the last channel must not follow the person into
+        // this one: without this, every channel opened after a search tried
+        // to search itself again.
+        self.query = null
         if (feed === 's') {
           self.query = decodeURIComponent(q)
         }
@@ -57,16 +61,26 @@
       self.results = null
       channelStore.getChannel(self.chid, function(err, channel) {
         if (err) return Utils.showError(err)
-        self.channel = channel
-        if (!channel.feeds) channel.feeds = []
-        self.lastIdx = channel.feeds.length - 1
-        self.query ? self.showSearch() : self.showFeed()
-        if (channel.full_feeds) {
-          channelStore.getFeeds(self.chid, function(err, feeds) {
-            if (err || !feeds) return
-            self.channel.feeds = feeds
-            self.update()
-          })
+        // A page that throws while drawing leaves the spinner turning for
+        // ever with nothing said. Turn it into the error bar instead.
+        try {
+          self.channel = channel
+          if (!channel.feeds) channel.feeds = []
+          self.lastIdx = channel.feeds.length - 1
+          self.query ? self.showSearch() : self.showFeed()
+          if (channel.full_feeds) {
+            channelStore.getFeeds(self.chid, function(err, feeds) {
+              if (err || !feeds) return
+              try {
+                self.channel.feeds = feeds
+                self.update()
+              } catch (e) {
+                Utils.showError(Utils.createError('channel', e.message || e))
+              }
+            })
+          }
+        } catch (e) {
+          Utils.showError(Utils.createError('channel', e.message || e))
         }
       })
     }
