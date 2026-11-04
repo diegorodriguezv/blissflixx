@@ -55,7 +55,12 @@
     </div>
     <div class="row">
       <div class="col-xs-12">
-        <button onclick={ play } type="button" class="btn btn-primary" show={ chosen }>
+        <!--
+        Disabled until a track is ticked. The server rejects an empty choice,
+        and the button used to send one and turn that into a 400 the person
+        could do nothing with.
+        -->
+        <button onclick={ play } type="button" class="btn btn-primary" disabled={ !chosen.length }>
           { live ? 'Add To The Film' : 'Play With These Subtitles' }
         </button>
       </div>
@@ -136,9 +141,15 @@
       self.results[i].checked = e.target.checked
       self.chosen = self.results.filter(function(r) { return r.checked })
       self.update()
+      // Riot 2 cancels the browser's default action for a click handler unless
+      // it returns true. For a tick box that default is the tick itself: the
+      // box was set and then reverted before the update ran, so it could never
+      // be ticked and the chosen list filled up behind an unticked box.
+      return true
     }
 
     play() {
+      if (!self.chosen.length) return
       var subs = {lang: self.f_lang.value, chosen: self.chosen.map(function(r) {
         return {id: r.id, name: r.name}
       })}

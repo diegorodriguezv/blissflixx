@@ -104,6 +104,7 @@ const TAGS = [
   'tags/feedlist.html',
   'tags/playerr.html',
   'pages/settings.html',
+  'pages/subsearch.html',
 ];
 
 // riot.tag(name, html, css, fn) is the setter a compiled tag calls on itself,
