@@ -140,6 +140,61 @@ class FakeFiles:
         return self.entries[index][1]
 
 
+class FakePieceHandle:
+    """The calls Window and prime make on a torrent handle."""
+
+    def __init__(self):
+        self.priorities = {}
+        self.deadlines = {}
+
+    def have_piece(self, piece):
+        return False
+
+    def piece_priority(self, piece, priority):
+        self.priorities[piece] = priority
+
+    def set_piece_deadline(self, piece, deadline):
+        self.deadlines[piece] = deadline
+
+    def reset_piece_deadline(self, piece):
+        self.deadlines.pop(piece, None)
+
+
+class FakePrimeApp:
+    index = 0
+
+    def __init__(self):
+        self.handle = FakePieceHandle()
+        self.window = bt.Window(self.handle, 0, 10, 8)
+
+    def first_piece(self, index):
+        return 0
+
+    def last_piece_of(self, index):
+        return 10
+
+    prime = bt.App.prime
+
+
+class TestPrime:
+    def test_the_first_piece_stays_wanted(self):
+        """
+        Serving waits for the first piece now. Prime must not move the window
+        past it: ahead(first+1) used to deprioritize first, and the player's
+        first read was what put it back.
+        """
+        app = FakePrimeApp()
+        app.prime()
+        assert app.handle.priorities[0] == 7
+        assert app.window.span() == [0, 7]
+
+    def test_the_tail_is_asked_for_at_the_end_of_the_file(self):
+        app = FakePrimeApp()
+        app.prime()
+        assert app.handle.priorities[10] == 7
+        assert app.handle.deadlines[10] == 3000
+
+
 class TestNoTimeouts:
     def test_metadata_waits_for_ever_by_default(self):
         """A poorly seeded torrent may take any time; the bar keeps counting."""

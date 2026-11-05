@@ -673,9 +673,13 @@ class App:
         """
         first = self.first_piece(self.index)
         last = self.last_piece_of(self.index)
-        for piece in (first, first + 1):
-            if piece <= last:
-                self.window.ahead(piece)
+        # One call, not one per opening piece: ahead(first) already wants the
+        # whole window, first through first+WINDOW-1. A second ahead(first+1)
+        # moves the window past first, and _slide deliberately deprioritizes
+        # the piece it left behind -- which is the first piece, the one the
+        # pre-serve wait is waiting for. The player's first read used to put it
+        # back; now serving waits for it, so it has to stay wanted from here.
+        self.window.ahead(first)
         # The index at the end of *this file*, not of the torrent: in a pack the
         # torrent's last piece belongs to the last episode, which nobody asked
         # for.
