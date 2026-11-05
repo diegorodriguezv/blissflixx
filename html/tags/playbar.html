@@ -6,13 +6,17 @@
       <ul class="navitems navitems-left">
         <li>
           <span class="now-playing">
-            <i show={ starting } class="fa fa-circle-o-notch fa-spin"></i>
-            <i show={ !starting } class="fa fa-play"></i>
-            <span class="truncate">{ status.Title }</span>
-            <span show={ detail } class="play-detail"><i show={ retrying } class="fa fa-refresh fa-spin"></i><span show={ !retrying }>{ detail }</span></span>
-            <span show={ pill } class="starting-time { pillClass }" onclick={ showDebug } title={ pillTitle }>
-              { pill }
-              <i show={ warning } class="fa fa-exclamation-triangle"></i>
+            <span class="now-playing-title">
+              <span class="truncate">{ status.Title }</span>
+            </span>
+            <span class="now-playing-status">
+              <i show={ starting } class="fa fa-circle-o-notch fa-spin"></i>
+              <i show={ !starting } class="fa fa-play"></i>
+              <span show={ pill } class="starting-time { pillClass }" onclick={ showDebug } title={ pillTitle }>
+                { pill }
+                <i show={ warning } class="fa fa-exclamation-triangle"></i>
+              </span>
+              <span show={ detail } class="play-detail"><i show={ retrying } class="fa fa-refresh fa-spin"></i><span show={ !retrying }>{ detail }</span></span>
             </span>
           </span>
         </li>

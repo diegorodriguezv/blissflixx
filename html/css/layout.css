@@ -3,7 +3,8 @@
  */
 body {
   padding-top: 70px;
-  padding-bottom: 60px;
+  /* The player's bar is two lines now; see .playnav. */
+  padding-bottom: 74px;
   font-size: 18px;
 }
 
@@ -103,7 +104,7 @@ ul.navitems {
 .playnav .container {
   display: flex;
   align-items: center;
-  height: 50px;
+  height: 64px;
 }
 
 .playnav ul.navitems-left {
@@ -178,6 +179,12 @@ ul.navitems-left>li {
  */
 .playnav {
   bottom: 0;
+  /*
+   * Two lines: the film's name, then the loading row. The common bar is fifty
+   * pixels for one line; this one is tall enough for both and is centred with
+   * the controls on the right.
+   */
+  height: 64px;
 }
 
 .playnav .navitems>li>a>i {
@@ -208,15 +215,23 @@ ul.navitems-left>li {
 /*
  * What is playing, in the player's bar.
  *
- * Laid out as a row so that the name is the part that gives way: a long release
- * name truncated the count off the end of it, which is the one thing on the bar
- * that is always short and always worth reading. The name ellipses, the count
- * never does, and the icon keeps its size.
+ * Two lines. The name is on top and starts at the left edge; below it are the
+ * state icon, the blue pill and the loading reading, in that order. The name
+ * used to share one row with them, and a long release name pushed the pill and
+ * the reading off the end of the bar.
+ *
+ * The name is the part that gives way: it scrolls sideways rather than being
+ * clipped, because a release name of eight dot-separated fields is worth
+ * reading. The pill and the reading keep their width.
  */
 .now-playing {
   display: flex;
-  align-items: center;
-  height: 50px;
+  flex-direction: column;
+  justify-content: center;
+  height: 64px;
+  /* .navitems>li>span asks for ten pixels top and bottom, which is for the
+     one-line bar. These two lines make their own room. */
+  padding: 0;
   /*
    * Not floated, which is what .navitems-left>li>span asks of it. A float is
    * sized to its content and a long nowrap title therefore took the whole
@@ -226,7 +241,22 @@ ul.navitems-left>li {
   width: 100%;
 }
 
-.now-playing .truncate {
+.now-playing-title {
+  display: flex;
+  align-items: center;
+  height: 30px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.now-playing-status {
+  display: flex;
+  align-items: center;
+  height: 32px;
+  min-width: 0;
+}
+
+.now-playing-title .truncate {
   flex: 1 1 auto;
   min-width: 0;
   /*
@@ -241,9 +271,15 @@ ul.navitems-left>li {
 
 .now-playing i {
   flex: 0 0 auto;
-  /* The triangle and the name were written against each other. Whitespace
+  /* The triangle and the pill were written against each other. Whitespace
      between flex items is not rendered, so this has to be margin. */
   margin-right: 8px;
+}
+
+/* The pill begins the loading row, after the icon: it does not need the gap
+   that separated it from the name in the old one-row bar. */
+.now-playing-status .starting-time {
+  margin-left: 0;
 }
 
 /*
@@ -281,6 +317,9 @@ ul.navitems-left>li {
   border: 2px solid #3498db;
   border-radius: 12px;
   font-size: 20px;
+  /* Fits the loading row rather than the bar's thirty-pixel line: the border
+     would otherwise make the chip taller than the row it starts. */
+  line-height: 22px;
   background-color: #dbe7f2;
   color: #2A435A;
   cursor: pointer;
