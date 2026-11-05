@@ -574,7 +574,9 @@ class App:
             self.index, self.clamped = pick_file(self.files.num_files(), index)
         self.subs = [i for i in subs if 0 <= i < self.files.num_files()]
         self.alerts = Alerts(session, lt)
-        self.alerts.start()
+        # Started after the crop and prime; see main(). Handling alerts while
+        # the file priorities are being applied is one of the two places this
+        # armhf build has crashed.
         self.stopping = threading.Event()
         self.window = None
         self.started = time.time()
@@ -1043,6 +1045,7 @@ def main(argv=None):
     threading.Thread(target=server.serve_forever, daemon=True).start()
     app.prime()
     print(TAG + "primed", flush=True)
+    app.alerts.start()
 
     stopping = {"now": False}
 
@@ -1069,6 +1072,9 @@ def main(argv=None):
             if stopping["now"]:
                 app.close()
                 return 0
+            if app.alerts.fatal:
+                print(TAG + "error " + app.alerts.fatal, flush=True)
+                return 4
             time.sleep(0.2)
             if time.time() >= next_status:
                 next_status = time.time() + STATUS_EVERY
