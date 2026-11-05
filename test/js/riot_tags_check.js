@@ -102,6 +102,7 @@ const TAGS = [
   'app.html',
   'tags/playbar.html',
   'tags/feedlist.html',
+  'tags/itemlist.html',
   'tags/playerr.html',
   'pages/settings.html',
   'pages/subsearch.html',

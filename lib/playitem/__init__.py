@@ -327,6 +327,12 @@ class FileItem(PlayItem):
     def add_default_actions(self):
         pass
 
+    def to_dict(self):
+        """Say the row is inert, so the page can grey it out."""
+        item = PlayItem.to_dict(self)
+        item["disabled"] = True
+        return item
+
 
 class PlayItemList:
     def __init__(self):

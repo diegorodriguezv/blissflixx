@@ -177,14 +177,16 @@ def showmore(link):
             subtitle = "Size: " + f[1]
         else:
             subtitle = "Size: " + byte_size(f[1])
-        img = "/img/icons/file-o.svg"
         if _has_ext(f[0], SUBS_EXTS):
             # Shown so the list says the torrent carries subtitles, and inert:
-            # a subtitle is not something to watch.
-            results.add(FileItem(f[0], img, subtitle))
+            # a subtitle is not something to watch. Its own icon -- a caption
+            # box rather than a page -- says what it is at a glance.
+            results.add(FileItem(f[0], "/img/icons/subtitles.svg", subtitle))
         elif _has_ext(f[0], VIDEO_EXTS):
             url = set_torridx(link, idx)
-            item = PlayItem(f[0], img, url, subtitle, subs=_subs_arg(f[0], subs))
+            item = PlayItem(
+                f[0], "/img/icons/film.svg", url, subtitle, subs=_subs_arg(f[0], subs)
+            )
             results.add(item)
     return results
 

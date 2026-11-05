@@ -5,7 +5,7 @@
   <div class="item-list-msg" show={ opts.items && opts.items.length == 0 }>{ opts.empty }</div>
   <div show={ opts.items && opts.items.length > 0 }>
     <div each={ opts.items }>
-      <div class="item-row row">
+      <div class="item-row row { item.disabled ? 'disabled' : '' }">
          <div class="col-md-2 col-sm-3 col-xs-3">
           <!--
           The href is where the click actually goes: the channel, inside this

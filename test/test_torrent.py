@@ -6,6 +6,8 @@ which file inside a torrent to play. A round trip through these functions has to
 be lossless, otherwise playback silently starts the wrong file.
 """
 
+import pathlib
+
 import pytest
 
 from lib.api.torrent import is_torrent_url, set_torridx, torrent2magnet, torrent_files
@@ -130,6 +132,24 @@ class TestFileList:
         row = [i for i in items if i["title"].endswith(".srt")][0]
         assert row["url"] == ""
         assert "actions" not in row
+        assert row["disabled"] is True
+
+    def test_a_subtitle_wears_the_caption_icon(self, items):
+        row = [i for i in items if i["title"].endswith(".srt")][0]
+        assert row["img"].endswith("/img/icons/subtitles.svg")
+
+    def test_a_video_is_playable_and_wears_the_film_icon(self, items):
+        row = [i for i in items if i["url"]][0]
+        assert row["img"].endswith("/img/icons/film.svg")
+        assert "disabled" not in row
+
+    def test_the_page_greys_a_disabled_row(self):
+        root = pathlib.Path(__file__).resolve().parents[1]
+        tag = (root / "html" / "tags" / "itemlist.html").read_text()
+        css = (root / "html" / "css" / "layout.css").read_text()
+        assert "item.disabled ? 'disabled' : ''" in tag
+        assert ".item-row.disabled" in css
+        assert "pointer-events: none" in css
 
     def test_the_torrents_own_index_is_kept(self, items):
         """Showing fewer rows must not renumber what is played."""
