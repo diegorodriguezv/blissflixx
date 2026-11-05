@@ -917,6 +917,24 @@ class TestNavSlots:
         assert "pointer-events: none" in css
         assert "color: #fff" in css
 
+    def test_the_name_spans_the_bar_and_the_controls_sit_below_it(self):
+        """
+        The name is the top line, across the whole bar, so a long release
+        name can use the space above the controls. The controls are the right
+        end of the second line; the pill and reading start it.
+        """
+        root = pathlib.Path(__file__).resolve().parents[1]
+        bar = (root / "html" / "tags" / "playbar.html").read_text()
+        css = (root / "html" / "css" / "layout.css").read_text()
+        assert 'class="navibar playnav player-bar"' in bar
+        assert "now-playing-title" in bar
+        assert "now-playing-status" in bar
+        assert "playnav-controls" in bar
+        assert ".player-bar .container" in css
+        assert "grid-column: 1 / -1" in css
+        assert "grid-column: 2" in css
+        assert "overflow-x: auto" in css
+
     def test_the_panel_shows_the_buffer_space_decision(self):
         root = pathlib.Path(__file__).resolve().parents[1]
         text = (root / "html" / "tags" / "playbar.html").read_text()

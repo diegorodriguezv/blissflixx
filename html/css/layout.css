@@ -4,7 +4,7 @@
 body {
   padding-top: 70px;
   /* The player's bar is two lines now; see .playnav. */
-  padding-bottom: 84px;
+  padding-bottom: 94px;
   font-size: 18px;
 }
 
@@ -93,18 +93,35 @@ ul.navitems {
 }
 
 /*
- * The player's bar is one row: the film takes what is left, the controls take
- * what they need.
+ * The two bars share a box, but not a layout.
  *
- * It used to be a percentage for the name and a float for the controls, which
- * works until the controls are wider than the fraction left over -- and then
- * the name is drawn underneath them. That started happening on narrower
- * windows once the name became a file name rather than a title.
+ * The error bar is one line: flex centres it. The player's bar is two, and is
+ * a grid: the name across the full width, then the pill and reading beside the
+ * controls.
  */
 .playnav .container {
   display: flex;
   align-items: center;
-  height: 74px;
+  height: 84px;
+}
+
+/*
+ * The player's bar, two lines across the full width:
+ *
+ *   [ icon  name ......................................... ]
+ *   [ pill  reading ....................... remote pause stop ]
+ *
+ * The name spans both columns, so a long one uses the whole bar rather than
+ * stopping where the controls begin. The controls sit on the second line only,
+ * at the right; the first line runs over the space above them.
+ */
+.player-bar .container {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-rows: 40px 40px;
+  column-gap: 12px;
+  align-items: center;
+  align-content: center;
 }
 
 .playnav ul.navitems-left {
@@ -180,11 +197,11 @@ ul.navitems-left>li {
 .playnav {
   bottom: 0;
   /*
-   * Two lines: the film's name, then the loading row. The common bar is fifty
-   * pixels for one line; this one is tall enough for both and is centred with
-   * the controls on the right.
+   * Two lines: the film's name across the top, then the loading row and the
+   * controls. The common bar is fifty pixels for one line; this one is tall
+   * enough for both.
    */
-  height: 74px;
+  height: 84px;
 }
 
 .playnav .navitems>li>a>i {
@@ -224,24 +241,9 @@ ul.navitems-left>li {
  * clipped, because a release name of eight dot-separated fields is worth
  * reading. The pill and the reading keep their width.
  */
-.now-playing {
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  height: 74px;
-  /* .navitems>li>span asks for ten pixels top and bottom, which is for the
-     one-line bar. These two lines make their own room. */
-  padding: 0;
-  /*
-   * Not floated, which is what .navitems-left>li>span asks of it. A float is
-   * sized to its content and a long nowrap title therefore took the whole
-   * window rather than the column, drawing itself under the controls.
-   */
-  float: none;
-  width: 100%;
-}
-
 .now-playing-title {
+  grid-column: 1 / -1;
+  grid-row: 1;
   display: flex;
   align-items: center;
   height: 40px;
@@ -250,9 +252,11 @@ ul.navitems-left>li {
 }
 
 .now-playing-status {
+  grid-column: 1;
+  grid-row: 2;
   display: flex;
   align-items: center;
-  height: 30px;
+  height: 40px;
   min-width: 0;
 }
 
@@ -280,11 +284,31 @@ ul.navitems-left>li {
   display: none;
 }
 
-.now-playing i {
+.now-playing-title i {
   flex: 0 0 auto;
-  /* The triangle and the pill were written against each other. Whitespace
-     between flex items is not rendered, so this has to be margin. */
+  /* The icon and the name were written against each other. Whitespace between
+     flex items is not rendered, so this has to be margin. */
   margin-right: 8px;
+}
+
+/* The remote, pause and stop icons: second line, flushed right. */
+.playnav-controls {
+  grid-column: 2;
+  grid-row: 2;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.playnav-controls > li {
+  float: none;
+}
+
+.playnav-controls > li > a {
+  /* The bar's links are fifty pixels tall for a one-line bar. This row is
+     forty, and the icon keeps its width. */
+  padding-top: 5px;
+  padding-bottom: 5px;
 }
 
 /* The pill begins the loading row, after the icon: it does not need the gap
@@ -503,7 +527,7 @@ ul.navitems-left>li {
 .bf-top {
   position: fixed;
   right: 20px;
-  bottom: 70px;
+  bottom: 94px;
   z-index: 900;
   width: 64px;
   height: 48px;

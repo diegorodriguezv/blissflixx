@@ -1,35 +1,29 @@
 <playbar>
   <playerr show={ powerMsg || ((status.Error || status.Notice) && !errorClosed) } status={ status } msg={ powerMsg } ></playerr>
 
-  <div show={ status.State } class="navibar playnav">
+  <div show={ status.State } class="navibar playnav player-bar">
     <div class="container">
-      <ul class="navitems navitems-left">
-        <li>
-          <span class="now-playing">
-            <span class="now-playing-title">
-              <i show={ starting } class="fa fa-circle-o-notch fa-spin"></i>
-              <i show={ !starting } class="fa fa-play"></i>
-              <span class="truncate">{ status.Title }</span>
-            </span>
-            <span class="now-playing-status">
-              <span show={ pill } class="starting-time { pillClass }" onclick={ showDebug } title={ pillTitle }>
-                { pill }
-                <i show={ warning } class="fa fa-exclamation-triangle"></i>
-              </span>
-              <span show={ detail } class="play-detail"><i show={ retrying } class="fa fa-refresh fa-spin"></i><span show={ !retrying }>{ detail }</span></span>
-            </span>
-          </span>
-        </li>
-      </ul>
-      <ul class="navitems navitems-right">
-        <li>
-          <a href="" onclick={ stop }><i class="fa fa-stop"></i></a>
+      <span class="now-playing-title">
+        <i show={ starting } class="fa fa-circle-o-notch fa-spin"></i>
+        <i show={ !starting } class="fa fa-play"></i>
+        <span class="truncate">{ status.Title }</span>
+      </span>
+      <span class="now-playing-status">
+        <span show={ pill } class="starting-time { pillClass }" onclick={ showDebug } title={ pillTitle }>
+          { pill }
+          <i show={ warning } class="fa fa-exclamation-triangle"></i>
+        </span>
+        <span show={ detail } class="play-detail"><i show={ retrying } class="fa fa-refresh fa-spin"></i><span show={ !retrying }>{ detail }</span></span>
+      </span>
+      <ul class="navitems navitems-right playnav-controls">
+        <li class={ 'inactive-slot': status.State != 3 || starting }>
+          <a href="" onclick={ showRemote }><i class="fa fa-sliders"></i></a>
         </li>
         <li class={ 'inactive-slot': status.State != 3 || starting }>
           <a href="" onclick={ togglePause }><i class={ status.Paused ? 'fa fa-play' : 'fa fa-pause' }></i></a>
         </li>
-        <li class={ 'inactive-slot': status.State != 3 || starting }>
-          <a href="" onclick={ showRemote }><i class="fa fa-sliders"></i></a>
+        <li>
+          <a href="" onclick={ stop }><i class="fa fa-stop"></i></a>
         </li>
       </ul>
     </div>
