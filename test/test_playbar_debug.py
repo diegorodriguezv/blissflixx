@@ -935,6 +935,19 @@ class TestNavSlots:
         assert "grid-column: 2" in css
         assert "overflow-x: auto" in css
 
+    def test_the_loading_reading_scrolls_instead_of_being_clipped(self):
+        """
+        The reading can be longer than the room beside the pill and before the
+        controls. It scrolls sideways, like the name, rather than losing the
+        end of the numbers.
+        """
+        root = pathlib.Path(__file__).resolve().parents[1]
+        css = (root / "html" / "css" / "layout.css").read_text()
+        block = css.split(".play-detail {", 1)[1].split("}", 1)[0]
+        assert "overflow-x: auto" in block
+        assert "overflow-y: hidden" in block
+        assert "white-space: nowrap" in block
+
     def test_the_panel_shows_the_buffer_space_decision(self):
         root = pathlib.Path(__file__).resolve().parents[1]
         text = (root / "html" / "tags" / "playbar.html").read_text()
