@@ -147,7 +147,7 @@ class TestFileList:
         root = pathlib.Path(__file__).resolve().parents[1]
         tag = (root / "html" / "tags" / "itemlist.html").read_text()
         css = (root / "html" / "css" / "layout.css").read_text()
-        assert "item.disabled ? 'disabled' : ''" in tag
+        assert "disabled ? 'disabled' : ''" in tag
         assert ".item-row.disabled" in css
         assert "pointer-events: none" in css
 

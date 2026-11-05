@@ -195,5 +195,29 @@ for (const tag of TAGS) {
   }
 }
 
+/*
+ * A row inside an each loop is extended with the item's own properties, so the
+ * expression says { disabled }, not { item.disabled }. The wrong form compiles
+ * and renders an empty class, so the disabled row never looks disabled.
+ */
+{
+  const src = fs.readFileSync(path.join(REPO, 'html/tags/itemlist.html'), 'utf8');
+  const found = /class="item-row row \{([^}]*)\}"/.exec(src);
+  try {
+    if (!found) throw new Error('the item row no longer has its class expression');
+    const rendered = riot.util.tmpl('{' + found[1] + '}', { disabled: true });
+    if (rendered.trim() !== 'disabled') {
+      throw new Error(
+        'the disabled class evaluates to ' + JSON.stringify(rendered) +
+        '; use the item property directly, not item.' + '...'
+      );
+    }
+    console.log('  ok    itemlist row -> disabled class');
+  } catch (e) {
+    console.log(`  FAIL  itemlist disabled row\n          ${e.message}`);
+    failed++;
+  }
+}
+
 console.log('');
 process.exit(failed ? 1 : 0);
