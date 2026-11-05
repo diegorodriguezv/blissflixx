@@ -110,7 +110,9 @@ class TestFileChoice:
     def test_the_index_asked_for_is_played(self):
         assert bt.pick_file(3, 2) == (2, False)
 
-    def test_no_index_plays_the_first_file(self):
+    def test_a_missing_index_is_left_to_the_main_choice(self):
+        """App asks pick_main() for None and -1; this helper keeps its own
+        fallback for a named index that is no longer there."""
         assert bt.pick_file(3, None) == (0, False)
         assert bt.pick_file(3, -1) == (0, False)
 
@@ -120,6 +122,56 @@ class TestFileChoice:
         the old source's failure; the first file is at least a film.
         """
         assert bt.pick_file(3, 9) == (0, True)
+
+
+class FakeFiles:
+    """Just the three calls pick_main makes on libtorrent's file storage."""
+
+    def __init__(self, entries):
+        self.entries = entries
+
+    def num_files(self):
+        return len(self.entries)
+
+    def file_path(self, index):
+        return self.entries[index][0]
+
+    def file_size(self, index):
+        return self.entries[index][1]
+
+
+class TestMainFileChoice:
+    def test_the_film_beats_a_leading_advert(self):
+        """
+        Torrents often carry a .txt or an .nfo as index 0. Playing the main
+        row played that: VLC showed nothing, reached the end and exited, and
+        the bar went from "loading" to stopped.
+        """
+        files = FakeFiles(
+            [
+                ("Torrent Downloaded From ExtraTorrent.cc.txt", 341),
+                ("The.Hunger.Games.Part.2.720p.mp4", 1077721000),
+            ]
+        )
+        assert bt.pick_main(files) == 1
+
+    def test_the_largest_video_is_the_film(self):
+        files = FakeFiles(
+            [
+                ("Film.sample.mkv", 20_000_000),
+                ("Film.mkv", 2_000_000_000),
+                ("Film.eng.srt", 84_000),
+            ]
+        )
+        assert bt.pick_main(files) == 1
+
+    def test_without_a_video_the_largest_file_is_used(self):
+        files = FakeFiles([("readme.txt", 100), ("cover.jpg", 900)])
+        assert bt.pick_main(files) == 1
+
+    def test_an_empty_or_zero_length_list_is_index_zero(self):
+        assert bt.pick_main(FakeFiles([])) == 0
+        assert bt.pick_main(FakeFiles([("a.bin", 0), ("b.bin", 0)])) == 0
 
 
 class TestResumeNames:

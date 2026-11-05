@@ -4,7 +4,7 @@
 body {
   padding-top: 70px;
   /* The player's bar is two lines now; see .playnav. */
-  padding-bottom: 74px;
+  padding-bottom: 84px;
   font-size: 18px;
 }
 
@@ -104,7 +104,7 @@ ul.navitems {
 .playnav .container {
   display: flex;
   align-items: center;
-  height: 64px;
+  height: 74px;
 }
 
 .playnav ul.navitems-left {
@@ -184,7 +184,7 @@ ul.navitems-left>li {
    * pixels for one line; this one is tall enough for both and is centred with
    * the controls on the right.
    */
-  height: 64px;
+  height: 74px;
 }
 
 .playnav .navitems>li>a>i {
@@ -215,10 +215,10 @@ ul.navitems-left>li {
 /*
  * What is playing, in the player's bar.
  *
- * Two lines. The name is on top and starts at the left edge; below it are the
- * state icon, the blue pill and the loading reading, in that order. The name
- * used to share one row with them, and a long release name pushed the pill and
- * the reading off the end of the bar.
+ * Two lines. The state icon and the name are on top; below them are the blue
+ * pill and the loading reading, in that order. The name used to share one row
+ * with them, and a long release name pushed the pill and the reading off the
+ * end of the bar.
  *
  * The name is the part that gives way: it scrolls sideways rather than being
  * clipped, because a release name of eight dot-separated fields is worth
@@ -228,7 +228,7 @@ ul.navitems-left>li {
   display: flex;
   flex-direction: column;
   justify-content: center;
-  height: 64px;
+  height: 74px;
   /* .navitems>li>span asks for ten pixels top and bottom, which is for the
      one-line bar. These two lines make their own room. */
   padding: 0;
@@ -244,7 +244,7 @@ ul.navitems-left>li {
 .now-playing-title {
   display: flex;
   align-items: center;
-  height: 30px;
+  height: 40px;
   min-width: 0;
   overflow: hidden;
 }
@@ -252,21 +252,32 @@ ul.navitems-left>li {
 .now-playing-status {
   display: flex;
   align-items: center;
-  height: 32px;
+  height: 30px;
   min-width: 0;
 }
 
 .now-playing-title .truncate {
   flex: 1 1 auto;
   min-width: 0;
+  /* The name is thirty pixels; its line box must be taller than the glyphs or
+     the top and bottom of every letter is cut off by the overflow below. */
+  line-height: 36px;
   /*
    * Scrolls rather than clips: a name that does not fit can be dragged
    * sideways to read the rest, which is what this did before and what a name
    * of eight dot-separated fields needs. An ellipsis was tried and taken out
    * again -- it says the name is cut but does not let you see it.
+   *
+   * The scrollbar itself is hidden: a bar across the bottom of the name read
+   * as a band the name was cut off by. Dragging still works.
    */
   overflow-x: auto;
   overflow-y: hidden;
+  scrollbar-width: none;
+}
+
+.now-playing-title .truncate::-webkit-scrollbar {
+  display: none;
 }
 
 .now-playing i {

@@ -115,6 +115,20 @@ class TestCommand:
         assert cmd[cmd.index("--port") + 1] == "9697"
         assert cmd[cmd.index("--index") + 1] == "2"
 
+    def test_the_main_file_is_left_to_the_torrent_stage(self):
+        """
+        -1 is "the film", not "file 0". The stage picks the video; forcing it
+        to 0 here played whatever the release put first, often a readme.
+        """
+        proc = LibtorrentProcess(MAGNET, -1)
+        cmd = proc.cmd
+        assert cmd[cmd.index("--index") + 1] == "-1"
+
+    def test_a_torrent_url_without_an_index_also_means_the_film(self):
+        proc = LibtorrentProcess(MAGNET, None)
+        cmd = proc.cmd
+        assert cmd[cmd.index("--index") + 1] == "-1"
+
     def test_the_torrent_keeps_its_own_trackers_and_gains_ours(self):
         """
         A magnet from a channel often names only trackers that have been dead

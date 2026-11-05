@@ -184,6 +184,49 @@ def window_within(piece, first_piece, last_piece, width=WINDOW):
     return lo, min(last_piece, lo + width - 1)
 
 
+#: What looks like the film when the play did not name a file. The same list as
+#: lib/api/torrent.py, which cannot be imported here: this runs under the system
+#: interpreter and reads only the standard library and libtorrent.
+VIDEO_EXTS = (".mkv", ".mp4", ".avi", ".m4v", ".mov", ".webm", ".ts", ".m2ts")
+
+
+def pick_main(files):
+    """
+    The file to play when the play did not name one.
+
+    A torrent row carries bf_torr_idx=-1, which means "the film". The first
+    file in a torrent is frequently a readme or an advert -- one release had
+    "Torrent Downloaded From ExtraTorrent.cc.txt" at index 0 and the film at
+    index 1 -- and playing it showed a second of nothing and then ended.
+
+    The largest video is the film. The largest file of any kind is the fallback
+    when nothing has a video extension, and the first file when the list is
+    empty or all zeroes. Largest rather than first also skips a sample.
+    """
+    count = files.num_files()
+    best = None
+    best_size = -1
+    fallback = None
+    fallback_size = -1
+    for index in range(count):
+        try:
+            name = files.file_path(index)
+            size = int(files.file_size(index))
+        except Exception:
+            continue
+        if size > fallback_size:
+            fallback, fallback_size = index, size
+        if size <= 0:
+            continue
+        if os.path.splitext(name)[1].lower() in VIDEO_EXTS and size > best_size:
+            best, best_size = index, size
+    if best is not None:
+        return best
+    if fallback is not None:
+        return fallback
+    return 0
+
+
 def pick_file(count, wanted):
     """
     Which file to play, and whether the request had to be overruled.
@@ -192,6 +235,9 @@ def pick_file(count, wanted):
     pack whose index was written by a different client. Playing the first file
     is what the old source did when it could not find the one asked for, and it
     is better than serving nothing.
+
+    A negative or missing index is not this function's business: App asks
+    pick_main() for those.
     """
     if wanted is None or wanted < 0:
         return 0, False
@@ -510,7 +556,10 @@ class App:
         self.piece_length = self.info.piece_length()
         self.last_piece = self.info.num_pieces() - 1
         self.files = self.info.files()
-        self.index, self.clamped = pick_file(self.files.num_files(), index)
+        if index is None or index < 0:
+            self.index, self.clamped = pick_main(self.files), False
+        else:
+            self.index, self.clamped = pick_file(self.files.num_files(), index)
         self.subs = [i for i in subs if 0 <= i < self.files.num_files()]
         self.alerts = Alerts(session, lt)
         self.alerts.start()

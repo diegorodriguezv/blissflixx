@@ -7,11 +7,11 @@
         <li>
           <span class="now-playing">
             <span class="now-playing-title">
+              <i show={ starting } class="fa fa-circle-o-notch fa-spin"></i>
+              <i show={ !starting } class="fa fa-play"></i>
               <span class="truncate">{ status.Title }</span>
             </span>
             <span class="now-playing-status">
-              <i show={ starting } class="fa fa-circle-o-notch fa-spin"></i>
-              <i show={ !starting } class="fa fa-play"></i>
               <span show={ pill } class="starting-time { pillClass }" onclick={ showDebug } title={ pillTitle }>
                 { pill }
                 <i show={ warning } class="fa fa-exclamation-triangle"></i>
