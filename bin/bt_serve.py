@@ -55,10 +55,10 @@ LOW_AHEAD = 4
 #: a stall warning and slow enough to cost nothing.
 STATUS_EVERY = 2
 
-#: Seconds to wait for metadata before giving up. Measured against a live swarm
-#: it arrives in 1.5-4.3s; a minute and a half is generous, and failing here is
-#: better than a bar that says "loading" for ever.
-METADATA_TIMEOUT = 90
+#: Seconds to wait for metadata before giving up. Zero waits for ever: a poorly
+#: seeded torrent may take any time, and the person asked for that wait rather
+#: than a timeout. The bar keeps counting; only stopping ends it.
+METADATA_TIMEOUT = 0
 
 #: How long to wait for the file-priority crop to be observable.
 CROP_TIMEOUT = 5.0
@@ -393,12 +393,13 @@ def session_for(lt):
             # turns on the log categories -- peer_log, dht_log, torrent_log,
             # block_progress -- which with a busy swarm is thousands of alerts a
             # second, all of them converted to Python objects and thrown away.
-            # That loop is where the armhf build has crashed twice, and the log
-            # categories are the ones nothing here reads.
+            # That loop is where the armhf build has crashed, and the log
+            # categories are the ones nothing here reads. piece_progress is the
+            # other high-volume category and nothing here reads it either:
+            # read_piece_alert and save_resume_data_alert are storage.
             "alert_mask": (
                 lt.alert.category_t.error_notification
                 | lt.alert.category_t.storage_notification
-                | lt.alert.category_t.piece_progress_notification
             ),
             "cache_size": 16 * 1024 * 1024,
         }
@@ -450,16 +451,25 @@ class Alerts(threading.Thread):
                 self.changed.notify_all()
             print(TAG + "error " + message, flush=True)
 
-    def read_piece(self, handle, piece, timeout=120):
-        """The piece's bytes, read through the disk layer, or raise."""
+    def read_piece(self, handle, piece, timeout=None):
+        """
+        The piece's bytes, read through the disk layer, or raise.
+
+        No timeout by default: a piece from a poorly seeded swarm may take as
+        long as it takes. The process is stopped as a whole, so a waiting read
+        does not hold anything up that stopping would not already end.
+        """
         with self.changed:
             self.pieces.pop(piece, None)
         handle.read_piece(piece)
-        deadline = time.time() + timeout
+        deadline = None if timeout is None else time.time() + timeout
         with self.changed:
             while piece not in self.pieces:
                 if self.fatal:
                     raise IOError(self.fatal)
+                if deadline is None:
+                    self.changed.wait(0.5)
+                    continue
                 left = deadline - time.time()
                 if left <= 0:
                     raise IOError("piece %d could not be read" % piece)
@@ -490,7 +500,9 @@ class Window:
             # the piece actually being read is due now, whatever the window says
             self.asked.add(piece)
             self.handle.piece_priority(piece, 7)
-            self.handle.set_piece_deadline(piece, 0)
+            # _slide has just given this piece its deadline. Setting it again
+            # is a second call into libtorrent at the moment the reader is
+            # waiting, and the armhf build has crashed around here.
         while not self.handle.have_piece(piece):
             time.sleep(0.05)
 
@@ -960,7 +972,10 @@ def parse_args(argv):
     parser.add_argument("--index", type=int, default=0, help="file to play")
     parser.add_argument("--subs", default="", help="comma separated file indexes")
     parser.add_argument(
-        "--metadata-timeout", type=float, default=METADATA_TIMEOUT
+        "--metadata-timeout",
+        type=float,
+        default=METADATA_TIMEOUT,
+        help="seconds to wait for metadata; 0 waits for ever",
     )
     return parser.parse_args(argv)
 
@@ -976,11 +991,13 @@ def main(argv=None):
     params, torrent_path, resume_path = prepare(lt, args.source, args.dir)
     handle = add_torrent(lt, session, params, args.dir, torrent_path, resume_path)
 
-    deadline = started + args.metadata_timeout
+    deadline = (
+        started + args.metadata_timeout if args.metadata_timeout > 0 else None
+    )
     while not handle.status().has_metadata:
         session.wait_for_alert(500)
         print_status(waiting_status(handle, started))
-        if time.time() > deadline:
+        if deadline is not None and time.time() > deadline:
             peers = handle.status().num_peers
             print(
                 TAG + "error no metadata after %ds with %d peer(s); the torrent "
@@ -1023,6 +1040,36 @@ def main(argv=None):
     app.prime()
     print(TAG + "primed", flush=True)
 
+    stopping = {"now": False}
+
+    def stop(signum, frame):
+        stopping["now"] = True
+
+    signal.signal(signal.SIGTERM, stop)
+    signal.signal(signal.SIGINT, stop)
+
+    # Do not put the player on the port before there is a byte to read.
+    #
+    # The wrap-around comment in bt_serve_retry.sh is about a crash after
+    # "serving": the process is restarted, binds the same port and serves the
+    # same file, but the player was pointed at it in between, gets a refused
+    # connection and never comes back. Waiting for the first piece before
+    # saying "serving" moves that window before the player is attached: if the
+    # native crash comes now, the retry is invisible and the bar simply keeps
+    # counting. A poorly seeded file can wait here for as long as it takes.
+    first = app.first_piece(app.index)
+    last = app.last_piece_of(app.index)
+    next_status = time.time()
+    if first <= last:
+        while not app.handle.have_piece(first):
+            if stopping["now"]:
+                app.close()
+                return 0
+            time.sleep(0.2)
+            if time.time() >= next_status:
+                next_status = time.time() + STATUS_EVERY
+                print_status(app.status())
+
     index = app.index
     print(
         TAG + "serving http://127.0.0.1:%d/ index=%d name=%s length=%d pieces=%d top=%s"
@@ -1031,14 +1078,6 @@ def main(argv=None):
         flush=True,
     )
     print_status(app.status())
-
-    stopping = {"now": False}
-
-    def stop(signum, frame):
-        stopping["now"] = True
-
-    signal.signal(signal.SIGTERM, stop)
-    signal.signal(signal.SIGINT, stop)
 
     next_status = time.time()
     next_resume = time.time() + RESUME_EVERY

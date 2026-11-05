@@ -140,6 +140,27 @@ class FakeFiles:
         return self.entries[index][1]
 
 
+class TestNoTimeouts:
+    def test_metadata_waits_for_ever_by_default(self):
+        """A poorly seeded torrent may take any time; the bar keeps counting."""
+        assert bt.METADATA_TIMEOUT == 0
+
+    def test_a_piece_read_has_no_timeout_by_default(self):
+        """The stream waits for the piece, however long the swarm takes."""
+        import inspect
+
+        timeout = inspect.signature(bt.Alerts.read_piece).parameters["timeout"]
+        assert timeout.default is None
+
+    def test_the_alert_pump_does_not_subscribe_to_piece_progress(self):
+        """
+        Nothing reads piece_progress, and its volume is where the armhf build
+        has crashed. read_piece and save_resume are storage alerts.
+        """
+        source = (REPO_ROOT / "bin" / "bt_serve.py").read_text()
+        assert "piece_progress_notification" not in source
+
+
 class TestMainFileChoice:
     def test_the_film_beats_a_leading_advert(self):
         """

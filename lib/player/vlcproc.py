@@ -306,10 +306,6 @@ _SUBS_FETCH_TIMEOUT = 300
 #: How often to ask whether anything has been decoded, while waiting for it.
 _FRAME_POLL = 1.5
 
-#: How long to keep asking. Long enough for a slow torrent to find peers, short
-#: enough that a dead one stops costing commands. The bar keeps counting after
-#: this; it just stops asking the player.
-_FRAME_WAIT_TIMEOUT = 15 * 60
 
 
 def _format_seconds(value):
@@ -1394,11 +1390,12 @@ class VlcProcess(PlayerBackend):
         the same counter the seek machinery trusts.
 
         Asked for on a timer, which this player avoids -- but there is no event
-        to hang this on, and the wait is the whole point. Bounded, and it stops
-        asking the moment a frame arrives.
+        to hang this on, and the wait is the whole point. There is no deadline:
+        a poorly seeded torrent may take any time, and the bar is already
+        counting. It stops asking the moment a frame arrives, or when the
+        player is stopped.
         """
-        deadline = time.time() + _FRAME_WAIT_TIMEOUT
-        while time.time() < deadline:
+        while True:
             if self.killing or self._media_seen:
                 return
             proc = getattr(self, "proc", None)
