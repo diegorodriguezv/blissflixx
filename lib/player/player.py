@@ -776,8 +776,54 @@ class _Player:
         files = wanted.get("files")
         if files is None and wanted.get("idx") is not None:
             files = [{"idx": wanted["idx"], "name": wanted.get("name")}]
+        if not files:
+            files = self._torrent_subtitles(url, idx)
         source = LibtorrentProcess(url, idx, files or [])
         return self.build(title, source, subs, True)
+
+    def _torrent_subtitles(self, url, idx):
+        """
+        Subtitle files inside the torrent that match the video being played.
+
+        A direct play (e.g. from a channel) often carries no file-level subtitle
+        mapping, even when the torrent contains .srt files. Discover them from
+        the torrent's file list so they can be attached mid-play, the same way
+        "View Files" does.
+        """
+        try:
+            from ..api.torrent import SUBS_EXTS, VIDEO_EXTS, _subs_for, torrent_files
+
+            tfiles = torrent_files(url)
+            if not tfiles:
+                return []
+            subs_list = [
+                (i, f[0])
+                for i, f in enumerate(tfiles)
+                if f[0].lower().endswith(SUBS_EXTS)
+            ]
+            if not subs_list:
+                return []
+            if idx == -1:
+                target = None
+                best = -1
+                fallback = None
+                fallback_size = -1
+                for i, f in enumerate(tfiles):
+                    name, size = f[0], f[1] if isinstance(f[1], int) else 0
+                    if size > fallback_size:
+                        fallback, fallback_size = i, size
+                    if name.lower().endswith(VIDEO_EXTS) and size > best:
+                        target, best = i, size
+                if target is None:
+                    target = fallback if fallback is not None else 0
+            else:
+                target = idx if 0 <= idx < len(tfiles) else 0
+            name = tfiles[target][0] if 0 <= target < len(tfiles) else ""
+            chosen = _subs_for(name, subs_list)
+            return [{"idx": i, "name": n} for i, n in chosen]
+        except Exception as exc:
+            cherrypy.log("could not discover torrent subtitles: %s" % exc)
+            return []
 
     def playLocalFile(self, filepath, title, playlist=None, index=None):
         self.playPipe(self.buildLocalFile(filepath, title), playlist, index)
