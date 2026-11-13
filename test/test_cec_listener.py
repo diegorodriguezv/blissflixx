@@ -51,11 +51,14 @@ class TestKeyMapping:
             (106, "plus30"),    # right
             (103, "plus600"),   # up
             (108, "minus600"),  # down
-            (174, "stop"),      # back/exit
         ],
     )
     def test_each_forwarded_key_maps_to_its_action(self, cl, code, action):
         assert cl.action_for(1, code, 1) == action
+
+    def test_back_does_not_stop_the_film(self, cl):
+        """Stopping from the remote killed the video output; back is left unmapped."""
+        assert cl.action_for(1, 174, 1) is None
 
     def test_a_key_release_does_nothing(self, cl):
         assert cl.action_for(1, 200, 0) is None
