@@ -45,6 +45,7 @@ ACTIONS = {
     106: "plus30",   # KEY_RIGHT
     103: "plus600",  # KEY_UP
     108: "minus600", # KEY_DOWN
+    174: "minus600", # KEY_EXIT, CEC back: seek to the start
 }
 
 #: struct input_event as the kernel lays it out here: two longs, a timeval,
