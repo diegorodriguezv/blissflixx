@@ -792,8 +792,9 @@ class _Player:
     def _start_torrent_subtitle_discovery(self, pipe, url, idx):
         """Discover matching in-torrent subtitles without blocking playback."""
         def discover():
-            import sys
-            print("DISCOVER RUNNING", flush=True, file=sys.stderr)
+            with open("/tmp/discover.log", "a") as f:
+                f.write("DISCOVER RUNNING\n")
+                f.flush()
             # Check cache first.
             tfiles = _torrent_files_cache.get(url)
             if tfiles is None:
