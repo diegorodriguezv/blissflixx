@@ -223,7 +223,7 @@ else
     # configure_py.sh asks for that wheel explicitly, so a version without one
     # fails at install instead of compiling against missing headers.
     install_or_stop \
-        quickjs fonts-freefont-ttf git python3-venv python3-libtorrent ffmpeg
+        quickjs fonts-freefont-ttf git python3-venv python3-libtorrent ffmpeg v4l-utils
     stage "tools"
 
     # What a play actually needs. Checked rather than assumed: a mirror that
@@ -360,6 +360,29 @@ _contents
     # the click reached a server that this script had already taken away.
     systemctl restart blissflixx.service
     stage "the startup service"
+
+    # The TV remote over HDMI-CEC. Installed for every box and off until
+    # data/settings/cec.json enables it; the process exits at once while it is
+    # off, so an install without the remote is not running anything extra.
+    cat << _cec_contents > /etc/systemd/system/blissflixx-cec.service
+[Unit]
+Description=Blissflixx TV remote (HDMI-CEC)
+After=blissflixx.service
+
+[Service]
+Type=simple
+Restart=on-failure
+User=${BF_USER}
+WorkingDirectory=$(pwd)
+ExecStart=/usr/bin/python3 $(pwd)/bin/cec_listener.py
+
+[Install]
+WantedBy=default.target
+_cec_contents
+    systemctl daemon-reload
+    systemctl enable blissflixx-cec.service
+    systemctl restart blissflixx-cec.service
+    stage "the TV remote service"
 
     # Who ran this. SUDO_USER is what sudo sets it to, and it is the only one
     # of these that is right when configure.sh is run over ssh with no
