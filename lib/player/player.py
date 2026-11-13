@@ -8,7 +8,7 @@ import cherrypy
 from .. import playquality
 from ..locations import DATA_PATH
 from ..settings import load
-from . import ythelper
+from . import hold, ythelper
 from .backends import DEFAULT_BACKEND, get_backend
 from .dlsrvproc import DlsrvProcess
 from .localproc import LocalFileProcess
@@ -147,6 +147,7 @@ class _Player:
             self.play_pipe.stop()
 
     def _play(self, play, requested_at=None):
+        hold.hide()
         continuation = bool(getattr(play, "keep_state", False))
         pending_at = None
         if self.pending is not None and self.pending[0] is play.pipe:
@@ -490,6 +491,7 @@ class _Player:
             self.play_thread = None
             self._stop_check()
             self._clear_place()
+            hold.show()
             return
         skipped = self.error
         self._play(_Play(self.playlist[index](), self.playlist, index))
