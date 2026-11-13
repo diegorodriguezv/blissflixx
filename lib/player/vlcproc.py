@@ -2243,11 +2243,8 @@ class VlcProcess(PlayerBackend):
             self._force_quit()
         elif action in ("plus30", "minus30", "plus600", "minus600", "restart"):
             if action == "restart":
-                pos = self._read_position()
-                if pos is not None and pos[0] is not None:
-                    self._stalled(-pos[0])
-                else:
-                    self._seek(-999999)
+                self._send_command("seek 0")
+                self._report_progress(label="Start")
             else:
                 self._stalled(_SEEK_SECONDS[action])
         elif action in ("volup", "voldown"):
