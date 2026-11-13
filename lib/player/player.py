@@ -14,6 +14,9 @@ from .dlsrvproc import DlsrvProcess
 from .localproc import LocalFileProcess
 from .ltproc import LibtorrentProcess
 from .processpipe import MSG_PLAYER_PIPE_STOPPED, ProcessPipe, _start_thread
+
+# Module-level cache for torrent file lists, keyed by URL.
+_torrent_files_cache = {}
 from .sourcecheck import SourceCheck
 from .subsproc import ChosenSubtitlesProcess
 from .ytdlproc import YoutubeDlProcess
@@ -777,7 +780,100 @@ class _Player:
         if files is None and wanted.get("idx") is not None:
             files = [{"idx": wanted["idx"], "name": wanted.get("name")}]
         source = LibtorrentProcess(url, idx, files or [])
-        return self.build(title, source, subs, True)
+        pipe = self.build(title, source, subs, True)
+        # If no explicit subtitle files and no chosen OpenSubtitles, try to
+        # discover matching in-torrent subtitles in the background. This does
+        # not block playback: discovery runs on a separate thread and attaches
+        # subtitles mid-play, the same way _add_torrent_subtitles does.
+        if not files and not (subs or {}).get("chosen"):
+            self._start_torrent_subtitle_discovery(pipe, url, idx)
+        return pipe
+
+    def _start_torrent_subtitle_discovery(self, pipe, url, idx):
+        """Discover matching in-torrent subtitles without blocking playback."""
+        def discover():
+            # Abort if the play changed.
+            if getattr(self, "play_pipe", None) is not pipe:
+                return
+            # Check cache first.
+            tfiles = _torrent_files_cache.get(url)
+            if tfiles is None:
+                try:
+                    from ..api.torrent import torrent_files
+                    tfiles = torrent_files(url)
+                    if tfiles:
+                        _torrent_files_cache[url] = tfiles
+                except Exception as exc:
+                    cherrypy.log("torrent subtitle discovery: could not list files: %s" % exc)
+                    return
+            if not tfiles:
+                return
+            # Abort if the play changed.
+            if getattr(self, "play_pipe", None) is not pipe:
+                return
+            try:
+                from ..api.torrent import SUBS_EXTS, VIDEO_EXTS, _subs_for
+                subs_list = [
+                    (i, f[0])
+                    for i, f in enumerate(tfiles)
+                    if f[0].lower().endswith(SUBS_EXTS)
+                ]
+                if not subs_list:
+                    return
+                if idx == -1:
+                    target = None
+                    best = -1
+                    fallback = None
+                    fallback_size = -1
+                    for i, f in enumerate(tfiles):
+                        name, size = f[0], f[1] if isinstance(f[1], int) else 0
+                        if size > fallback_size:
+                            fallback, fallback_size = i, size
+                        if name.lower().endswith(VIDEO_EXTS) and size > best:
+                            target, best = i, size
+                    if target is None:
+                        target = fallback if fallback is not None else 0
+                else:
+                    target = idx if 0 <= idx < len(tfiles) else 0
+                name = tfiles[target][0] if 0 <= target < len(tfiles) else ""
+                chosen = _subs_for(name, subs_list)
+                if not chosen:
+                    return
+                subtitles_wanted = [
+                    {"url": "http://127.0.0.1:9697/" + str(i), "name": n}
+                    for i, n in chosen
+                ]
+            except Exception as exc:
+                cherrypy.log("torrent subtitle discovery: error: %s" % exc)
+                return
+            # Abort if the play changed.
+            if getattr(self, "play_pipe", None) is not pipe:
+                return
+            # Find vlcproc in pipe.
+            vlcproc = None
+            for proc in getattr(pipe, "procs", []):
+                if isinstance(proc, VlcProcess):
+                    vlcproc = proc
+                    break
+            if vlcproc is None:
+                cherrypy.log("torrent subtitle discovery: no vlcproc found")
+                return
+            # Wait for vlcproc to be ready (with timeout).
+            deadline = time.time() + 60
+            while not getattr(vlcproc, "_ready_seen", False) and time.time() < deadline:
+                if getattr(vlcproc, "killing", False):
+                    return
+                if getattr(self, "play_pipe", None) is not pipe:
+                    return
+                time.sleep(0.5)
+            if getattr(vlcproc, "killing", False):
+                return
+            if getattr(self, "play_pipe", None) is not pipe:
+                return
+            vlcproc._subtitles_wanted = subtitles_wanted
+            _start_thread(vlcproc._add_torrent_subtitles)
+            cherrypy.log("torrent subtitle discovery: found %d subtitles, attaching" % len(subtitles_wanted))
+        _start_thread(discover)
 
     def playLocalFile(self, filepath, title, playlist=None, index=None):
         self.playPipe(self.buildLocalFile(filepath, title), playlist, index)
