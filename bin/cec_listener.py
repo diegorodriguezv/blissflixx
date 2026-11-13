@@ -16,6 +16,7 @@ process exits at once with 0, so the boot unit can stay installed.
 """
 
 import argparse
+import fcntl
 import json
 import os
 import signal
@@ -51,6 +52,8 @@ ACTIONS = {
 #: then type, code and value. "@" makes the sizes native, so the same code
 #: reads 16-byte events on the 32-bit boxes and 24-byte events on the 64-bit.
 EVENT = struct.Struct("@llHHi")
+#: Grab the device exclusively so key presses do not leak to the console.
+EVIOCGRAB = 0x40044590
 EV_KEY = 1
 PRESSED = 1
 
@@ -143,6 +146,10 @@ def read_keys(path, port):
     """Forward key presses until the device goes away. Returns on that."""
     size = EVENT.size
     with open(path, "rb", buffering=0) as f:
+        try:
+            fcntl.ioctl(f, EVIOCGRAB, 1)
+        except OSError as exc:
+            print(TAG + "warn could not grab %s: %s" % (path, exc), flush=True)
         while True:
             data = f.read(size)
             if len(data) < size:
