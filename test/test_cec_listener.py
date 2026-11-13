@@ -57,7 +57,7 @@ class TestKeyMapping:
         assert cl.action_for(1, code, 1) == action
 
     def test_back_stops_the_film(self, cl):
-        assert cl.action_for(1, 174, 1) is None
+        assert cl.action_for(1, 174, 1) == "stop"
 
     def test_a_key_release_does_nothing(self, cl):
         assert cl.action_for(1, 200, 0) is None
