@@ -49,17 +49,6 @@ def temp_settings(tmp_path, monkeypatch):
     settings_module._cache.clear()
 
 
-@pytest.fixture(autouse=True)
-def no_black_hold(monkeypatch):
-    """
-    The black hold starts a real VLC on the display. Off for every test; the
-    hold's own tests switch it back on.
-    """
-    from lib.player import hold
-
-    monkeypatch.setattr(hold, "ENABLED", False)
-
-
 @pytest.fixture
 def settings(temp_settings):
     """
