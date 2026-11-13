@@ -56,10 +56,8 @@ class TestKeyMapping:
     def test_each_forwarded_key_maps_to_its_action(self, cl, code, action):
         assert cl.action_for(1, code, 1) == action
 
-    def test_back_seeks_to_the_start(self, cl):
-        """Back now seeks to the start rather than stopping, which left the
-        video output dead on this Pi."""
-        assert cl.action_for(1, 174, 1) == "minus600"
+    def test_back_stops_the_film(self, cl):
+        assert cl.action_for(1, 174, 1) == "stop"
 
     def test_a_key_release_does_nothing(self, cl):
         assert cl.action_for(1, 200, 0) is None
