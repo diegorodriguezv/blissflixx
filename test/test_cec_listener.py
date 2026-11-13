@@ -57,7 +57,7 @@ class TestKeyMapping:
         assert cl.action_for(1, code, 1) == action
 
     def test_back_stops_the_film(self, cl):
-        assert cl.action_for(1, 174, 1) == "restart"
+        assert cl.action_for(1, 174, 1) is None
 
     def test_a_key_release_does_nothing(self, cl):
         assert cl.action_for(1, 200, 0) is None
@@ -76,7 +76,7 @@ class TestKeyMapping:
     def test_every_mapped_action_exists_in_the_player(self, cl):
         """Each action name must be one the player's control() understands."""
         known = {
-            "pause", "resume", "stop", "restart", "plus30", "minus30",
+            "pause", "resume", "stop", "plus30", "minus30",
             "plus600", "minus600", "volup", "voldown", "mute",
         }
         assert set(cl.ACTIONS.values()) <= known

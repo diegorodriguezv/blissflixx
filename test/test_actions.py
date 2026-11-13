@@ -104,9 +104,7 @@ class TestControlSurfaceMatches:
         The regression guard for the original finding. If this fails, a control
         exists in the key map with no button behind it.
         """
-        # "restart" is reachable only from the TV remote (cec_listener), not
-        # from the playbar, so it is expected to be absent from the UI set.
-        assert ALL_SERVER_ACTIONS - ui_actions() - {"restart"} == set()
+        assert ALL_SERVER_ACTIONS - ui_actions() == set()
 
     def test_the_set_is_the_expected_size(self):
         """
@@ -119,7 +117,7 @@ class TestControlSurfaceMatches:
         union is two more than either list alone, because three of the five are
         answered in both.
         """
-        assert len(SERVER_ACTIONS) == 19, sorted(SERVER_ACTIONS)
+        assert len(SERVER_ACTIONS) == 18, sorted(SERVER_ACTIONS)
         assert PLAYER_ACTIONS == {
             "pause",
             "resume",
@@ -127,7 +125,7 @@ class TestControlSurfaceMatches:
             "next_item",
             "prev_item",
         }, sorted(PLAYER_ACTIONS)
-        assert len(ALL_SERVER_ACTIONS) == 21, sorted(ALL_SERVER_ACTIONS)
+        assert len(ALL_SERVER_ACTIONS) == 20, sorted(ALL_SERVER_ACTIONS)
 
     def test_the_remote_panel_is_where_they_live(self):
         """

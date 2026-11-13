@@ -2241,12 +2241,8 @@ class VlcProcess(PlayerBackend):
         elif action == "stop":
             self._send_command("quit")
             self._force_quit()
-        elif action in ("plus30", "minus30", "plus600", "minus600", "restart"):
-            if action == "restart":
-                self._send_command("seek 0")
-                self._report_progress(label="Start")
-            else:
-                self._stalled(_SEEK_SECONDS[action])
+        elif action in ("plus30", "minus30", "plus600", "minus600"):
+            self._stalled(_SEEK_SECONDS[action])
         elif action in ("volup", "voldown"):
             # Stepped in percent, not in VLC's units, and that is the whole fix.
             # A tenth of 256 is 25.6, so a unit step had to be rounded to 26 --
