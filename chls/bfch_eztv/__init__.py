@@ -57,7 +57,7 @@ def feed(idx):
         subtitle = subtitle + ", Seeds: " + seeds
         subtitle = subtitle + ", Released: " + released
         item = TorrentPlayItem(
-            title, "/img/icons/film.svg", magnet, subtitle, subs=None
+            title, "/img/icons/tv.svg", magnet, subtitle, subs=None
         )
         results.add(item)
     return results

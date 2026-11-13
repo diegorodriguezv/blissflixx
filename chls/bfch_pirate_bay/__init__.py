@@ -126,6 +126,8 @@ def combine_results(docs):
             el = select_one(l, ":nth-child(3)")
             if el.text and not el.text.isspace():
                 subcat = get_text(el)
+            if maincat == "Video" and subcat.endswith("shows"):
+                img = "/img/icons/tv.svg"
             subs = None
             if subcat.endswith("Movies"):
                 subs = movie_title_year(title)
