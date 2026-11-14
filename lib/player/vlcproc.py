@@ -848,6 +848,10 @@ class VlcProcess(PlayerBackend):
         # Track id to language, from the listing the ids came from; the listing
         # is the only place a track's language appears.
         self._track_names = {}
+        # Track id to original filename for subtitles fetched from a torrent.
+        # VLC names these generically ("Track 1"); this map replaces that with
+        # the source filename so the overlay and panel say what the file was.
+        self._torrent_subtitle_names = {}
         # The last real track that was showing, per interface verb. VLC's
         # "Disable" entry (-1) names nothing of its own, so a press that lands
         # on it has to reach back to this to say "[off] Track 1" rather than
@@ -1044,6 +1048,11 @@ class VlcProcess(PlayerBackend):
                 tracks = [t for t in self._track_ids("strack") if t != _TRACK_DISABLED]
                 if tracks:
                     chosen = tracks[-1]
+                    # Remember the source filename for this track so the overlay
+                    # and panel show it instead of VLC's generic "Track N".
+                    self._torrent_subtitle_names[chosen] = os.path.splitext(
+                        os.path.basename(wanted.get("name") or "subtitle")
+                    )[0]
         if chosen is not None:
             self._track_choice["strack"] = chosen
             self._remember_track("strack", chosen)
@@ -2733,6 +2742,8 @@ class VlcProcess(PlayerBackend):
         """
         if track_id is None or track_id < 0:
             return None
+        if command == "strack" and track_id in self._torrent_subtitle_names:
+            return self._torrent_subtitle_names[track_id]
         return self._track_names.get(command, {}).get(track_id)
 
     def _showing_track_name(self, command):
