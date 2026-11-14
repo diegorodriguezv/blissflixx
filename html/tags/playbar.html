@@ -531,8 +531,8 @@
         out.push('')
         out.push('TRACKS')
         tracks.forEach(function(track) {
-          // Subtitle tracks are usually dozens; only the one showing matters.
-          if (track.kind == 'subtitle' && !track.current) return
+          // Show all subtitle tracks, one per line, with both the torrent
+          // filename and the original VLC track name when they differ.
           line(track.kind + ' ' + track.id, track.name + (track.current ? ' · playing' : ''))
         })
       }

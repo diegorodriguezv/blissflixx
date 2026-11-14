@@ -782,6 +782,10 @@ class _Player:
             files = [{"idx": wanted["idx"], "name": wanted.get("name")}]
         source = LibtorrentProcess(url, idx, files or [])
         pipe = self.build(title, source, subs, True)
+        # Store torrent URL on vlcproc for subtitle discovery / naming.
+        for proc in getattr(pipe, "procs", []):
+            if isinstance(proc, VlcProcess):
+                proc._torrent_url = url
         # If no explicit subtitle files and no chosen OpenSubtitles, try to
         # discover matching in-torrent subtitles in the background. This does
         # not block playback: discovery runs on a separate thread and attaches

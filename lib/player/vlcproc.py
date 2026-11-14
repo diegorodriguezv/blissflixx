@@ -1027,6 +1027,30 @@ class VlcProcess(PlayerBackend):
         """
         # Clear any stale names from a previous play.
         self._torrent_subtitle_names = {}
+        # Determine the video filename so we can detect "default" subtitles
+        # (subtitle whose name matches the video name).
+        video_stem = None
+        try:
+            from ..api.torrent import torrent_files, VIDEO_EXTS
+            tfiles = torrent_files(getattr(self, "_torrent_url", None) or "")
+            if tfiles:
+                # Find the video file (largest video, or by idx)
+                best_idx = None
+                best_size = -1
+                fallback = None
+                fallback_size = -1
+                for i, f in enumerate(tfiles):
+                    name, size = f[0], f[1] if isinstance(f[1], int) else 0
+                    if size > fallback_size:
+                        fallback, fallback_size = i, size
+                    if name.lower().endswith(VIDEO_EXTS) and size > best_size:
+                        best_idx, best_size = i, size
+                if best_idx is None:
+                    best_idx = fallback if fallback is not None else 0
+                if best_idx is not None and 0 <= best_idx < len(tfiles):
+                    video_stem = os.path.splitext(os.path.basename(tfiles[best_idx][0]))[0]
+        except Exception:
+            video_stem = None
         # Baseline captured lazily, after media starts, so VLC has its
         # embedded tracks listed.
         baseline = None
@@ -1078,9 +1102,14 @@ class VlcProcess(PlayerBackend):
             new_tracks = [t for t in tracks if t not in baseline and t not in self._torrent_subtitle_names]
             if new_tracks:
                 track_id = new_tracks[-1]
-                self._torrent_subtitle_names[track_id] = os.path.splitext(
+                sub_name = os.path.splitext(
                     os.path.basename(wanted.get("name") or "subtitle")
                 )[0]
+                # If the subtitle filename matches the video filename, call it
+                # "default subtitle" since it's the release's own subtitle.
+                if video_stem and sub_name == video_stem:
+                    sub_name = "default subtitle"
+                self._torrent_subtitle_names[track_id] = sub_name
                 cherrypy.log("mapped track %d -> %s" % (track_id, self._torrent_subtitle_names[track_id]))
             if chosen is None and tracks:
                 chosen = tracks[-1]
@@ -1339,11 +1368,18 @@ class VlcProcess(PlayerBackend):
                 if track_id < 0:
                     continue
                 title, language = _track_parts(line)
+                display_name = _track_display(title, language)
+                # For subtitle tracks, overlay the torrent filename if available.
+                orig_name = display_name
+                if kind == "subtitle" and track_id in getattr(self, "_torrent_subtitle_names", {}):
+                    display_name = self._torrent_subtitle_names[track_id]
+                    if orig_name and orig_name != display_name:
+                        display_name = display_name + " (" + orig_name + ")"
                 tracks.append(
                     {
                         "kind": kind,
                         "id": track_id,
-                        "name": _track_display(title, language),
+                        "name": display_name,
                         "current": bool(found.group(3)),
                     }
                 )
