@@ -1047,13 +1047,18 @@ class VlcProcess(PlayerBackend):
                 time.sleep(0.5)
             if baseline is None:
                 # Wait for VLC to list all embedded tracks before capturing
-                # the baseline. VLC discovers tracks incrementally.
+                # the baseline. VLC discovers tracks incrementally, so poll
+                # until the count stops growing.
                 baseline = set()
-                for _ in range(20):
+                stable = 0
+                for _ in range(40):
                     tracks = [t for t in self._track_ids("strack") if t != _TRACK_DISABLED]
                     if len(tracks) > len(baseline):
                         baseline = set(tracks)
-                    if len(tracks) >= 2:
+                        stable = 0
+                    else:
+                        stable += 1
+                    if stable >= 4 and len(baseline) >= 1:
                         break
                     time.sleep(0.25)
                 cherrypy.log("baseline tracks: " + repr(sorted(baseline)))
