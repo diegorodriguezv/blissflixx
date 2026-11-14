@@ -13,6 +13,7 @@ from .backends import DEFAULT_BACKEND, get_backend
 from .dlsrvproc import DlsrvProcess
 from .localproc import LocalFileProcess
 from .ltproc import LibtorrentProcess
+from .vlcproc import VlcProcess
 from .processpipe import MSG_PLAYER_PIPE_STOPPED, ProcessPipe, _start_thread
 
 # Module-level cache for torrent file lists, keyed by URL.
@@ -792,9 +793,6 @@ class _Player:
     def _start_torrent_subtitle_discovery(self, pipe, url, idx):
         """Discover matching in-torrent subtitles without blocking playback."""
         def discover():
-            with open("/tmp/discover.log", "a") as f:
-                f.write("DISCOVER RUNNING\n")
-                f.flush()
             # Check cache first.
             tfiles = _torrent_files_cache.get(url)
             if tfiles is None:
