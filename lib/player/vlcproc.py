@@ -1046,7 +1046,16 @@ class VlcProcess(PlayerBackend):
                     return
                 time.sleep(0.5)
             if baseline is None:
-                baseline = set(t for t in self._track_ids("strack") if t != _TRACK_DISABLED)
+                # Wait for VLC to list all embedded tracks before capturing
+                # the baseline. VLC discovers tracks incrementally.
+                baseline = set()
+                for _ in range(20):
+                    tracks = [t for t in self._track_ids("strack") if t != _TRACK_DISABLED]
+                    if len(tracks) > len(baseline):
+                        baseline = set(tracks)
+                    if len(tracks) >= 2:
+                        break
+                    time.sleep(0.25)
                 cherrypy.log("baseline tracks: " + repr(sorted(baseline)))
             if not self._add_subtitle_over_http(path):
                 cherrypy.log("player would not take the subtitle: " + path)
