@@ -1027,9 +1027,9 @@ class VlcProcess(PlayerBackend):
         """
         # Clear any stale names from a previous play.
         self._torrent_subtitle_names = {}
-        # Remember which tracks already existed (embedded in the file) so we
-        # only name the ones we add, not the pre-existing ones.
-        baseline = set(t for t in self._track_ids("strack") if t != _TRACK_DISABLED)
+        # Baseline captured lazily, after media starts, so VLC has its
+        # embedded tracks listed.
+        baseline = None
         chosen = None
         for wanted in getattr(self, "_subtitles_wanted", []):
             if self.killing:
@@ -1045,6 +1045,9 @@ class VlcProcess(PlayerBackend):
                 if self.killing:
                     return
                 time.sleep(0.5)
+            if baseline is None:
+                baseline = set(t for t in self._track_ids("strack") if t != _TRACK_DISABLED)
+                cherrypy.log("baseline tracks: " + repr(sorted(baseline)))
             if not self._add_subtitle_over_http(path):
                 cherrypy.log("player would not take the subtitle: " + path)
                 continue
