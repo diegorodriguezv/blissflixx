@@ -1064,7 +1064,10 @@ class VlcProcess(PlayerBackend):
             cherrypy.log("could not fetch the subtitle %s: %s" % (url, exc))
             return None
         name = os.path.basename(wanted.get("name") or "subtitle")
-        path = os.path.join(TMP_DIR, re.sub(r"[^\w.\-]", "_", name))
+        # Keep as much of the original filename as possible so VLC shows a
+        # descriptive track name (spaces and other readable chars preserved).
+        safe = re.sub(r"[^\w.\- ]", "_", name)
+        path = os.path.join(TMP_DIR, safe)
         try:
             with open(path, "wb") as handle:
                 handle.write(r.content)
