@@ -2836,7 +2836,10 @@ class VlcProcess(PlayerBackend):
         """
         count = len(ids)
         position = ids.index(current)
-        names = self._track_names.get("strack") or {}
+        names = dict(self._track_names.get("strack") or {})
+        # Overlay torrent subtitle names over VLC's generic "Track N" names.
+        for tid, tname in self._torrent_subtitle_names.items():
+            names[tid] = tname
 
         def display(one):
             return names.get(one) or ("Track %d" % one)
