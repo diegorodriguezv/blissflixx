@@ -1046,15 +1046,17 @@ class VlcProcess(PlayerBackend):
                 cherrypy.log("player would not take the subtitle: " + path)
                 continue
             cherrypy.log("subtitle added: " + path)
-            if chosen is None:
-                tracks = [t for t in self._track_ids("strack") if t != _TRACK_DISABLED]
-                if tracks:
-                    chosen = tracks[-1]
-                    # Remember the source filename for this track so the overlay
-                    # and panel show it instead of VLC's generic "Track N".
-                    self._torrent_subtitle_names[chosen] = os.path.splitext(
-                        os.path.basename(wanted.get("name") or "subtitle")
-                    )[0]
+            # Find the newly added track (last one not seen before).
+            before = set(self._torrent_subtitle_names)
+            tracks = [t for t in self._track_ids("strack") if t != _TRACK_DISABLED]
+            new_tracks = [t for t in tracks if t not in before]
+            if new_tracks:
+                track_id = new_tracks[-1]
+                self._torrent_subtitle_names[track_id] = os.path.splitext(
+                    os.path.basename(wanted.get("name") or "subtitle")
+                )[0]
+            if chosen is None and tracks:
+                chosen = tracks[-1]
         if chosen is not None:
             self._track_choice["strack"] = chosen
             self._remember_track("strack", chosen)
