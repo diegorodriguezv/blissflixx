@@ -1049,6 +1049,7 @@ class VlcProcess(PlayerBackend):
                 cherrypy.log("player would not take the subtitle: " + path)
                 continue
             cherrypy.log("subtitle added: " + path)
+            cherrypy.log("TORRENT_SUB_NAMES: " + repr(self._torrent_subtitle_names))
             # Find the newly added track: it is the one that was not in the
             # baseline (pre-existing embedded tracks) and not already named.
             tracks = [t for t in self._track_ids("strack") if t != _TRACK_DISABLED]
