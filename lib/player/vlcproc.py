@@ -1025,6 +1025,8 @@ class VlcProcess(PlayerBackend):
         One at a time, in order: which one is selected depends on which arrives
         first, and three threads racing would decide that by luck.
         """
+        # Clear any stale names from a previous play.
+        self._torrent_subtitle_names = {}
         chosen = None
         for wanted in getattr(self, "_subtitles_wanted", []):
             if self.killing:
