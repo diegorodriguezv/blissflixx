@@ -74,6 +74,9 @@ MSG_PLAYER_SKIP = 5
 #: the play generation it belongs to, so a message that outlives its play is
 #: ignored rather than switching the next one.
 MSG_PLAYER_RECONNECT = 6
+#: A torrent source is stuck (no peers / no progress). Restart the torrent
+#: session for the same play request. Followed by (play_seq, attempt_seq).
+MSG_PLAYER_TORRENT_RETRY = 7
 
 #: One queued play: the pipeline to start, and where it sits in a playlist when
 #: it came from one.
@@ -141,6 +144,10 @@ class _Player:
         self._reconnect_sent = False
         self._play_seq = 0
         self._attempt_seq = 0
+        #: Automatic torrent source restarts for the current play request
+        #: (e.g. stuck with no peers / no progress). Shown in info panel.
+        self.reconnections = 0
+        self._torrent_retry_sent = False
         #: The play that has been asked for and not started yet: (pipe, when,
         #: came from a playlist). The loop may still be stopping the old pipe,
         #: which can take seconds; the bar shows this instead of going blank.
@@ -184,11 +191,13 @@ class _Player:
         self._failover_note = getattr(play, "note", None)
         self._stopped = False
         self._reconnect_sent = False
+        self._torrent_retry_sent = False
         self._attempt_seq += 1
         if not continuation:
             # A new play: new sources, a new check, and a generation so a
             # reconnect request from the old one cannot touch this one.
             self._play_seq += 1
+            self.reconnections = 0
             self._stop_check()
             self._tried = set()
             self._check = None
@@ -581,6 +590,14 @@ class _Player:
                         if play is not None:
                             nextplay = play
                             self._stop()
+                elif m == MSG_PLAYER_TORRENT_RETRY:
+                    seq = msgq.get()
+                    attempt = msgq.get()
+                    if seq == self._play_seq and attempt == self._attempt_seq:
+                        play = self._retry_torrent_play()
+                        if play is not None:
+                            nextplay = play
+                            self._stop()
                 elif m == MSG_PLAYER_PIPE_STOPPED:
                     nextplay = self._pipe_stopped(nextplay)
                 elif m == MSG_PLAYER_QUIT:
@@ -782,6 +799,8 @@ class _Player:
             files = [{"idx": wanted["idx"], "name": wanted.get("name")}]
         source = LibtorrentProcess(url, idx, files or [])
         pipe = self.build(title, source, subs, True)
+        # Remember how to restart this torrent (auto-retry on stall).
+        pipe.torrent = {"url": url, "idx": idx, "title": title, "subs": subs}
         # Store torrent URL on vlcproc for subtitle discovery / naming.
         for proc in getattr(pipe, "procs", []):
             if isinstance(proc, VlcProcess):
@@ -948,9 +967,11 @@ class _Player:
             status["Title"] = title
             status["Elapsed"] = max(0, int(time.time() - started))
             status["Playlist"] = from_playlist
+            status["Reconnections"] = self.reconnections
             return status
 
         if play_pipe is None or self.error is not None:
+            status["Reconnections"] = self.reconnections
             return status
 
         if self.play_requested_at is not None:
@@ -1019,7 +1040,11 @@ class _Player:
                     # A full queue means the loop is not answering; the next
                     # poll gets another chance rather than failing the status.
                     self._reconnect_sent = False
+        # Auto-retry stalled torrent sources (including pre-picture/loading) by
+        # restarting the torrent session, like clicking play again.
+        self._maybe_retry_torrent(status, play_pipe)
         status["Paused"] = self.paused
+        status["Reconnections"] = self.reconnections
         return status
 
     def _add_playback(self, status, pipe):
@@ -1091,6 +1116,65 @@ class _Player:
             self._pos_last = position
             self._pos_changed_at = now
 
+    def _torrent_retryable_stall(self, pipe):
+        """Seconds a torrent source has been stuck (and worth retrying), else 0."""
+        if pipe is None or not getattr(pipe, "torrent", None):
+            return 0
+        # Only while waiting for playback to start; restarting mid-playback would
+        # lose the user's position.
+        if self._picture_after() is not None:
+            return 0
+        worst = 0
+        for proc in getattr(pipe, "procs", []):
+            ask = getattr(proc, "retryable_stall", None)
+            if not callable(ask):
+                continue
+            try:
+                worst = max(worst, int(ask() or 0))
+            except Exception:
+                continue
+        return worst
+
+    def _maybe_retry_torrent(self, status, pipe):
+        """Request an automatic torrent retry when stalled with no progress."""
+        if self._torrent_retry_sent or self.pending is not None:
+            return
+        if self._is_stopping() or status.get("State") == ST_NOT_RUNNING:
+            return
+        stalled = self._torrent_retryable_stall(pipe)
+        if stalled <= 0:
+            return
+        self._torrent_retry_sent = True
+        try:
+            self._enqueue(
+                MSG_PLAYER_TORRENT_RETRY, self._play_seq, self._attempt_seq
+            )
+        except RuntimeError:
+            self._torrent_retry_sent = False
+
+    def _retry_torrent_play(self):
+        """Rebuild and restart the current torrent play (fresh session)."""
+        pipe = self.play_pipe
+        if pipe is None:
+            return None
+        info = getattr(pipe, "torrent", None)
+        if not info:
+            return None
+        title = info.get("title") or getattr(pipe, "title", "") or ""
+        self.reconnections += 1
+        cherrypy.log(
+            "TORRENT RETRY #%d: restarting stalled source for %s"
+            % (self.reconnections, title)
+        )
+        newpipe = self.buildTorrent(
+            info.get("url"),
+            info.get("idx"),
+            title,
+            info.get("subs"),
+        )
+        # Keep play_seq/reconnection count; this is the same user request.
+        return _Play(newpipe, self.playlist, self.index, "reconnecting...", True)
+
     def _stalled(self, pipe, playback=None):
         """
         (seconds, reason) if something is stuck, else (0, "").
@@ -1158,6 +1242,7 @@ class _Player:
                 "paused": status["Paused"],
                 "waiting": status["Waiting"],
                 "elapsed": status["Elapsed"],
+                "reconnections": status.get("Reconnections", self.reconnections),
                 "picture_after": self._picture_after(),
                 "position": status.get("Position"),
                 "length": status.get("Length"),

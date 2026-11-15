@@ -421,6 +421,7 @@
       line('picture in', p.picture_after === null || p.picture_after === undefined
         ? '—' : p.picture_after + 's')
       line('stalled', p.stalled ? p.stalled + 's · ' + p.stall_reason : 'no')
+      line('reconnections', p.reconnections || 0)
       if (p.error) line('error', p.error)
       out.push('')
       out.push('SOURCE')

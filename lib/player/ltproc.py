@@ -72,6 +72,13 @@ _SETTLE = 1.0
 #: short enough that a dead one is not left looking busy.
 _STALLED_AFTER = 20
 
+#: No peers at all for this long is treated as stuck and worth retrying.
+_NO_PEERS_AFTER = 20
+
+#: Peers connected but no download progress for this long: likely unproductive
+#: and worth retrying (fresh session often finds better peers).
+_NO_PROGRESS_AFTER = 45
+
 
 def _size(value):
     """Bytes per second, in words."""
@@ -384,28 +391,42 @@ class LibtorrentProcess(ExternalProcess):
 
     def stalled_for(self):
         """
-        How long this torrent has been unable to bring anything new, in seconds.
+        How long this torrent has been unable to make useful progress, in seconds.
 
-        Zero unless it matters: a film complete on disk needs no peers and must
-        never be reported as stuck, and one with peers is working even if it is
-        slow. What is left is the real case -- pieces still missing and nobody
-        to ask -- which the bar has to show before the picture stops.
+        Used for UI warnings and for automatic retry/reconnect decisions:
+        - no peers while incomplete (including metadata/peer discovery), or
+        - peers connected but no download progress for a long time.
+        Zero when complete/almost complete or actively checking.
         """
-        info = self.served_file()
         if not self._status:
             return 0
         if self._status.get("checking") is not None:
             # A hash check is work, and it is the card being read, not a swarm
             # with nothing to send. It must not read as "nothing arriving".
             return 0
+        info = self.served_file()
         if info and info["percent"] >= 99:
-            return 0
-        if self._status.get("peers"):
             return 0
         since = self._moved_at or self._started_at
         if since is None:
             return 0
-        return max(0, int(time.time() - since))
+        idle = max(0, int(time.time() - since))
+        peers = int(self._status.get("peers") or 0)
+        if peers <= 0:
+            return idle if idle >= _NO_PEERS_AFTER else 0
+        # Peers present but no bytes/progress arriving: likely unproductive.
+        if idle >= _NO_PROGRESS_AFTER:
+            return idle
+        return 0
+
+    def retryable_stall(self):
+        """
+        Seconds stalled when this source should be auto-retried, else 0.
+
+        A retry restarts the torrent session (fresh bt_serve/libtorrent), which
+        often recovers from stuck peer discovery or unproductive swarms.
+        """
+        return self.stalled_for()
 
     def debug(self):
         """
