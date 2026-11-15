@@ -1,45 +1,39 @@
 <svg width="2048" height="2048" viewBox="0 0 2048 2048" xmlns="http://www.w3.org/2000/svg">
   <g fill="#fff">
     <g transform="translate(1140,105) scale(0.32)" opacity="0.50">
-    <!-- antenna -->
-    <rect x="994" y="170" width="60" height="300" rx="30"/>
-    <rect x="720" y="120" width="60" height="430" rx="30" transform="rotate(-32 750 335)"/>
-    <rect x="1268" y="120" width="60" height="430" rx="30" transform="rotate(32 1298 335)"/>
-    <circle cx="1024" cy="210" r="50"/>
-    <!-- body with screen and knobs cut out -->
-    <path fill-rule="evenodd" d="M220 520 q0-90 90-90 h1428 q90 0 90 90 v980 q0 90 -90 90 h-1428 q-90 0 -90 -90 z
-      M360 650 h1100 v760 h-1100 z
-      M1560 860 m-60,0 a60,60 0 1,0 120,0 a60,60 0 1,0 -120,0
-      M1560 1080 m-60,0 a60,60 0 1,0 120,0 a60,60 0 1,0 -120,0"/>
-    <!-- base/feet -->
+    <!-- V antenna (two segments, no center post) -->
+    <rect x="560" y="120" width="70" height="460" rx="35" transform="rotate(-34 595 350)"/>
+    <rect x="1418" y="120" width="70" height="460" rx="35" transform="rotate(34 1453 350)"/>
+    <!-- body: screen and control knobs cut out -->
+    <path fill-rule="evenodd" d="M240 520 q0-90 90-90 h1388 q90 0 90 90 v980 q0 90 -90 90 h-1388 q-90 0 -90 -90 z
+      M380 650 h1080 v760 h-1080 z
+      M1610 930 m-55,0 a55,55 0 1,0 110,0 a55,55 0 1,0 -110,0
+      M1610 1160 m-55,0 a55,55 0 1,0 110,0 a55,55 0 1,0 -110,0"/>
+    <!-- base -->
     <rect x="760" y="1590" width="528" height="90" rx="20"/>
     </g>
     <g transform="translate(1140,1065) scale(0.32)" opacity="0.50">
-    <!-- antenna -->
-    <rect x="994" y="170" width="60" height="300" rx="30"/>
-    <rect x="720" y="120" width="60" height="430" rx="30" transform="rotate(-32 750 335)"/>
-    <rect x="1268" y="120" width="60" height="430" rx="30" transform="rotate(32 1298 335)"/>
-    <circle cx="1024" cy="210" r="50"/>
-    <!-- body with screen and knobs cut out -->
-    <path fill-rule="evenodd" d="M220 520 q0-90 90-90 h1428 q90 0 90 90 v980 q0 90 -90 90 h-1428 q-90 0 -90 -90 z
-      M360 650 h1100 v760 h-1100 z
-      M1560 860 m-60,0 a60,60 0 1,0 120,0 a60,60 0 1,0 -120,0
-      M1560 1080 m-60,0 a60,60 0 1,0 120,0 a60,60 0 1,0 -120,0"/>
-    <!-- base/feet -->
+    <!-- V antenna (two segments, no center post) -->
+    <rect x="560" y="120" width="70" height="460" rx="35" transform="rotate(-34 595 350)"/>
+    <rect x="1418" y="120" width="70" height="460" rx="35" transform="rotate(34 1453 350)"/>
+    <!-- body: screen and control knobs cut out -->
+    <path fill-rule="evenodd" d="M240 520 q0-90 90-90 h1388 q90 0 90 90 v980 q0 90 -90 90 h-1388 q-90 0 -90 -90 z
+      M380 650 h1080 v760 h-1080 z
+      M1610 930 m-55,0 a55,55 0 1,0 110,0 a55,55 0 1,0 -110,0
+      M1610 1160 m-55,0 a55,55 0 1,0 110,0 a55,55 0 1,0 -110,0"/>
+    <!-- base -->
     <rect x="760" y="1590" width="528" height="90" rx="20"/>
     </g>
     <g transform="translate(100,240) scale(0.70)">
-    <!-- antenna -->
-    <rect x="994" y="170" width="60" height="300" rx="30"/>
-    <rect x="720" y="120" width="60" height="430" rx="30" transform="rotate(-32 750 335)"/>
-    <rect x="1268" y="120" width="60" height="430" rx="30" transform="rotate(32 1298 335)"/>
-    <circle cx="1024" cy="210" r="50"/>
-    <!-- body with screen and knobs cut out -->
-    <path fill-rule="evenodd" d="M220 520 q0-90 90-90 h1428 q90 0 90 90 v980 q0 90 -90 90 h-1428 q-90 0 -90 -90 z
-      M360 650 h1100 v760 h-1100 z
-      M1560 860 m-60,0 a60,60 0 1,0 120,0 a60,60 0 1,0 -120,0
-      M1560 1080 m-60,0 a60,60 0 1,0 120,0 a60,60 0 1,0 -120,0"/>
-    <!-- base/feet -->
+    <!-- V antenna (two segments, no center post) -->
+    <rect x="560" y="120" width="70" height="460" rx="35" transform="rotate(-34 595 350)"/>
+    <rect x="1418" y="120" width="70" height="460" rx="35" transform="rotate(34 1453 350)"/>
+    <!-- body: screen and control knobs cut out -->
+    <path fill-rule="evenodd" d="M240 520 q0-90 90-90 h1388 q90 0 90 90 v980 q0 90 -90 90 h-1388 q-90 0 -90 -90 z
+      M380 650 h1080 v760 h-1080 z
+      M1610 930 m-55,0 a55,55 0 1,0 110,0 a55,55 0 1,0 -110,0
+      M1610 1160 m-55,0 a55,55 0 1,0 110,0 a55,55 0 1,0 -110,0"/>
+    <!-- base -->
     <rect x="760" y="1590" width="528" height="90" rx="20"/>
     </g>
   </g>
