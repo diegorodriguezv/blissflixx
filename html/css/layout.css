@@ -397,15 +397,21 @@ ul.navitems-left>li {
   width: 92%;
   max-width: 1200px;
   margin: 0 auto;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
 }
 
 .debug-body {
   padding: 0;
+  flex: 1;
+  overflow: hidden;
 }
 
 .debug-pre {
   margin: 0;
-  max-height: calc(100vh - 80px);
+  max-height: 100%;
+  height: 100%;
   overflow-y: auto;
   overflow-x: hidden;
   font-family: Menlo, Consolas, "DejaVu Sans Mono", monospace;
