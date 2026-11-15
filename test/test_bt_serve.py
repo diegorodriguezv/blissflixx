@@ -219,9 +219,8 @@ class TestNoTimeouts:
 class TestMainFileChoice:
     def test_the_film_beats_a_leading_advert(self):
         """
-        Torrents often carry a .txt or an .nfo as index 0. Playing the main
-        row played that: VLC showed nothing, reached the end and exited, and
-        the bar went from "loading" to stopped.
+        Torrents often carry a .txt or an .nfo as index 0. Auto-play must pick
+        a playable video, not the advert/readme.
         """
         files = FakeFiles(
             [
@@ -231,12 +230,43 @@ class TestMainFileChoice:
         )
         assert bt.pick_main(files) == 1
 
-    def test_the_largest_video_is_the_film(self):
+    def test_ignores_sample_and_picks_main_video(self):
         files = FakeFiles(
             [
                 ("Film.sample.mkv", 20_000_000),
                 ("Film.mkv", 2_000_000_000),
                 ("Film.eng.srt", 84_000),
+            ]
+        )
+        assert bt.pick_main(files) == 1
+
+    def test_season_pack_picks_first_episode_not_largest(self):
+        files = FakeFiles(
+            [
+                ("Show.S01E03.1080p.mkv", 1_200_000_000),
+                ("Show.S01E01.1080p.mkv", 1_100_000_000),
+                ("Show.S01E02.1080p.mkv", 1_150_000_000),
+            ]
+        )
+        assert bt.pick_main(files) == 1
+
+    def test_multi_season_pack_picks_earliest_episode(self):
+        files = FakeFiles(
+            [
+                ("Show.S03E01.mkv", 1_000_000_000),
+                ("Show.S01E02.mkv", 900_000_000),
+                ("Show.S01E01.mkv", 800_000_000),
+                ("Show.S02E01.mkv", 1_200_000_000),
+            ]
+        )
+        assert bt.pick_main(files) == 2
+
+    def test_movie_pack_picks_first_by_natural_name_order(self):
+        files = FakeFiles(
+            [
+                ("Home Alone 3 (1997).mkv", 2_000_000_000),
+                ("Home Alone 1 (1990).mkv", 1_500_000_000),
+                ("Home Alone 2 (1992).mkv", 1_800_000_000),
             ]
         )
         assert bt.pick_main(files) == 1

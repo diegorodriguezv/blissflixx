@@ -333,7 +333,14 @@ def release_kind(name):
         seasons = sorted(set(seasons) | set(range(lo, hi + 1)))
     elif word_m:
         grp = word_m.group(1) or ""
-        nums = [int(x) for x in re.findall(r"\d{1,2}", grp)]
+        # Stop at quality/release tags if they leaked into the captured tail.
+        cut = _CUT_RE.search(grp)
+        if cut:
+            grp = grp[: cut.start()]
+        # Use whole number tokens; \d{1,2} would split "1080p" remnants into 10,80.
+        nums_all = [int(x) for x in re.findall(r"\d+", grp)]
+        resolutions = {360, 480, 576, 720, 1080, 1440, 2160, 4320}
+        nums = [n for n in nums_all if 1 <= n <= 99 and n not in resolutions]
         range_word = re.search(r"(\d{1,2})\s*(?:-|–|\bto\b)\s*(\d{1,2})", grp, re.IGNORECASE)
         if range_word:
             lo, hi = int(range_word.group(1)), int(range_word.group(2))

@@ -144,10 +144,10 @@ class LibtorrentProcess(ExternalProcess):
         #: first: [{"idx": n, "name": ".."}]. Empty when this play asked for
         #: none.
         self.subs = subs or []
-        #: Which file inside the torrent this play asked for. -1 means the
-        #: film, and is what a torrent row carries: the torrent stage picks
-        #: the largest video, because the first file is frequently a readme or
-        #: an advert. Forcing -1 to 0 here played that advert and then ended.
+        #: Which file inside the torrent this play asked for. -1 means
+        #: "play this" (auto): the torrent stage picks the first/most obvious
+        #: playable video (best effort), avoiding readmes/adverts/samples.
+        #: Forcing -1 to 0 here played leading junk and then ended.
         if not isinstance(idx, int):
             idx = -1
         self.idx = idx if idx >= -1 else -1

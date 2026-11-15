@@ -30,6 +30,7 @@ import argparse
 import faulthandler
 import json
 import os
+import re
 import signal
 import sys
 import threading
@@ -189,23 +190,54 @@ def window_within(piece, first_piece, last_piece, width=WINDOW):
 #: interpreter and reads only the standard library and libtorrent.
 VIDEO_EXTS = (".mkv", ".mp4", ".avi", ".m4v", ".mov", ".webm", ".ts", ".m2ts")
 
+#: Episode markers used to pick the "first" episode in a season/TV pack.
+_EPISODE_RE = re.compile(r"[sS](\d{1,2})[ ._-]?[eE](\d{1,3})")
+_EPISODE_ALT_RE = re.compile(r"(?<!\d)(\d{1,2})x(\d{1,3})(?!\d)")
+_SAMPLE_RE = re.compile(r"(^|[\\/\._\-\s\[\(])sample([\\/\._\-\s\]\)]|$)", re.IGNORECASE)
+
+
+def _natural_key(text):
+    """Numeric-aware sort key for paths/names (1, 2, 10)."""
+    return [int(t) if t.isdigit() else t.lower() for t in re.split(r"(\d+)", text or "")]
+
+
+def _episode_key(path):
+    """(season, episode) for a video path/name, or None if not marked."""
+    name = path or ""
+    for rx in (_EPISODE_RE, _EPISODE_ALT_RE):
+        m = rx.search(name)
+        if m:
+            try:
+                return (int(m.group(1)), int(m.group(2)))
+            except (TypeError, ValueError):
+                pass
+    # Fallback: combine a season folder marker with an episode-only filename (E01).
+    m_season = re.search(r"[sS](\d{1,2})(?![eE\d])", name)
+    m_ep = re.search(r"(?<![a-zA-Z0-9])[eE](\d{1,3})(?!\d)", os.path.basename(name))
+    if m_season and m_ep:
+        try:
+            return (int(m_season.group(1)), int(m_ep.group(1)))
+        except (TypeError, ValueError):
+            pass
+    return None
+
+
+def _is_sample(path):
+    name = os.path.basename(path or "")
+    return bool(_SAMPLE_RE.search(name) or _SAMPLE_RE.search(path or ""))
+
 
 def pick_main(files):
     """
     The file to play when the play did not name one.
 
-    A torrent row carries bf_torr_idx=-1, which means "the film". The first
-    file in a torrent is frequently a readme or an advert -- one release had
-    "Torrent Downloaded From ExtraTorrent.cc.txt" at index 0 and the film at
-    index 1 -- and playing it showed a second of nothing and then ended.
-
-    The largest video is the film. The largest file of any kind is the fallback
-    when nothing has a video extension, and the first file when the list is
-    empty or all zeroes. Largest rather than first also skips a sample.
+    A torrent row carries bf_torr_idx=-1, which means "play this". Best-effort:
+    pick the first/most obvious playable video (earliest episode for TV packs,
+    natural name order for collections), rather than the largest file. The
+    largest video/file remains a fallback for ambiguous or non-video torrents.
     """
     count = files.num_files()
-    best = None
-    best_size = -1
+    videos = []
     fallback = None
     fallback_size = -1
     for index in range(count):
@@ -218,10 +250,23 @@ def pick_main(files):
             fallback, fallback_size = index, size
         if size <= 0:
             continue
-        if os.path.splitext(name)[1].lower() in VIDEO_EXTS and size > best_size:
-            best, best_size = index, size
-    if best is not None:
-        return best
+        if os.path.splitext(name)[1].lower() in VIDEO_EXTS:
+            videos.append((index, name, size))
+
+    if videos:
+        # Prefer non-sample videos when available.
+        non_sample = [v for v in videos if not _is_sample(v[1])]
+        candidates = non_sample if non_sample else videos
+        # If episode markers exist, the obvious first is the earliest episode.
+        with_ep = [(v, _episode_key(v[1])) for v in candidates]
+        episodic = [(v, k) for v, k in with_ep if k is not None]
+        if episodic:
+            chosen = min(episodic, key=lambda vk: (vk[1][0], vk[1][1], _natural_key(vk[0][1]), vk[0][0]))[0]
+            return chosen[0]
+        # Otherwise, first by natural path/name order.
+        chosen = min(candidates, key=lambda v: (_natural_key(v[1]), v[0]))
+        return chosen[0]
+
     if fallback is not None:
         return fallback
     return 0
