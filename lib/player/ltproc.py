@@ -428,6 +428,19 @@ class LibtorrentProcess(ExternalProcess):
         """
         return self.stalled_for()
 
+    def download_active(self):
+        """True while the torrent is incomplete and actively downloading."""
+        if not self._status:
+            return False
+        if self._status.get("checking") is not None:
+            return False
+        info = self.served_file()
+        if info and info["percent"] >= 99:
+            return False
+        state = self._status.get("state")
+        # Any post-metadata transfer state counts as active/running.
+        return state not in (None, "", "metadata")
+
     def debug(self):
         """
         The panel's sections, in the shape it reads them.

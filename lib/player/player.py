@@ -1125,15 +1125,30 @@ class _Player:
         if self._picture_after() is not None:
             return 0
         worst = 0
+        active = False
         for proc in getattr(pipe, "procs", []):
             ask = getattr(proc, "retryable_stall", None)
-            if not callable(ask):
-                continue
-            try:
-                worst = max(worst, int(ask() or 0))
-            except Exception:
-                continue
-        return worst
+            if callable(ask):
+                try:
+                    worst = max(worst, int(ask() or 0))
+                except Exception:
+                    pass
+            is_active = getattr(proc, "download_active", None)
+            if callable(is_active):
+                try:
+                    active = active or bool(is_active())
+                except Exception:
+                    pass
+        if worst > 0:
+            return worst
+        # No explicit peer/progress stall, but playback has not started for a long
+        # time (VLC produced no picture) while the torrent is active. A fresh
+        # session often recovers these "downloading but won't start" hangs.
+        if active and self.play_requested_at is not None:
+            waited = int(time.time() - self.play_requested_at)
+            if waited >= _TORRENT_NOPICTURE_RETRY_AFTER:
+                return waited
+        return 0
 
     def _maybe_retry_torrent(self, status, pipe):
         """Request an automatic torrent retry when stalled with no progress."""
