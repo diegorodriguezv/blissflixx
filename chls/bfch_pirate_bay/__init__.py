@@ -1,6 +1,6 @@
 import urllib.parse
 
-from lib.api.torrent import TorrentPlayItem
+from lib.api.torrent import TorrentPlayItem, icon_for_title
 from lib.chanutils import (
     byte_size,
     get_attr,
@@ -122,16 +122,22 @@ def combine_results(docs):
             subtitle = _subtitle(
                 {"Uploaded": uploaded, "Size": size, "Seeds": seeds, "Peers": peers}
             )
+            # Subcategory: prefer category links (main + sub) over fragile nth-child.
+            cat_links = select_all(l, "a[title='More from this category']")
             subcat = "Movies"
-            el = select_one(l, ":nth-child(3)")
-            if el.text and not el.text.isspace():
-                subcat = get_text(el)
-            if maincat == "Video" and subcat.endswith("shows"):
-                img = "/img/icons/tv.svg"
+            if len(cat_links) > 1:
+                subcat = get_text(cat_links[1]) or subcat
+            else:
+                el3 = select_one(l, ":nth-child(3)")
+                if el3 is not None and el3.text and not (el3.text or "").isspace():
+                    subcat = get_text(el3) or subcat
+            if maincat == "Video":
+                fallback = "/img/icons/tv.svg" if str(subcat).lower().endswith("shows") else "/img/icons/film.svg"
+                img = icon_for_title(title, fallback)
             subs = None
-            if subcat.endswith("Movies"):
+            if str(subcat).lower().endswith("movies"):
                 subs = movie_title_year(title)
-            elif subcat.endswith("shows"):
+            elif str(subcat).lower().endswith("shows"):
                 subs = series_season_episode(title)
             if not url:
                 continue

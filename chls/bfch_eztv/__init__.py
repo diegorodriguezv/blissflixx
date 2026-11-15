@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 
-from lib.api.torrent import TorrentPlayItem
+from lib.api.torrent import TorrentPlayItem, icon_for_title
 from lib.chanutils import get_json
 from lib.playitem import PlayItemList
 
@@ -57,7 +57,7 @@ def feed(idx):
         subtitle = subtitle + ", Seeds: " + seeds
         subtitle = subtitle + ", Released: " + released
         item = TorrentPlayItem(
-            title, "/img/icons/tv.svg", magnet, subtitle, subs=None
+            title, icon_for_title(title, "/img/icons/tv.svg"), magnet, subtitle, subs=None
         )
         results.add(item)
     return results

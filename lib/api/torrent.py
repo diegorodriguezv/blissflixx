@@ -41,6 +41,29 @@ VIDEO_EXTS = (".mkv", ".mp4", ".avi", ".m4v", ".mov", ".webm", ".ts", ".m2ts")
 SUBS_EXTS = (".srt", ".ass", ".ssa", ".vtt")
 
 
+def icon_for_title(title, fallback="/img/icons/film.svg"):
+    """Icon representing the kind of release inferred from its name."""
+    try:
+        from ..chanutils.chanutils import release_kind
+
+        info = release_kind(title or "")
+        kind = info.get("kind")
+        if kind == "episode":
+            return "/img/icons/tv.svg"
+        if kind == "tv_pack":
+            # Single season vs multi-season/complete series.
+            if info.get("pack") or info.get("seasons"):
+                return "/img/icons/tv-pack.svg"
+            return "/img/icons/tv-season.svg"
+        if kind == "movie_pack":
+            return "/img/icons/film-pack.svg"
+        if kind == "movie":
+            return "/img/icons/film.svg"
+    except Exception:
+        pass
+    return fallback
+
+
 class TorrentPlayItem(PlayItem):
     def __init__(self, title, img, url, subtitle=None, synopsis=None, subs=None):
         url = set_torridx(url)
