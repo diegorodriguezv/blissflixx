@@ -170,7 +170,19 @@ def showmore(link):
     files = torrent_files(link)
     if not files:
         raise Exception("Unable to retrieve torrent files")
-    subs = [(i, f[0]) for i, f in enumerate(files) if _has_ext(f[0], SUBS_EXTS)]
+    raw_subs = [(i, f[0]) for i, f in enumerate(files) if _has_ext(f[0], SUBS_EXTS)]
+    # Drop exact duplicates: subtitle files with the same size are almost
+    # certainly the same content (common in packs that ship the same track
+    # twice under different names). Keep the first occurrence.
+    seen_sizes = set()
+    subs = []
+    for idx, name in raw_subs:
+        size = files[idx][1] if isinstance(files[idx][1], int) else 0
+        if size and size in seen_sizes:
+            continue
+        if size:
+            seen_sizes.add(size)
+        subs.append((idx, name))
     results = PlayItemList()
     for idx, f in enumerate(files):
         if isinstance(f[1], str):

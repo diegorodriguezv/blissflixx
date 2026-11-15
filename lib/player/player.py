@@ -812,11 +812,21 @@ class _Player:
                 return
             try:
                 from ..api.torrent import SUBS_EXTS, VIDEO_EXTS, _subs_for
-                subs_list = [
+                raw_subs = [
                     (i, f[0])
                     for i, f in enumerate(tfiles)
                     if f[0].lower().endswith(SUBS_EXTS)
                 ]
+                # Drop exact duplicates by file size.
+                seen_sizes = set()
+                subs_list = []
+                for idx, name in raw_subs:
+                    size = tfiles[idx][1] if isinstance(tfiles[idx][1], int) else 0
+                    if size and size in seen_sizes:
+                        continue
+                    if size:
+                        seen_sizes.add(size)
+                    subs_list.append((idx, name))
                 if not subs_list:
                     return
                 if idx == -1:
