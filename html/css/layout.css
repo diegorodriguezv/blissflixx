@@ -417,6 +417,7 @@ ul.navitems-left>li {
 
 #debugModal .modal-header {
   flex: 0 0 auto;
+  background-color: #fff;
 }
 
 #debugModal .debug-body {
