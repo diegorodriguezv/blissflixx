@@ -59,7 +59,18 @@
 
   </div>
 
-  <div show={ searched && !results }>
+  <div show={ pack }>
+    <hr />
+    <div class="row">
+      <div class="col-xs-12 item-list-msg">
+        This looks like a pack (multiple episodes or a collection). Subtitles are per file:
+        open <strong>View Files</strong> for the torrent and add subtitles from a specific episode or video file.
+        You can also search here for a specific episode/season title.
+      </div>
+    </div>
+  </div>
+
+  <div show={ searched && !results && !pack }>
     <hr />
     <div class="row">
       <div class="col-xs-12 item-list-msg">Nothing found. Try a shorter title, or another year.</div>
@@ -88,6 +99,7 @@
       self.chosen = []
       self.searching = false
       self.searched = false
+      self.pack = false
       riot.route.exec(function(page, url, name) {
         self.url = decodeURIComponent(url)
         self.name = decodeURIComponent(name)
@@ -105,6 +117,7 @@
     search() {
       self.results = null
       self.searched = false
+      self.pack = false
       self.searching = true
       self.chosen = []
       self.update()
@@ -116,6 +129,7 @@
         // The server reads the title and year out of the release name when it
         // is not given them; showing what it understood is how the person sees
         // that it understood.
+        self.pack = !!data.pack
         self.results = (data.results || []).map(function(r) {
           return {id: r.id, name: r.name, lang: r.lang, downloads: r.downloads, checked: false}
         })
@@ -124,6 +138,9 @@
         // What the server read out of the release name, so a second search is
         // the same search rather than a wider one.
         if (data.year && !self.f_year.value) self.f_year.value = data.year
+        if (data.kind === 'tv_season' && data.season && self.f_title.value === data.title) {
+          self.f_title.value = data.title + ' Season ' + data.season
+        }
         self.update()
       })
     }

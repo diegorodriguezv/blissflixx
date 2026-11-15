@@ -203,7 +203,42 @@ def number_commas(x):
 
 
 MOVIE_RE = re.compile(r"(.*)[\(\[]?([12][90]\d\d)[^pP][\(\[]?.*$")
-SERIES_RE = re.compile(r"(.*)S(\d\d)E(\d\d).*$")
+SERIES_RE = re.compile(r"(.*)S(\d\d)E(\d\d).*$", re.IGNORECASE)
+# A season marker without an episode: "S02", "Season 2". Used to tell a season
+# pack or a full season from a one-off episode or a film.
+_SEASON_TOKEN_RE = re.compile(r"\bS(\d{1,2})\b(?!\s*E\d{1,2})", re.IGNORECASE)
+_SEASON_WORD_RE = re.compile(r"\bSeasons?\s*(\d{1,2})(?:\s*[-–to]+\s*(\d{1,2}))?\b", re.IGNORECASE)
+_SEASON_RANGE_RE = re.compile(r"\bS(\d{1,2})\s*[-–to]+\s*S?(\d{1,2})\b", re.IGNORECASE)
+_COMPLETE_SERIES_RE = re.compile(
+    r"\b(complete\s+series|full\s+series|all\s+seasons|complete\s+collection)\b",
+    re.IGNORECASE,
+)
+_MOVIE_PACK_RE = re.compile(
+    r"\b(collection|trilogy|duology|quadrilogy|pentalogy|saga|anthology|box\s*set|film\s*series|movie\s*pack)\b",
+    re.IGNORECASE,
+)
+# Quality/release tags: where the useful name usually ends.
+_CUT_RE = re.compile(
+    r"\b(2160p|1080p|720p|480p|4k|uhd|bluray|bdrip|brrip|webrip|web[ -]?dl|hdtv|dvdrip|x264|x265|h\.?264|h\.?265|hevc|av1|10bit|remux|proper|repack)\b",
+    re.IGNORECASE,
+)
+
+
+def _norm_release_name(name):
+    name = name.replace(".", " ").replace("_", " ")
+    name = re.sub(r"\s+", " ", name).strip()
+    return name
+
+
+def _clean_title(name):
+    """A release name trimmed down to the title part."""
+    name = _norm_release_name(name)
+    m = _CUT_RE.search(name)
+    if m:
+        name = name[: m.start()].strip(" -([])")
+    # Drop trailing separator junk.
+    name = re.sub(r"[\s\-]+$", "", name).strip()
+    return name or _norm_release_name(name)
 
 
 def movie_title_year(name):
@@ -228,6 +263,83 @@ def series_season_episode(name):
     season = int(m.group(2))
     episode = int(m.group(3))
     return {"series": series, "season": season, "episode": episode}
+
+
+def release_kind(name):
+    """
+    What kind of release this looks like: single episode, TV season/pack,
+    movie, or a multi-item pack (collection/complete series).
+
+    Used to pick the right subtitle-search strategy and to recognize container
+    torrents. Heuristic by design: it reads the name only.
+    """
+    norm = _norm_release_name(name)
+    ep = SERIES_RE.match(norm)
+    if ep:
+        return {
+            "kind": "episode",
+            "series": ep.group(1).strip(),
+            "season": int(ep.group(2)),
+            "episode": int(ep.group(3)),
+        }
+
+    # TV season markers (without episode): season pack / full season / range.
+    seasons = [int(x) for x in _SEASON_TOKEN_RE.findall(norm)]
+    seasons = sorted(set(seasons))
+    range_m = _SEASON_RANGE_RE.search(norm)
+    word_m = _SEASON_WORD_RE.search(norm)
+    if range_m:
+        a, b = int(range_m.group(1)), int(range_m.group(2))
+        lo, hi = min(a, b), max(a, b)
+        seasons = sorted(set(seasons) | set(range(lo, hi + 1)))
+    elif word_m and word_m.group(2):
+        a, b = int(word_m.group(1)), int(word_m.group(2))
+        lo, hi = min(a, b), max(a, b)
+        seasons = sorted(set(seasons) | set(range(lo, hi + 1)))
+    elif word_m and not seasons:
+        seasons = [int(word_m.group(1))]
+
+    complete = bool(_COMPLETE_SERIES_RE.search(norm))
+    if seasons or complete:
+        # Title: cut before the first season/pack marker or quality tag.
+        cut_points = []
+        for rx in (_SEASON_RANGE_RE, _SEASON_TOKEN_RE, _SEASON_WORD_RE, _COMPLETE_SERIES_RE, _CUT_RE):
+            mm = rx.search(norm)
+            if mm:
+                cut_points.append(mm.start())
+        series = norm[: min(cut_points)].strip(" -") if cut_points else _clean_title(norm)
+        # Drop unbalanced trailing parens/brackets left by cutting.
+        series = re.sub(r"\s*[\(\[][^)\]]*$", "", series).strip(" -")
+        series = re.sub(r"\s*\((?:19|20)\d{2}$", "", series).strip(" -")
+        if not series:
+            series = _clean_title(norm)
+        info = {"kind": "tv_pack", "series": series}
+        if len(seasons) == 1:
+            info["season"] = seasons[0]
+        elif len(seasons) > 1:
+            info["seasons"] = seasons
+        if complete or len(seasons) != 1:
+            info["pack"] = True
+        if not seasons and complete:
+            info["pack"] = True
+        return info
+
+    if _MOVIE_PACK_RE.search(norm):
+        title = _clean_title(norm)
+        # Try to keep a useful collection title and a leading year if present.
+        my = MOVIE_RE.match(norm)
+        info = {"kind": "movie_pack", "title": title, "pack": True}
+        if my:
+            t = my.group(1).strip(" -([])")
+            if t:
+                info["title"] = t
+            info["year"] = int(my.group(2))
+        return info
+
+    my = movie_title_year(name)
+    if "year" in my:
+        return {"kind": "movie", "title": my["title"], "year": my["year"]}
+    return {"kind": "unknown", "title": my.get("title", _clean_title(norm))}
 
 
 class UrlInfo:
