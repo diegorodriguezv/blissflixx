@@ -271,6 +271,26 @@ class TestMainFileChoice:
         )
         assert bt.pick_main(files) == 1
 
+    def test_deprioritizes_extras_in_favor_of_episodes(self):
+        files = FakeFiles(
+            [
+                ("Show/Extras/Season 1 Extra 1 - Intro.mkv", 100_000_000),
+                ("Show/Season 1/Show.S01E02.mkv", 900_000_000),
+                ("Show/Season 1/Show.S01E01.mkv", 800_000_000),
+            ]
+        )
+        assert bt.pick_main(files) == 2
+
+    def test_deprioritizes_extras_when_no_episode_markers(self):
+        files = FakeFiles(
+            [
+                ("Collection/Extras/Making Of.mkv", 500_000_000),
+                ("Collection/Part 1.mkv", 700_000_000),
+                ("Collection/Part 2.mkv", 900_000_000),
+            ]
+        )
+        assert bt.pick_main(files) == 1
+
     def test_without_a_video_the_largest_file_is_used(self):
         files = FakeFiles([("readme.txt", 100), ("cover.jpg", 900)])
         assert bt.pick_main(files) == 1

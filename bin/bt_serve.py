@@ -194,6 +194,11 @@ VIDEO_EXTS = (".mkv", ".mp4", ".avi", ".m4v", ".mov", ".webm", ".ts", ".m2ts")
 _EPISODE_RE = re.compile(r"[sS](\d{1,2})[ ._-]?[eE](\d{1,3})")
 _EPISODE_ALT_RE = re.compile(r"(?<!\d)(\d{1,2})x(\d{1,3})(?!\d)")
 _SAMPLE_RE = re.compile(r"(^|[\\/\._\-\s\[\(])sample([\\/\._\-\s\]\)]|$)", re.IGNORECASE)
+# Bonus/supplementary content: de-prioritize when choosing "first/obvious" to play.
+_EXTRA_RE = re.compile(
+    r"(^|[\\/\._\-\s\[\(])(extras?|bonus|specials?|special[ ._-]?features?|featurettes?|behind[ ._-]?the[ ._-]?scenes?|deleted[ ._-]?scenes?|interviews?|trailers?|outtakes?|bloopers?|making[ ._-]?of)([\\/\._\-\s\]\)]|$)",
+    re.IGNORECASE,
+)
 
 
 def _natural_key(text):
@@ -211,6 +216,17 @@ def _episode_key(path):
                 return (int(m.group(1)), int(m.group(2)))
             except (TypeError, ValueError):
                 pass
+    # Verbose form: "Season 1 Episode 02" / "Season 1 Ep 2".
+    m = re.search(
+        r"Season[ ._-]?(\d{1,2}).*?(?:Episode|Ep)[ ._-]?(\d{1,3})",
+        name,
+        re.IGNORECASE,
+    )
+    if m:
+        try:
+            return (int(m.group(1)), int(m.group(2)))
+        except (TypeError, ValueError):
+            pass
     # Fallback: combine a season folder marker with an episode-only filename (E01).
     m_season = re.search(r"[sS](\d{1,2})(?![eE\d])", name)
     m_ep = re.search(r"(?<![a-zA-Z0-9])[eE](\d{1,3})(?!\d)", os.path.basename(name))
@@ -225,6 +241,31 @@ def _episode_key(path):
 def _is_sample(path):
     name = os.path.basename(path or "")
     return bool(_SAMPLE_RE.search(name) or _SAMPLE_RE.search(path or ""))
+
+
+_EXTRA_DIR_RE = re.compile(
+    r"^(extras?|bonus|specials?|special[ ._-]?features?|featurettes?|behind[ ._-]?the[ ._-]?scenes?|deleted[ ._-]?scenes?|interviews?|trailers?|outtakes?|bloopers?|samples?|making[ ._-]?of)$",
+    re.IGNORECASE,
+)
+
+
+def _is_extra(path):
+    """Bonus/supplementary content (extras, trailers, featurettes, etc.)."""
+    p = (path or "").replace("\\", "/")
+    parts = [x for x in p.split("/") if x]
+    name = parts[-1] if parts else ""
+    # Directory components indicate extras; skip the torrent root folder name
+    # (often includes collection text like "Extras in HD") to avoid false positives.
+    dir_parts = parts[1:-1] if len(parts) > 2 else parts[:-1]
+    for comp in dir_parts:
+        c = comp.strip()
+        if _EXTRA_DIR_RE.match(c) or re.search(r"\bextras?\b", c, re.IGNORECASE) and re.search(r"^(extras?|bonus disc|special features?)\b", c, re.IGNORECASE):
+            return True
+    # Filename-level bonus markers (e.g. "Trailer", "Featurette", "Extra 1" in extras dirs caught above,
+    # but also standalone bonus files).
+    if re.search(r"(^|[\\/\._\-\s\[\(])(trailer|featurette|behind[ ._-]?the[ ._-]?scenes|deleted[ ._-]?scene|interview|outtake|blooper|making[ ._-]?of|sample)([\\/\._\-\s\]\)]|$)", name, re.IGNORECASE):
+        return True
+    return False
 
 
 def pick_main(files):
@@ -256,13 +297,24 @@ def pick_main(files):
     if videos:
         # Prefer non-sample videos when available.
         non_sample = [v for v in videos if not _is_sample(v[1])]
-        candidates = non_sample if non_sample else videos
+        base = non_sample if non_sample else videos
+        # De-prioritize extras/bonus content when there are better candidates.
+        non_extra = [v for v in base if not _is_extra(v[1])]
+        candidates = non_extra if non_extra else base
         # If episode markers exist, the obvious first is the earliest episode.
+        # Prefer episodic files over non-episodic (e.g. extras without SxxEyy).
         with_ep = [(v, _episode_key(v[1])) for v in candidates]
         episodic = [(v, k) for v, k in with_ep if k is not None]
         if episodic:
             chosen = min(episodic, key=lambda vk: (vk[1][0], vk[1][1], _natural_key(vk[0][1]), vk[0][0]))[0]
             return chosen[0]
+        if any(k is not None for v, k in [(v, _episode_key(v[1])) for v in base]):
+            # Candidates had no episodic files (e.g. all extras) but the pack does;
+            # fall back to earliest episodic file overall.
+            all_ep = [(v, _episode_key(v[1])) for v in base if _episode_key(v[1]) is not None]
+            if all_ep:
+                chosen = min(all_ep, key=lambda vk: (vk[1][0], vk[1][1], _natural_key(vk[0][1]), vk[0][0]))[0]
+                return chosen[0]
         # Otherwise, first by natural path/name order.
         chosen = min(candidates, key=lambda v: (_natural_key(v[1]), v[0]))
         return chosen[0]
