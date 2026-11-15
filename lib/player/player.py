@@ -942,9 +942,10 @@ class _Player:
             # The usual reason is that the old pipe is still stopping: VLC
             # takes its time to let go of the display, and for those seconds
             # the bar used to go blank. Show the waiting instead.
-            _pipe, started, from_playlist = self.pending
+            pending_pipe, started, from_playlist = self.pending
             status["State"] = ST_STARTING
-            status["Title"] = "LOADING STREAM"
+            title = getattr(pending_pipe, "title", None) or "LOADING STREAM"
+            status["Title"] = title
             status["Elapsed"] = max(0, int(time.time() - started))
             status["Playlist"] = from_playlist
             return status
@@ -955,7 +956,10 @@ class _Player:
         if self.play_requested_at is not None:
             status["Elapsed"] = int(time.time() - self.play_requested_at)
 
-        status["Title"] = play_pipe.status_msg()
+        title = play_pipe.status_msg()
+        if title in ("LOADING STREAM", "LOOKING FOR PEERS"):
+            title = getattr(play_pipe, "title", None) or title
+        status["Title"] = title
         status["Waiting"] = play_pipe.waiting()
         ask_live = getattr(play_pipe, "is_live", None)
         status["Live"] = bool(ask_live()) if callable(ask_live) else False
