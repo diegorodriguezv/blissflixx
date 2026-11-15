@@ -404,7 +404,7 @@ ul.navitems-left>li {
 
 .debug-pre {
   margin: 0;
-  max-height: 72vh;
+  max-height: calc(100vh - 80px);
   overflow-y: auto;
   overflow-x: hidden;
   font-family: Menlo, Consolas, "DejaVu Sans Mono", monospace;
