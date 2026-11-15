@@ -412,7 +412,7 @@ ul.navitems-left>li {
   border-radius: 0;
   display: flex;
   flex-direction: column;
-  background-color: #fff;
+  background-color: #4C7488;
 }
 
 #debugModal .modal-header {
@@ -427,6 +427,7 @@ ul.navitems-left>li {
   overflow: hidden;
   display: flex;
   flex-direction: column;
+  background-color: #4C7488;
 }
 
 #debugModal .debug-pre {
@@ -442,7 +443,8 @@ ul.navitems-left>li {
   line-height: 1.4;
   white-space: pre-wrap;
   word-break: break-word;
-  color: #22333f;
+  color: #fff;
+  background-color: #4C7488;
 }
 
 /*
