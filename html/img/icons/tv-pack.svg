@@ -1,6 +1,6 @@
 <svg width="2048" height="2048" viewBox="0 0 2048 2048" xmlns="http://www.w3.org/2000/svg">
   <g>
-    <g transform="translate(1140,105) scale(0.32)" opacity="0.50">
+    <g transform="translate(1345,105) scale(0.32)" opacity="0.50">
     <g transform="scale(85.3333333)" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none">
       <path d="M3 9a2 2 0 0 1 2 -2h14a2 2 0 0 1 2 2v9a2 2 0 0 1 -2 2h-14a2 2 0 0 1 -2 -2l0 -9" />
       <path d="M16 3l-4 4l-4 -4" />
@@ -9,7 +9,7 @@
       <path d="M18 12v.01" />
     </g>
     </g>
-    <g transform="translate(1140,1065) scale(0.32)" opacity="0.50">
+    <g transform="translate(1345,1065) scale(0.32)" opacity="0.50">
     <g transform="scale(85.3333333)" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none">
       <path d="M3 9a2 2 0 0 1 2 -2h14a2 2 0 0 1 2 2v9a2 2 0 0 1 -2 2h-14a2 2 0 0 1 -2 -2l0 -9" />
       <path d="M16 3l-4 4l-4 -4" />
