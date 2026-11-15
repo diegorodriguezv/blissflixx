@@ -1,22 +1,94 @@
 <error>
-  <div show={ type == 'offline' }>
-    <h1>It looks like the server is not running. Please restart the server and <a class="underline" href="#">try again</a>.</h1>
+  <div show={ offline }>
+    <h1>It looks like the server is not running. Please restart the server and <a class="underline" href="#" onclick={ retry }>try again</a>.</h1>
   </div>
-  <div hide={ type == 'offline' }>
-    <h1>{ type }</h1>
-    <pre>{ msg }</pre>
+  <div hide={ offline } class="error-page">
+    <h2 class="error-title">{ title }</h2>
+    <p class="error-summary" show={ summary }>{ summary }</p>
+    <div class="error-actions">
+      <button class="btn btn-default" onclick={ retry }>Retry</button>
+      <button class="btn btn-default" onclick={ cancel }>Cancel</button>
+      <button class="btn btn-link" show={ hasDetails } onclick={ toggleDetails }>{ showDetails ? 'Hide details' : 'Show details' }</button>
+    </div>
+    <pre class="error-details" show={ showDetails && details }>{ details }</pre>
   </div>
 
   <script>
     var self = this
+    self.showDetails = false
+
+    function clean(s) {
+      return (s || '').replace(/\s+$/,'')
+    }
 
     this.on('mount', function() {
       riot.route.exec(function(page, type, msg) {
-        self.type = decodeURIComponent(type)
-        self.msg = decodeURIComponent(msg)
+        self.rawType = decodeURIComponent(type || '')
+        self.rawMsg = clean(decodeURIComponent(msg || ''))
+        self.offline = self.rawType === 'offline'
+        self.showDetails = false
+
+        // Human-friendly title
+        var m = self.rawType.match(/:\s*(\d{3})$/)
+        var status = m ? m[1] : null
+        if (self.rawType.indexOf('timeout') === 0) {
+          self.title = 'Request timed out'
+        } else if (status === '400') {
+          self.title = 'Could not complete request'
+        } else if (status === '404') {
+          self.title = 'Not found'
+        } else if (status === '503') {
+          self.title = 'Service unavailable'
+        } else if (status === '500') {
+          self.title = 'Something went wrong'
+        } else if (status) {
+          self.title = 'Request failed (' + status + ')'
+        } else if (self.rawType && self.rawType !== 'offline') {
+          self.title = self.rawType
+        } else {
+          self.title = 'Something went wrong'
+        }
+
+        // Split summary vs details (tracebacks/long technical output)
+        var text = self.rawMsg || 'An unexpected error occurred.'
+        var lines = text.split('\n')
+        var looksTrace = text.indexOf('Traceback') >= 0 || text.indexOf('  File ') >= 0 || lines.length > 4
+        if (looksTrace) {
+          self.summary = lines[0]
+          self.details = text
+          self.hasDetails = true
+        } else {
+          self.summary = text
+          self.details = ''
+          self.hasDetails = false
+        }
         self.update()
       })
     })
+
+    retry(e) {
+      if (e) e.preventDefault()
+      window.history.back()
+    }
+
+    cancel(e) {
+      if (e) e.preventDefault()
+      window.history.go(-2)
+    }
+
+    toggleDetails(e) {
+      if (e) e.preventDefault()
+      self.showDetails = !self.showDetails
+      self.update()
+    }
   </script>
 
+  <style scoped>
+    .error-page { max-width: 900px; }
+    .error-title { margin-top: 0; }
+    .error-summary { font-size: 16px; white-space: pre-wrap; }
+    .error-actions { margin: 12px 0 8px; }
+    .error-actions .btn { margin-right: 8px; margin-bottom: 6px; }
+    .error-details { margin-top: 10px; max-height: 50vh; overflow: auto; white-space: pre-wrap; }
+  </style>
 </error>

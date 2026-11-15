@@ -1,6 +1,8 @@
 import json
 import subprocess
 
+import cherrypy
+
 from ..chanutils.chanutils import movie_title_year, release_kind, series_season_episode
 from ..player.subsproc import GETSUBS_PATH
 from .common import ApiError
@@ -111,22 +113,30 @@ def search(name=None, lang=None, title=None, year=None):
     elif year and wanted_kind not in ("tv_season", "episode"):
         cmd = cmd + ["-y", str(year)]
     try:
-        out = subprocess.check_output(cmd, stderr=subprocess.STDOUT, timeout=90).decode(
-            "utf-8"
-        )
-        found = json.loads(out)
+        out = subprocess.check_output(cmd, stderr=subprocess.STDOUT, timeout=300)
     except subprocess.TimeoutExpired:
         raise ApiError(
-            "OpenSubtitles did not answer in time", ApiError._SERVICE_UNAVAILABLE
+            "OpenSubtitles is taking too long to respond. Please try again.",
+            ApiError._SERVICE_UNAVAILABLE,
         )
     except subprocess.CalledProcessError as exc:
+        detail = exc.output.decode("utf-8", "replace").strip()
+        if detail:
+            cherrypy.log("OpenSubtitles search failed:\n" + detail)
         raise ApiError(
-            "OpenSubtitles search failed: " + exc.output.decode("utf-8", "replace")
+            "Could not search OpenSubtitles right now. Please try again.",
+            ApiError._SERVICE_UNAVAILABLE,
         )
-    except ValueError:
-        raise ApiError("OpenSubtitles answered with something unreadable")
+    detail_text = out.decode("utf-8", "replace")
+    try:
+        found = json.loads(detail_text)
+    except Exception:
+        if detail_text.strip():
+            cherrypy.log("OpenSubtitles unreadable response:\n" + detail_text.strip())
+        raise ApiError("OpenSubtitles returned an unreadable response. Please try again.")
     if isinstance(found, dict) and "error" in found:
-        raise ApiError("OpenSubtitles: " + str(found["error"]))
+        msg = str(found.get("error") or "Search failed").strip()
+        raise ApiError("OpenSubtitles: " + msg)
     return {
         "title": title,
         "year": year,

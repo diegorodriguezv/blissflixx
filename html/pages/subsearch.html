@@ -70,7 +70,24 @@
     </div>
   </div>
 
-  <div show={ searched && !results && !pack }>
+  <div show={ errorMsg }>
+    <hr />
+    <div class="row">
+      <div class="col-xs-12">
+        <div class="alert alert-warning">
+          <div><strong>{ errorTitle }</strong></div>
+          <div show={ errorSummary }>{ errorSummary }</div>
+          <div style="margin-top:8px">
+            <button class="btn btn-default btn-sm" onclick={ search }>Retry</button>
+            <button class="btn btn-link btn-sm" show={ errorDetails } onclick={ toggleErrorDetails }>{ showErrorDetails ? 'Hide details' : 'Show details' }</button>
+          </div>
+          <pre show={ showErrorDetails && errorDetails } style="margin-top:8px; white-space:pre-wrap; max-height:30vh; overflow:auto">{ errorDetails }</pre>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div show={ searched && !results && !pack && !errorMsg }>
     <hr />
     <div class="row">
       <div class="col-xs-12 item-list-msg">Nothing found. Try a shorter title, or another year.</div>
@@ -95,11 +112,33 @@
       {code:"jpn", name:"Japanese"},
     ]
 
+    function parseRpcError(err) {
+      // err format from Utils: "/<type>/<msg>" (encoded)
+      if (typeof err !== 'string') return {title:'Something went wrong', summary:'An unexpected error occurred.', details:''}
+      var parts = err.split('/')
+      var type = decodeURIComponent(parts[1] || '')
+      var msg = decodeURIComponent(parts.slice(2).join('/') || '')
+      var statusMatch = type.match(/:\s*(\d{3})$/)
+      var status = statusMatch ? statusMatch[1] : null
+      var title = 'Something went wrong'
+      if (type.indexOf('timeout') === 0) title = 'Request timed out'
+      else if (status === '503') title = 'Service unavailable'
+      else if (status === '500') title = 'Something went wrong'
+      else if (status === '400') title = 'Could not complete request'
+      else if (status) title = 'Request failed (' + status + ')'
+      var lines = (msg || '').split('\n')
+      var looksTrace = msg.indexOf('Traceback') >= 0 || msg.indexOf('  File ') >= 0 || lines.length > 4
+      if (looksTrace) return {title:title, summary:lines[0] || 'Request failed.', details:msg}
+      return {title:title, summary:msg || 'Request failed.', details:''}
+    }
+
     this.on('mount', function() {
       self.chosen = []
       self.searching = false
       self.searched = false
       self.pack = false
+      self.errorMsg = null
+      self.showErrorDetails = false
       riot.route.exec(function(page, url, name) {
         self.url = decodeURIComponent(url)
         self.name = decodeURIComponent(name)
@@ -114,18 +153,39 @@
       })
     })
 
+    toggleErrorDetails(e) {
+      if (e) e.preventDefault()
+      self.showErrorDetails = !self.showErrorDetails
+      self.update()
+    }
+
     search() {
+      if (self.searching) return
       self.results = null
       self.searched = false
       self.pack = false
       self.searching = true
+      self.errorMsg = null
+      self.errorTitle = ''
+      self.errorSummary = ''
+      self.errorDetails = ''
+      self.showErrorDetails = false
       self.chosen = []
       self.update()
       var title = self.f_title.value
       var year = self.f_year.value
       Utils.rpc('subtitles', 'search', {name: title, year: year || null, lang: self.f_lang.value}, function(err, data) {
         self.searching = false
-        if (err) return Utils.showError(err)
+        if (err) {
+          var p = parseRpcError(err)
+          self.errorMsg = true
+          self.errorTitle = p.title
+          self.errorSummary = p.summary
+          self.errorDetails = p.details
+          self.searched = true
+          self.update()
+          return
+        }
         // The server reads the title and year out of the release name when it
         // is not given them; showing what it understood is how the person sees
         // that it understood.

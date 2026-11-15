@@ -55,9 +55,10 @@ class TimeoutTransport(Transport, object):
 
 class OpensubSession(object):
     def __init__(self):
+        # Be patient with a slow upstream; keep trying rather than failing fast.
         self.con = ServerProxy(
             "http://api.opensubtitles.org/xml-rpc",
-            transport=TimeoutTransport(10),
+            transport=TimeoutTransport(60),
             headers=(),
         )
         # Login and use subliminal user-agent
@@ -296,8 +297,10 @@ if args.choosens:
     chosen_subs(args)
     sys.exit(0)
 
+# Retry persistently: upstream can be slow or flaky; keep trying to fulfill the request.
 filename = None
-for i in range(3):
+last_err = None
+for i in range(10):
     try:
         if is_movie:
             filename = movie_subs(args)
@@ -305,6 +308,7 @@ for i in range(3):
             filename = series_subs(args)
         break
     except Exception as e:
+        last_err = e
         filename = "ERROR: " + str(e)
 
 if filename is None:

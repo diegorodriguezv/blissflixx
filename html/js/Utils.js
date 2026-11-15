@@ -4,14 +4,13 @@ var Utils = {
     var payload = { fn: fn }
     if (data) payload['data'] = JSON.stringify(data)
     // Bounded. A server that has accepted the connection and then stopped
-    // answering used to leave the page spinning for ever; twenty seconds is
-    // longer than the slowest feed here (the IPTV catalogue on a cold start
-    // takes about five) and short enough to say something went wrong.
+    // answering used to leave the page spinning for ever; allow enough time for
+    // slower operations (e.g. subtitle search) while still failing eventually.
     $.ajax({
       url: url,
       data: payload,
       dataType: 'json',
-      timeout: 20000,
+      timeout: 120000,
       success: function(data) {
         cb(null, data)
       },
