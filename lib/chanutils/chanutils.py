@@ -204,16 +204,23 @@ def number_commas(x):
 
 MOVIE_RE = re.compile(r"(.*)[\(\[]?([12][90]\d\d)[^pP][\(\[]?.*$")
 SERIES_RE = re.compile(r"(.*)S(\d\d)E(\d\d).*$", re.IGNORECASE)
+# Miniseries/documentary parts: "3of3", "Part 2 of 6"
+_PART_RE = re.compile(r"\b(?:part\s*)?(\d{1,2})\s*of\s*(\d{1,2})\b", re.IGNORECASE)
 # A season marker without an episode: "S02", "Season 2". Used to tell a season
 # pack or a full season from a one-off episode or a film.
 _SEASON_TOKEN_RE = re.compile(r"\bS(\d{1,2})\b(?!\s*E\d{1,2})", re.IGNORECASE)
-_SEASON_WORD_RE = re.compile(r"\bSeasons?\s*(\d{1,2})(?:\s*[-–to]+\s*(\d{1,2}))?\b", re.IGNORECASE)
+_SEASON_WORD_RE = re.compile(r"\bSeasons?\s*([\d][\d,\s&and\-–to]*)", re.IGNORECASE)
 _SEASON_RANGE_RE = re.compile(r"\bS(\d{1,2})\s*[-–to]+\s*S?(\d{1,2})\b", re.IGNORECASE)
 _COMPLETE_SERIES_RE = re.compile(
     r"\b(complete\s+series|full\s+series|all\s+seasons|full\s+season|complete\s+seasons?)\b",
     re.IGNORECASE,
 )
 _COMPLETE_WORD_RE = re.compile(r"\bcomplete\b", re.IGNORECASE)
+# Collections that are clearly TV/anime series bundles.
+_TV_COLLECTION_RE = re.compile(
+    r"\b(ovas?\b.*\bseries\b|\bseries\b.*\bovas?\b|\bspinoffs?\b|\banime\s+series\b)\b",
+    re.IGNORECASE,
+)
 _MOVIE_PACK_RE = re.compile(
     r"\b(collection|trilogy|duology|quadrilogy|pentalogy|saga|anthology|box\s*set|film\s*series|movie\s*pack)\b",
     re.IGNORECASE,
@@ -284,6 +291,36 @@ def release_kind(name):
             "episode": int(ep.group(3)),
         }
 
+    # Miniseries/documentary parts like "3of3".
+    part_m = _PART_RE.search(norm)
+    if part_m:
+        cut = _CUT_RE.search(norm)
+        series = norm[: (part_m.start())].strip(" -([])")
+        if not series:
+            series = norm[: cut.start()].strip(" -([])") if cut else _clean_title(norm)
+        return {
+            "kind": "episode",
+            "series": series or _clean_title(norm),
+            "episode": int(part_m.group(1)),
+        }
+
+    # Dated TV episodes (talk shows, sports, dailies): "Show 2026 11 13" / "2026-11-13"
+    airdate_m = re.search(r"\b(20\d{2})[\s._-](0?[1-9]|1[0-2])[\s._-](0?[1-9]|[12]\d|3[01])\b", norm)
+    if airdate_m:
+        series = norm[: airdate_m.start()].strip(" -([])")
+        if not series:
+            series = _clean_title(norm)
+        return {
+            "kind": "episode",
+            "series": series or _clean_title(norm),
+        }
+
+    # TV specials/events commonly labeled as PPV.
+    if re.search(r"\bPPV\b", norm):
+        cut = _CUT_RE.search(norm)
+        series = norm[: cut.start()].strip(" -([])") if cut else _clean_title(norm)
+        return {"kind": "episode", "series": series or _clean_title(norm)}
+
     # TV season markers (without episode): season pack / full season / range.
     seasons = [int(x) for x in _SEASON_TOKEN_RE.findall(norm)]
     seasons = sorted(set(seasons))
@@ -293,28 +330,34 @@ def release_kind(name):
         a, b = int(range_m.group(1)), int(range_m.group(2))
         lo, hi = min(a, b), max(a, b)
         seasons = sorted(set(seasons) | set(range(lo, hi + 1)))
-    elif word_m and word_m.group(2):
-        a, b = int(word_m.group(1)), int(word_m.group(2))
-        lo, hi = min(a, b), max(a, b)
-        seasons = sorted(set(seasons) | set(range(lo, hi + 1)))
-    elif word_m and not seasons:
-        seasons = [int(word_m.group(1))]
+    elif word_m:
+        grp = word_m.group(1) or ""
+        nums = [int(x) for x in re.findall(r"\d{1,2}", grp)]
+        range_word = re.search(r"(\d{1,2})\s*(?:-|–|\bto\b)\s*(\d{1,2})", grp, re.IGNORECASE)
+        if range_word:
+            lo, hi = int(range_word.group(1)), int(range_word.group(2))
+            lo, hi = min(lo, hi), max(lo, hi)
+            seasons = sorted(set(seasons) | set(range(lo, hi + 1)))
+        elif nums:
+            seasons = sorted(set(seasons) | set(nums))
 
     complete = bool(_COMPLETE_SERIES_RE.search(norm))
     complete_word = bool(_COMPLETE_WORD_RE.search(norm))
+    tv_collection = bool(_TV_COLLECTION_RE.search(norm))
     movie_pack_kw = bool(_MOVIE_PACK_RE.search(norm))
 
-    if seasons or complete or (complete_word and not movie_pack_kw):
+    if seasons or complete or tv_collection or (complete_word and not movie_pack_kw):
         # Title: cut before the first season/pack marker or quality tag.
         cut_points = []
-        for rx in (_SEASON_RANGE_RE, _SEASON_TOKEN_RE, _SEASON_WORD_RE, _COMPLETE_SERIES_RE, _COMPLETE_WORD_RE, _CUT_RE):
+        for rx in (_SEASON_RANGE_RE, _SEASON_TOKEN_RE, _SEASON_WORD_RE, _COMPLETE_SERIES_RE, _COMPLETE_WORD_RE, _TV_COLLECTION_RE, _CUT_RE):
             mm = rx.search(norm)
             if mm:
                 cut_points.append(mm.start())
-        series = norm[: min(cut_points)].strip(" -") if cut_points else _clean_title(norm)
+        series = norm[: min(cut_points)].strip(" -:") if cut_points else _clean_title(norm)
         # Drop unbalanced trailing parens/brackets left by cutting.
-        series = re.sub(r"\s*[\(\[][^)\]]*$", "", series).strip(" -")
-        series = re.sub(r"\s*\((?:19|20)\d{2}$", "", series).strip(" -")
+        series = re.sub(r"\s*[\(\[][^)\]]*$", "", series).strip(" -:")
+        series = re.sub(r"\s*\((?:19|20)\d{2}$", "", series).strip(" -:")
+        series = re.sub(r"\s+\bThe\b$", "", series, flags=re.IGNORECASE).strip(" -:")
         if not series:
             series = _clean_title(norm)
         info = {"kind": "tv_pack", "series": series}
@@ -325,13 +368,10 @@ def release_kind(name):
         # A "series pack" spans multiple seasons or is explicitly a complete
         # series. A single season (even if labelled "complete") is a season pack.
         multi_season = len(seasons) > 1
-        complete_series = bool(_COMPLETE_SERIES_RE.search(norm)) or (complete_word and not seasons)
+        complete_series = bool(_COMPLETE_SERIES_RE.search(norm)) or tv_collection or (complete_word and not seasons)
         if multi_season or complete_series:
             info["pack"] = True
-            if multi_season:
-                info["scope"] = "series"
-            else:
-                info["scope"] = "series"
+            info["scope"] = "series"
         else:
             info["scope"] = "season"
         return info
