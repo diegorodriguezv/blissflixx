@@ -202,13 +202,14 @@ def number_commas(x):
     return f"{x}{result}"
 
 
-MOVIE_RE = re.compile(r"(.*)[\(\[]?([12][90]\d\d)[^pP][\(\[]?.*$")
+MOVIE_RE = re.compile(r"(.*)[\(\[]?((?:19|20)\d\d)(?:[^pP\d]|$)[\)\]]?.*$")
 SERIES_RE = re.compile(r"(.*)S(\d\d)E(\d\d).*$", re.IGNORECASE)
 # Miniseries/documentary parts: "3of3", "Part 2 of 6"
 _PART_RE = re.compile(r"\b(?:part\s*)?(\d{1,2})\s*of\s*(\d{1,2})\b", re.IGNORECASE)
 # A season marker without an episode: "S02", "Season 2". Used to tell a season
-# pack or a full season from a one-off episode or a film.
-_SEASON_TOKEN_RE = re.compile(r"\bS(\d{1,2})\b(?!\s*E\d{1,2})", re.IGNORECASE)
+# pack or a full season from a one-off episode or a film. Exclude "S4:"-style
+# title prefixes (e.g. "S4: The Bob Lazar Story").
+_SEASON_TOKEN_RE = re.compile(r"\bS(\d{1,2})\b(?!\s*E\d{1,2})(?!:)", re.IGNORECASE)
 _SEASON_WORD_RE = re.compile(r"\bSeasons?\s*([\d][\d,\s&and\-–to]*)", re.IGNORECASE)
 _SEASON_RANGE_RE = re.compile(r"\bS(\d{1,2})\s*[-–to]+\s*S?(\d{1,2})\b", re.IGNORECASE)
 _COMPLETE_SERIES_RE = re.compile(
@@ -376,12 +377,17 @@ def release_kind(name):
             info["scope"] = "season"
         return info
 
-    if movie_pack_kw:
+    # Comma-separated list of multiple titles often means a collection/pack.
+    comma_parts = [p.strip() for p in re.split(r"\s*,\s*", norm) if p.strip()]
+    looks_like_title_list = len(comma_parts) >= 3 and not re.search(r"\bS\d{1,2}E\d{1,2}\b", norm, re.IGNORECASE)
+    documentary_collection = bool(re.search(r"\bdocumentaries\b", norm, re.IGNORECASE))
+
+    if movie_pack_kw or looks_like_title_list or documentary_collection:
         title = _clean_title(norm)
         # Try to keep a useful collection title and a leading year if present.
         my = MOVIE_RE.match(norm)
         info = {"kind": "movie_pack", "title": title, "pack": True}
-        if my:
+        if movie_pack_kw and my:
             t = my.group(1).strip(" -([])")
             if t:
                 info["title"] = t
@@ -391,6 +397,10 @@ def release_kind(name):
     my = movie_title_year(name)
     if "year" in my:
         return {"kind": "movie", "title": my["title"], "year": my["year"]}
+    # Trailing year at end of title (e.g. "Norm ... 2026") not caught by MOVIE_RE.
+    trail = re.match(r"^(.*\S)\s+((?:19|20)\d\d)$", norm)
+    if trail:
+        return {"kind": "movie", "title": trail.group(1).strip(), "year": int(trail.group(2))}
     return {"kind": "unknown", "title": my.get("title", _clean_title(norm))}
 
 
