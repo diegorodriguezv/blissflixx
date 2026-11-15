@@ -393,35 +393,47 @@ ul.navitems-left>li {
 /* The diagnostics panel. Sized for a television rather than a laptop: a
  * monospace block at reading size, and its own scroll so the bar behind it
  * never moves. */
-.debug-dialog {
-  width: 92%;
-  max-width: 1200px;
-  margin: 0 auto;
+#debugModal {
+  padding: 0 !important;
+}
+
+#debugModal .debug-dialog {
+  width: 100vw;
+  max-width: none;
+  margin: 0;
   height: 100vh;
-  display: flex;
-  flex-direction: column;
 }
 
-.modal-content {
-  display: flex;
-  flex-direction: column;
-  height: 100%;
+#debugModal .modal-content {
+  height: 100vh;
   max-height: 100vh;
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  display: flex;
+  flex-direction: column;
+  background-color: #fff;
 }
 
-.debug-body {
+#debugModal .modal-header {
+  flex: 0 0 auto;
+}
+
+#debugModal .debug-body {
   padding: 0;
-  flex: 1;
+  flex: 1 1 auto;
+  min-height: 0;
   overflow: hidden;
   display: flex;
   flex-direction: column;
 }
 
-.debug-pre {
+#debugModal .debug-pre {
   margin: 0;
-  flex: 1;
-  max-height: none;
+  flex: 1 1 auto;
+  min-height: 0;
   height: auto;
+  max-height: none;
   overflow-y: auto;
   overflow-x: hidden;
   font-family: Menlo, Consolas, "DejaVu Sans Mono", monospace;
