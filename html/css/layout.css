@@ -396,10 +396,11 @@ ul.navitems-left>li {
 .debug-dialog {
   width: 92%;
   max-width: 1200px;
+  margin: 0 auto;
 }
 
 .debug-body {
-  padding: 0 18px 18px 18px;
+  padding: 0;
 }
 
 .debug-pre {
