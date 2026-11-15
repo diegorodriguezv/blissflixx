@@ -418,6 +418,13 @@ ul.navitems-left>li {
 #debugModal .modal-header {
   flex: 0 0 auto;
   background-color: #4C7488;
+  color: #fff;
+}
+
+#debugModal .debug-title {
+  font-size: 20px;
+  font-weight: bold;
+  line-height: 1.2;
 }
 
 #debugModal .debug-body {
