@@ -2,6 +2,7 @@
   <div class="row break-long-word">
     <span class="col-xs-12 item-list-title">
     <backbtn></backbtn> <span>{ title }</span>
+    <span show={ counts } class="item-subtitle"> · { counts }</span>
     </span>
   </div>
   <hr />
@@ -19,6 +20,13 @@
         Utils.rpc('torrent', 'files', {link:self.link}, function(err, items) {
           if (err) return Utils.showError(err)
           self.results = items;
+          var videos = 0, subs = 0
+          ;(items || []).forEach(function(it) {
+            if (it.img && it.img.indexOf('subtitles.svg') >= 0) subs++
+            else if (it.img && it.img.indexOf('film.svg') >= 0) videos++
+          })
+          self.counts = videos + ' video' + (videos == 1 ? '' : 's') +
+            ' · ' + subs + ' subtitle' + (subs == 1 ? '' : 's')
           self.update()
         })
       })
