@@ -322,10 +322,18 @@ def release_kind(name):
             info["season"] = seasons[0]
         elif len(seasons) > 1:
             info["seasons"] = seasons
-        if complete or complete_word or len(seasons) != 1:
+        # A "series pack" spans multiple seasons or is explicitly a complete
+        # series. A single season (even if labelled "complete") is a season pack.
+        multi_season = len(seasons) > 1
+        complete_series = bool(_COMPLETE_SERIES_RE.search(norm)) or (complete_word and not seasons)
+        if multi_season or complete_series:
             info["pack"] = True
-        if not seasons and (complete or complete_word):
-            info["pack"] = True
+            if multi_season:
+                info["scope"] = "series"
+            else:
+                info["scope"] = "series"
+        else:
+            info["scope"] = "season"
         return info
 
     if movie_pack_kw:
