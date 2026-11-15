@@ -210,9 +210,10 @@ _SEASON_TOKEN_RE = re.compile(r"\bS(\d{1,2})\b(?!\s*E\d{1,2})", re.IGNORECASE)
 _SEASON_WORD_RE = re.compile(r"\bSeasons?\s*(\d{1,2})(?:\s*[-–to]+\s*(\d{1,2}))?\b", re.IGNORECASE)
 _SEASON_RANGE_RE = re.compile(r"\bS(\d{1,2})\s*[-–to]+\s*S?(\d{1,2})\b", re.IGNORECASE)
 _COMPLETE_SERIES_RE = re.compile(
-    r"\b(complete\s+series|full\s+series|all\s+seasons|complete\s+collection)\b",
+    r"\b(complete\s+series|full\s+series|all\s+seasons|full\s+season|complete\s+seasons?)\b",
     re.IGNORECASE,
 )
+_COMPLETE_WORD_RE = re.compile(r"\bcomplete\b", re.IGNORECASE)
 _MOVIE_PACK_RE = re.compile(
     r"\b(collection|trilogy|duology|quadrilogy|pentalogy|saga|anthology|box\s*set|film\s*series|movie\s*pack)\b",
     re.IGNORECASE,
@@ -300,10 +301,13 @@ def release_kind(name):
         seasons = [int(word_m.group(1))]
 
     complete = bool(_COMPLETE_SERIES_RE.search(norm))
-    if seasons or complete:
+    complete_word = bool(_COMPLETE_WORD_RE.search(norm))
+    movie_pack_kw = bool(_MOVIE_PACK_RE.search(norm))
+
+    if seasons or complete or (complete_word and not movie_pack_kw):
         # Title: cut before the first season/pack marker or quality tag.
         cut_points = []
-        for rx in (_SEASON_RANGE_RE, _SEASON_TOKEN_RE, _SEASON_WORD_RE, _COMPLETE_SERIES_RE, _CUT_RE):
+        for rx in (_SEASON_RANGE_RE, _SEASON_TOKEN_RE, _SEASON_WORD_RE, _COMPLETE_SERIES_RE, _COMPLETE_WORD_RE, _CUT_RE):
             mm = rx.search(norm)
             if mm:
                 cut_points.append(mm.start())
@@ -318,13 +322,13 @@ def release_kind(name):
             info["season"] = seasons[0]
         elif len(seasons) > 1:
             info["seasons"] = seasons
-        if complete or len(seasons) != 1:
+        if complete or complete_word or len(seasons) != 1:
             info["pack"] = True
-        if not seasons and complete:
+        if not seasons and (complete or complete_word):
             info["pack"] = True
         return info
 
-    if _MOVIE_PACK_RE.search(norm):
+    if movie_pack_kw:
         title = _clean_title(norm)
         # Try to keep a useful collection title and a leading year if present.
         my = MOVIE_RE.match(norm)
