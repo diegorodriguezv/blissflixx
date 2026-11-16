@@ -100,19 +100,21 @@ hand; a normal install starts when the box does.
 
 * `-blank`
 
-Install a system service script to blank the screen when the system starts up.
+Configure screen blanking:
 
-**On current Raspberry Pi OS this does nothing, on either kind of install.**
-`blank_screen.sh` has two paths, one for each kind of install: `tvservice -p`
-for a headless 'lite' image, which needs no X, and `xset dpms` for a desktop,
-which only runs when `xinit` exists. Neither is available now. `tvservice` was
-part of a display stack Raspberry Pi OS no longer ships, and is not in the
-archive to be installed. `xset` is present on a desktop but needs an X server
-that a 'lite' install does not run.
+- **Lite/console (robust):** sets `consoleblank=300` in the boot kernel cmdline
+  (`/boot/firmware/cmdline.txt` or `/boot/cmdline.txt`) so the framebuffer/tty
+  blanks after inactivity. **Reboot required.** This does not guarantee the TV
+  enters low-power/standby mode (TV behavior varies).
+- **X/desktop (best-effort):** installs/updates `blankscreen.service`, which
+  runs `blank_screen.sh` at boot to enable DPMS via `xset` when an X display is
+  available. `tvservice` is no longer used. Runtime behavior on X installs is to
+  be validated on a fresh official desktop image.
 
-The flag is kept because the intent still holds and the mechanism has not been
-replaced yet; see the note in `docs/phoenix.md`. The command executed at boot is
-`blank_screen.sh` in case you want to modify it.
+`-uninstall` removes the BlissFlixx blank-screen service but does not modify
+boot cmdline settings. The command executed by the service is `blank_screen.sh`
+in case you want to modify it. See `docs/phoenix.md` for background and TV
+sleep caveats.
 
 * `-uninstall`
 

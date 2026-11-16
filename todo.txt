@@ -1,7 +1,9 @@
 # future
 
 ## kernel argument
-Add the console blank kernel argument during install. optional, only useful for lite raspios 
+`configure.sh -blank` now sets `consoleblank=300` in the boot cmdline for
+lite/console installs (reboot required). Revisit if a configurable timeout or a
+dedicated flag is needed.
 
 ## Improve peerflix to make it snappier.
 Improve the peer handling mechanism to improve speed, reduce stalls... Keep a list of the fastest ones, change them if they degrade... Keep a list of next possible candidates to swap fast

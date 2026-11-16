@@ -112,44 +112,27 @@ Noted, agreed, not started. In the order they were raised.
 
 ### Let the television sleep
 
-BlissFlixx has no way to put the TV into its own low-power state. The display
-stays on, lit, for as long as the Pi is booted.
+`configure.sh -blank` now configures screen blanking in two parts:
 
-It used to work. `blank_screen.sh` ran `tvservice -p`, which returns the TV to
-its default settings, and at least some televisions read that blank output as
-permission to drop the backlight. The user reports this as having worked
-reliably on their set for years, with the screen waking again when a film
-started.
+- **Lite/console:** sets `consoleblank=300` in the boot kernel cmdline
+  (`/boot/firmware/cmdline.txt` or `/boot/cmdline.txt`, idempotent). This blanks
+  the framebuffer/tty after inactivity (robust, reboot required) but does not
+  guarantee the TV enters low-power/standby; behavior varies by TV.
+- **X/desktop:** installs/updates `blankscreen.service` to run `blank_screen.sh`,
+  which best-effort enables DPMS via `xset` when an X display is available.
+  `tvservice` is no longer used. This path is **not yet runtime-validated** and
+  should be tested on a fresh official Raspberry Pi OS desktop/X image.
 
-It cannot be reinstalled rather than merely being broken:
+`-uninstall` removes the BlissFlixx blank-screen service but does not modify boot
+cmdline settings.
 
-    $ apt-cache search --names-only tvservice
-    (nothing)
-
-`tvservice` belonged to a display stack Raspberry Pi OS no longer ships. The
-other path in the script, `xset dpms`, only ever ran on a desktop install and
-needs an X server that a 'lite' install does not run.
-
-So this needs a different mechanism, not a reinstall. The obvious candidate is
-`vcgencmd display_power 0` and `1`, which is present on both a 4K and a 1080p
-install and turns the HDMI output off at the firmware level. **What is not known
-is whether that produces the same signal the television reads as sleep.** The
-`tvservice` behaviour was something learned from using it, and it cannot be
-inferred from the code.
-
-Two design points to carry over from the original script:
-
-- Keep the two-path shape. One mechanism for a headless install and one for a
-  desktop, each used only where it applies. The original was deliberate about
-  this, not a leftover.
-- The screen has to come back. A service that blanks and never unblanks leaves
-  a black television until someone intervenes, so waking has to be tied to
-  playback starting rather than left to the TV.
-
-Watch out for one thing: a stream that is buffering looks identical to one that
-is playing. Anything that decides to blank must be driven by the player's state,
-not by the clock, or a slow torrent could blank the screen while it is still
-coming.
+**History / still open:** `tvservice -p` (legacy display stack, no longer shipped)
+used to produce a blank/sleep-friendly state on some TVs. A true TV-sleep
+replacement remains TV-dependent: candidates like `vcgencmd display_power 0/1`,
+DRM DPMS, or CEC standby may work on some sets but can cause “no signal” loops
+or wake issues on others. If/when active blanking is added, it must be driven by
+**player state (not a clock)** so buffering/starting streams are never blanked,
+and it must reliably unblank on playback start.
 
 ### Say what is happening while a stream loads
 

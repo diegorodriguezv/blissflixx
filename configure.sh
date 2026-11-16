@@ -528,12 +528,61 @@ _contents
     stage "the reboot and shutdown buttons"
 fi
 
+# Kernel console blanking for lite/console installs (cmdline: consoleblank=<secs>).
+# Kept separate from service removal: -uninstall removes BlissFlixx-owned service
+# files but does not modify boot cmdline.
+bf_cmdline_file() {
+    if [ -f /boot/firmware/cmdline.txt ]; then
+        echo /boot/firmware/cmdline.txt
+    elif [ -f /boot/cmdline.txt ]; then
+        echo /boot/cmdline.txt
+    else
+        return 1
+    fi
+}
+
+bf_set_consoleblank() {
+    local secs="${1:-300}" file
+    file="$(bf_cmdline_file)" || {
+        echo "No boot cmdline.txt found; skipping kernel consoleblank." 1>&2
+        return 1
+    }
+    python3 - "$file" "$secs" <<'PY'
+import sys
+path, secs = sys.argv[1], sys.argv[2]
+try:
+    with open(path, 'r', encoding='utf-8') as f:
+        line = f.read().strip()
+except Exception as e:
+    print(f"Could not read {path}: {e}", file=sys.stderr)
+    raise SystemExit(1)
+parts = [p for p in line.split() if p and not p.startswith('consoleblank=')]
+parts.append('consoleblank=' + secs)
+out = ' '.join(parts) + '\n'
+try:
+    with open(path, 'w', encoding='utf-8') as f:
+        f.write(out)
+except Exception as e:
+    print(f"Could not write {path}: {e}", file=sys.stderr)
+    raise SystemExit(1)
+print(f"Set consoleblank={secs} in {path} (reboot required)")
+PY
+}
+
 if [[ $@ == *-blank* ]] ; then
-    systemctl stop blankscreen.service
-    systemctl disable blankscreen.service
+    # Lite/console: robust framebuffer/tty blanking via kernel cmdline.
+    # (Does not guarantee TV low-power sleep; requires reboot.)
+    if ! bf_set_consoleblank 300; then
+        echo "Warning: kernel consoleblank was not configured." 1>&2
+    fi
+
+    # X/desktop (best-effort): enable DPMS when an X session is available.
+    # tvservice-based blanking is no longer used on current Raspberry Pi OS.
+    systemctl stop blankscreen.service 2>/dev/null || true
+    systemctl disable blankscreen.service 2>/dev/null || true
     cat << _contents > /etc/systemd/system/blankscreen.service
 [Unit]
-Description=Blank screen after boot
+Description=Blank screen (DPMS best-effort) after boot
 
 [Service]
 Type=simple
