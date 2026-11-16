@@ -65,9 +65,14 @@ _STALL_PICTURE_AFTER = 15
 #: before the bar says so. Earlier than the picture warning on purpose: this is
 #: the one that arrives while there is still something to watch.
 _STALL_SOURCE_AFTER = 30
+#: Torrent: if playback has not started (no picture) for this long while the
+#: torrent session is running, restart the session. Covers cases where data is
+#: being downloaded but VLC never begins decoding/playing.
+_TORRENT_NOPICTURE_RETRY_AFTER = 90
 #: How long after a pause/resume command the interface's own idea of the state
 #: is trusted before the player's is. See _Player._sync_paused.
-_PAUSE_SETTLE = 2.0#: Move to the neighbouring item of the playlist this film came from. The
+_PAUSE_SETTLE = 2.0
+#: Move to the neighbouring item of the playlist this film came from. The
 #: direction follows as its own message, the way a play is followed by its pipe.
 MSG_PLAYER_SKIP = 5
 #: The live picture has been frozen long enough: try another source. Followed by
