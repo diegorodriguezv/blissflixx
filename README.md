@@ -322,9 +322,17 @@ The settings page contains:
 - **UPDATE** — pull the latest release and restart the server. If you come
   across a problem, update first: it may already be fixed.
 - **SHUTDOWN** and **REBOOT** — power actions.
-- **SYSTEM OPTIONS** — global options, currently the default subtitle language.
+- **SYSTEM OPTIONS** — the title on the bar, and the default subtitle language.
 - **Channel settings** — opened from a channel's Settings button in **Manage
   Channels**.
+
+### System options
+
+- **Title** — the name on the bar and in the browser tab. It defaults to
+  `BlissFlixx`; leave the field empty to go back to it. Stored per installation
+  in `data/settings/system`.
+- **Default subtitle language** — used by channels that do not choose one of
+  their own. Stored in `data/settings/subtitles`.
 
 ### Channel settings
 

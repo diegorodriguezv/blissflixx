@@ -166,6 +166,7 @@ class TestModuleResolution:
             "playr",
             "playlists",
             "subtitles",
+            "system",
             "torrent",
         }
 

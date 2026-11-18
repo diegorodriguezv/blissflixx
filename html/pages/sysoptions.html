@@ -10,6 +10,15 @@
 
       <form show={ !loading && !errorMsg } onsubmit={ save }>
         <div class="form-group">
+          <label for="bf-title">Title</label>
+          <input id="bf-title" name="f_title" class="form-control" type="text" value={ title }>
+          <p class="help-block">
+            The name on the bar and in the browser tab. Leave it empty for
+            BlissFlixx.
+          </p>
+        </div>
+
+        <div class="form-group">
           <label for="bf-global-lang">Default subtitle language</label>
           <select id="bf-global-lang" name="f_lang" class="form-control">
             <option each={ l in languages }
@@ -29,6 +38,7 @@
 
   <script>
     var self = this
+    self.title = ''
     self.lang = 'eng'
     self.languages = []
     self.loading = true
@@ -36,15 +46,35 @@
     self.saved = false
     self.errorMsg = ''
 
-    Utils.rpc('subtitles', 'language', null, function(err, data) {
-      self.loading = false
-      if (err) {
-        self.errorMsg = Utils.decodeURI(err)
-        return self.update()
+    // Two reads, one form: the title and the language come from different
+    // places and both have to arrive before anything is drawn as loaded.
+    var pending = 2
+
+    function loaded() {
+      pending--
+      if (pending <= 0) {
+        self.loading = false
+        self.update()
       }
+    }
+
+    function failed(err) {
+      self.loading = false
+      self.errorMsg = Utils.decodeURI(err)
+      self.update()
+    }
+
+    Utils.rpc('system', 'settings', null, function(err, data) {
+      if (err) return failed(err)
+      self.title = data.title
+      loaded()
+    })
+
+    Utils.rpc('subtitles', 'language', null, function(err, data) {
+      if (err) return failed(err)
       self.lang = data.lang
       self.languages = data.languages || []
-      self.update()
+      loaded()
     })
 
     save(e) {
@@ -52,15 +82,24 @@
       if (self.saving) return
       self.saving = true
       self.saved = false
-      Utils.rpc('subtitles', 'set_language', {lang: self.f_lang.value}, function(err, data) {
-        self.saving = false
+      Utils.rpc('system', 'set_settings', {values: {title: self.f_title.value}}, function(err, data) {
         if (err) {
+          self.saving = false
           self.errorMsg = Utils.decodeURI(err)
           return self.update()
         }
-        self.lang = data.lang
-        self.saved = true
-        self.update()
+        self.title = data.title
+        RiotControl.trigger('se_title_changed', data.title)
+        Utils.rpc('subtitles', 'set_language', {lang: self.f_lang.value}, function(err2, data2) {
+          self.saving = false
+          if (err2) {
+            self.errorMsg = Utils.decodeURI(err2)
+            return self.update()
+          }
+          self.lang = data2.lang
+          self.saved = true
+          self.update()
+        })
       })
     }
   </script>

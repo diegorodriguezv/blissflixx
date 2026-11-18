@@ -161,8 +161,12 @@ class TestTheNameIsAlwaysThere:
         gets from layout.css. A rule here would be a second place to change it.
         """
         brand = self._brand()
-        assert "BLISSFLIXX" in brand, brand
+        # The word is an installation option now (System options -> Title), so
+        # the markup carries the value rather than the literal; the built-in
+        # value is still the site mark.
+        assert "{ appTitle }" in brand, brand
         assert "font-size" not in brand, brand
+        assert "self.appTitle = 'BlissFlixx'" in code(TOPNAV)
 
 
 class TestThereIsNoChannelsPage:

@@ -14,7 +14,7 @@
           reload -- a full reload would drop whatever is playing, which is why
           UpdateCheck goes to such lengths over a build change.
           -->
-          <a href="#"><i class="fa fa-film"></i><span> BLISSFLIXX</span></a>
+          <a href="#"><i class="fa fa-film"></i><span> { appTitle }</span></a>
         </li>
       </ul>
       <ul class="navitems navitems-right">
@@ -27,11 +27,36 @@
 
   <script>
     var self = this
+    self.appTitle = 'BlissFlixx'
+
+    //: The name is an installation option, so it is fetched rather than
+    //: written into the page. The document title and the iOS home-screen name
+    //: are set at the same time: they are the same name in other places.
+    function applyTitle(title) {
+      if (!title) return
+      self.appTitle = title
+      document.title = title
+      var meta = document.querySelector('meta[name="apple-mobile-web-app-title"]')
+      if (meta) meta.setAttribute('content', title)
+      self.update()
+    }
+
+    Utils.rpc('system', 'settings', null, function(err, data) {
+      if (err || !data) return
+      applyTitle(data.title)
+    })
+
+    // Saving the name in System options says so here, without a reload.
+    RiotControl.on('se_title_changed', applyTitle)
 
     this.on('mount', function() {
       $(function () {
         $('[data-toggle="tooltip"]').tooltip()
       })
+    })
+
+    this.on('unmount', function() {
+      RiotControl.off('se_title_changed')
     })
 
     this.pages = [
