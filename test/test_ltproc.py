@@ -324,6 +324,17 @@ class TestDetail:
         proc._started_at = time.time() - 400
         assert proc.stalled_for() >= 45
 
+    def test_a_finished_torrent_is_not_a_stall(self):
+        """
+        "finished" means every piece the reader asked for is here. Reporting
+        the quiet swarm as a stall told someone watching a good picture that
+        the source had stopped, when it simply had nothing left to fetch.
+        """
+        proc = with_status(LibtorrentProcess(MAGNET, 0), state="finished", peers=1)
+        proc._started_at = time.time() - 400
+        assert proc.stalled_for() == 0
+        assert "nothing arriving" not in proc.detail()
+
     def test_nothing_to_say_before_the_first_status(self):
         assert LibtorrentProcess(MAGNET, 0).detail() == ""
 

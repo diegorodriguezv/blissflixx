@@ -422,6 +422,14 @@ class LibtorrentProcess(ExternalProcess):
         info = self.served_file()
         if info and info["percent"] >= 99:
             return 0
+        if self._status.get("state") == "finished":
+            # Everything the reader has asked for is on disk; the torrent is
+            # idle because there is nothing left to fetch for it, not because
+            # the swarm went quiet. Reporting this as a stall told someone
+            # watching a perfectly good picture that the source had stopped.
+            # The moment the reader needs a piece that is not here, the state
+            # leaves "finished" and a real stall is reported again.
+            return 0
         since = self._moved_at or self._started_at
         if since is None:
             return 0
