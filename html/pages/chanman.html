@@ -1,18 +1,53 @@
 <chanman>
   <itemlist items={ chanlist }></itemlist>
 
+  <!--
+  The settings for the channel whose Settings button was pressed. One form,
+  reused: choosing another channel replaces what it is showing. A direct link
+  to #chansettings/<chid> still works, through the chansettings page.
+  -->
+  <div if={ selected } class="row">
+    <div class="col-md-6 col-md-offset-3 col-sm-8 col-sm-offset-2 col-xs-12">
+      <hr />
+      <h4 class="settings-subtitle">Channel settings</h4>
+      <channelsettings chid={ selected }></channelsettings>
+      <a href="" onclick={ closeSettings } class="btn btn-link">Close</a>
+    </div>
+  </div>
+
   <script>
     var self = this
     self.chanlist = []
+    self.selected = null
 
     this.on('mount', function() {
       RiotControl.on('se_channels_changed', self.doUpdate)
+      RiotControl.on('se_channel_settings', self.openSettings)
       self.doUpdate()
     })
 
     this.on('unmount', function() {
       RiotControl.off('se_channels_changed')
+      RiotControl.off('se_channel_settings')
     })
+
+    openSettings(chid) {
+      self.selected = chid
+      self.update()
+      // The list can be long; the form opens under it, so bring it into view.
+      setTimeout(function() {
+        var form = self.root && self.root.querySelector('.channel-settings')
+        if (form && form.scrollIntoView) {
+          form.scrollIntoView({behavior: 'smooth', block: 'start'})
+        }
+      }, 50)
+    }
+
+    closeSettings(e) {
+      if (e) e.preventDefault()
+      self.selected = null
+      self.update()
+    }
 
     doUpdate() {
       channelStore.getChannels(function(err, chanlist) {

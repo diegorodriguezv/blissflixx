@@ -322,12 +322,13 @@ The settings page contains:
 - **UPDATE** — pull the latest release and restart the server. If you come
   across a problem, update first: it may already be fixed.
 - **SHUTDOWN** and **REBOOT** — power actions.
-- **Channel settings** — the channels that have options of their own, listed
-  under the buttons.
+- **Channel settings** — opened from a channel's Settings button in **Manage
+  Channels**.
 
 ### Channel settings
 
-Channels can have options of their own. They are stored **per installation** in
+Channels can have options of their own, opened from the Settings button on each
+row of **Manage Channels**. They are stored **per installation** in
 `data/settings/channels`, beside the channel's disabled flag; nothing is written
 to the repository, so two boxes can be configured differently.
 

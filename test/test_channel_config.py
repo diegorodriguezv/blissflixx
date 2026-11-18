@@ -233,30 +233,44 @@ class TestStoring:
 
 
 class TestTheInterfaceKnows:
-    def test_the_settings_page_lists_channels_that_have_options(self):
+    def test_the_manage_channels_page_owns_the_form(self):
         from pathlib import Path
 
         root = Path(__file__).resolve().parents[1]
-        page = (root / "html" / "pages" / "settings.html").read_text()
-        assert "chansettings" in page
-        assert "configurable" in page
+        page = (root / "html" / "pages" / "chanman.html").read_text()
+        assert "<channelsettings" in page
+        assert "se_channel_settings" in page
 
-    def test_a_channel_row_can_open_its_settings(self):
+    def test_a_channel_row_asks_the_manage_page_to_open_its_settings(self):
         from pathlib import Path
 
         root = Path(__file__).resolve().parents[1]
         tag = (root / "html" / "tags" / "itemlist.html").read_text()
         assert "channelsettings" in tag
-        assert "chansettings" in tag
+        assert "RiotControl.trigger('se_channel_settings'" in tag
 
-    def test_the_settings_page_renders_the_fields_it_is_given(self):
+    def test_the_form_tag_renders_the_fields_it_is_given(self):
+        from pathlib import Path
+
+        root = Path(__file__).resolve().parents[1]
+        tag = (root / "html" / "tags" / "channelsettings.html").read_text()
+        assert "getConfig" in tag
+        assert "setConfig" in tag
+        assert "field.type == 'choice'" in tag
+
+    def test_the_form_tag_is_loaded(self):
+        from pathlib import Path
+
+        root = Path(__file__).resolve().parents[1]
+        page = (root / "html" / "index.html").read_text()
+        assert "tags/channelsettings.html" in page
+
+    def test_a_direct_link_still_has_a_page(self):
         from pathlib import Path
 
         root = Path(__file__).resolve().parents[1]
         page = (root / "html" / "pages" / "chansettings.html").read_text()
-        assert "getConfig" in page
-        assert "setConfig" in page
-        assert "field.type == 'choice'" in page
+        assert "<channelsettings" in page
 
     def test_a_channel_opens_its_default_feed(self):
         from pathlib import Path
