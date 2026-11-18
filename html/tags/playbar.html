@@ -329,6 +329,17 @@
       return (h ? h + ':' : '') + mm + ':' + ('0' + s).slice(-2)
     }
 
+    //: A number of seconds as h:m:s, always. The diagnostics panel is read to
+    //: see how long something took or has been stuck, and a bare "89s" has to
+    //: be converted in the head; "0:01:29" does not.
+    duration(seconds) {
+      var total = Math.max(0, Math.floor(Number(seconds) || 0))
+      var h = Math.floor(total / 3600)
+      var m = Math.floor((total % 3600) / 60)
+      var s = total % 60
+      return h + ':' + ('0' + m).slice(-2) + ':' + ('0' + s).slice(-2)
+    }
+
     showDebug() {
       self.debugText = 'reading…'
       self.update()
@@ -413,14 +424,14 @@
       line('title', p.title)
       line('state', self.stateName(p.state) +
         (p.paused ? ' · paused' : '') + (p.waiting ? ' · waiting for picture' : ''))
-      var pos = p.position === null || p.position === undefined ? '—' : self.formatClock(p.position)
-      if (p.length) pos += ' / ' + self.formatClock(p.length) +
+      var pos = p.position === null || p.position === undefined ? '—' : self.duration(p.position)
+      if (p.length) pos += ' / ' + self.duration(p.length) +
         ' (' + Math.floor(p.position * 100 / p.length) + '%)'
       line('position', pos)
-      line('asked for', p.elapsed + 's ago')
+      line('asked for', self.duration(p.elapsed) + ' ago')
       line('picture in', p.picture_after === null || p.picture_after === undefined
-        ? '—' : p.picture_after + 's')
-      line('stalled', p.stalled ? p.stalled + 's · ' + p.stall_reason : 'no')
+        ? '—' : self.duration(p.picture_after))
+      line('stalled', p.stalled ? self.duration(p.stalled) + ' · ' + p.stall_reason : 'no')
       line('reconnections', p.reconnections || 0)
       if (p.error) line('error', p.error)
       out.push('')
@@ -445,15 +456,15 @@
         line('this run', self.bytes(sw.downloaded || 0) + ' down · ' + self.bytes(sw.uploaded || 0) + ' up')
         line('verify', src.verifying === null || src.verifying === undefined ? 'not running' : src.verifying + '%')
         line('served in', src.serve_after === null || src.serve_after === undefined
-          ? '—' : src.serve_after + 's' + (src.cache_hit ? ' · from verify cache' : ''))
-        line('no data', src.stalled_for ? src.stalled_for + 's · no peers with pieces missing' : 'no')
+          ? '—' : self.duration(src.serve_after) + (src.cache_hit ? ' · from verify cache' : ''))
+        line('no data', src.stalled_for ? self.duration(src.stalled_for) + ' · no peers with pieces missing' : 'no')
       } else {
         // A stream source: yt-dlp answers with URLs, not with a torrent, so
         // there is no file, no swarm and no buffer. What it can say is where
         // it was asked to look, how long it took, and what came back.
         line('source', src.name)
         line('prepared in', src.ready_after === null || src.ready_after === undefined
-          ? '—' : src.ready_after + 's')
+          ? '—' : self.duration(src.ready_after))
         if (src.url) line('url', src.url)
         if (src.download !== undefined) {
           line('mode', src.download ? 'downloading to disk' : 'streamed')
@@ -467,12 +478,12 @@
       out.push('PLAYER')
       line('state', pb.state)
       line('first frame', player.picture_after === null || player.picture_after === undefined
-        ? '—' : player.picture_after + 's after start')
+        ? '—' : self.duration(player.picture_after) + ' after start')
       line('input read', stats.readbytes === undefined ? '—' : self.bytes(stats.readbytes))
       line('input now', pb.read_speed === undefined
         ? '—'
         : self.bytes(pb.read_speed) + '/s' +
-          (pb.read_idle ? ' · nothing for ' + pb.read_idle + 's' : ''))
+          (pb.read_idle ? ' · nothing for ' + self.duration(pb.read_idle) : ''))
       line('demux read', stats.demuxreadbytes === undefined ? '—' : self.bytes(stats.demuxreadbytes))
       line('demux rate', stats.demuxbitrate === undefined ? '—' : Number(stats.demuxbitrate).toFixed(2) + '× realtime')
       line('video', 'decoded ' + self.num(stats.decodedvideo) +
@@ -544,7 +555,7 @@
         line(stage.name, 'pid ' + self.num(stage.pid) +
           (stage.running ? ' · up' : ' · gone') +
           (stage.ready_after === null || stage.ready_after === undefined
-            ? '' : ' · ready after ' + stage.ready_after + 's'))
+            ? '' : ' · ready after ' + self.duration(stage.ready_after)))
       })
       out.push('')
       out.push('MACHINE')

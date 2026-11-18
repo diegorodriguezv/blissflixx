@@ -894,6 +894,35 @@ class TestPanelFields:
         assert "sw.speed" in text
 
 
+class TestDiagnosticDurations:
+    def test_every_seconds_field_is_shown_as_h_m_s(self):
+        """
+        The panel is read to see how long something took or has been stuck.
+        A bare "89s" has to be converted in the head; "0:01:29" does not.
+        """
+        root = pathlib.Path(__file__).resolve().parents[1]
+        text = (root / "html" / "tags" / "playbar.html").read_text()
+        assert "duration(seconds) {" in text
+        # Always hours, never the m:ss short form.
+        assert "return h + ':' + ('0' + m).slice(-2) + ':' + ('0' + s).slice(-2)" in text
+        for field in (
+            "p.elapsed",
+            "p.picture_after",
+            "p.stalled",
+            "src.serve_after",
+            "src.stalled_for",
+            "src.ready_after",
+            "player.picture_after",
+            "pb.read_idle",
+            "stage.ready_after",
+        ):
+            assert "self.duration(" + field + ")" in text, field
+        # And none of the old bare-seconds renderings survived.
+        assert "+ 's ago'" not in text
+        assert "+ 's after start'" not in text
+        assert "stalled + 's" not in text
+
+
 class TestNavSlots:
     def test_the_pause_and_remote_slots_are_reserved_while_loading(self):
         """
