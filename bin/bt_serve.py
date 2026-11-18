@@ -552,7 +552,13 @@ class Alerts(threading.Thread):
             # same line repeated is a log nobody can read and a status loop
             # that starves the check that would have fixed it.
             if first:
-                print(TAG + "error " + message, flush=True)
+                # "warning", not "error": a storage error is recoverable --
+                # the opening piece is rechecked and re-fetched -- and the
+                # application treats any "bf-bt: error" line as the play
+                # failing. Printing this as an error would kill the play
+                # before the recovery below could run, which is exactly the
+                # bug this log line used to cause.
+                print(TAG + "warning " + message, flush=True)
 
     def clear_fatal(self):
         """Forget a storage error, after the torrent has been rechecked."""
@@ -941,7 +947,9 @@ class Handler(BaseHTTPRequestHandler):
         except (BrokenPipeError, ConnectionResetError):
             pass  # the player seeked away, or probed the size and hung up
         except Exception as exc:
-            print(TAG + "error serving %s: %s" % (path, exc), flush=True)
+            # A single request that could not be served -- the player seeked
+            # away, or one piece was unreadable -- is not the play failing.
+            print(TAG + "warning serving %s: %s" % (path, exc), flush=True)
 
     def file_from_path(self, path):
         """'/' is the file being played; '/<n>' is file n, for subtitles."""

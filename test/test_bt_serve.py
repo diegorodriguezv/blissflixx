@@ -374,6 +374,33 @@ class TestAtomicWrite:
         assert not (tmp_path / "abc.fastresume.part").exists()
 
 
+class TestStorageErrorIsNotFatal:
+    def test_a_storage_error_is_a_warning_not_a_fatal_line(self, capsys):
+        """
+        The application treats "bf-bt: error " as the play failing. A storage
+        error is recoverable -- the opening piece is rechecked and re-fetched
+        -- so it must not wear that prefix, or the recovery is killed before it
+        can run.
+        """
+
+        # The handler dispatches on the alert's type name, so the class has to
+        # be named the way libtorrent names the alert.
+        Alert = type(
+            "file_error_alert",
+            (),
+            {
+                "error": None,
+                "message": lambda self: "No such file or directory",
+            },
+        )
+
+        alerts = bt.Alerts(session=None, lt=None)
+        alerts.handle(Alert())
+        out = capsys.readouterr().out
+        assert "bf-bt: warning No such file or directory" in out
+        assert "bf-bt: error" not in out
+
+
 class TestPriorities:
     def test_only_the_played_file_is_wanted(self):
         assert bt.file_priorities(3, 1, []) == [0, bt.WANTED, 0]
