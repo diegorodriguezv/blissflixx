@@ -102,7 +102,7 @@ hand; a normal install starts when the box does.
 
 Configure screen blanking:
 
-- **Lite/console (robust):** sets `consoleblank=300` in the boot kernel cmdline
+- **Lite/console (robust):** sets `consoleblank=5` in the boot kernel cmdline
   (`/boot/firmware/cmdline.txt` or `/boot/cmdline.txt`) so the framebuffer/tty
   blanks after inactivity. **Reboot required.** This does not guarantee the TV
   enters low-power/standby mode (TV behavior varies).

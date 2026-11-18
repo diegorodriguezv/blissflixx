@@ -542,7 +542,7 @@ bf_cmdline_file() {
 }
 
 bf_set_consoleblank() {
-    local secs="${1:-300}" file
+    local secs="${1:-5}" file
     file="$(bf_cmdline_file)" || {
         echo "No boot cmdline.txt found; skipping kernel consoleblank." 1>&2
         return 1
@@ -572,7 +572,7 @@ PY
 if [[ $@ == *-blank* ]] ; then
     # Lite/console: robust framebuffer/tty blanking via kernel cmdline.
     # (Does not guarantee TV low-power sleep; requires reboot.)
-    if ! bf_set_consoleblank 300; then
+    if ! bf_set_consoleblank 5; then
         echo "Warning: kernel consoleblank was not configured." 1>&2
     fi
 

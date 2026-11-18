@@ -114,7 +114,7 @@ Noted, agreed, not started. In the order they were raised.
 
 `configure.sh -blank` now configures screen blanking in two parts:
 
-- **Lite/console:** sets `consoleblank=300` in the boot kernel cmdline
+- **Lite/console:** sets `consoleblank=5` in the boot kernel cmdline
   (`/boot/firmware/cmdline.txt` or `/boot/cmdline.txt`, idempotent). This blanks
   the framebuffer/tty after inactivity (robust, reboot required) but does not
   guarantee the TV enters low-power/standby; behavior varies by TV.

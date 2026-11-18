@@ -1,7 +1,7 @@
 # future
 
 ## kernel argument
-`configure.sh -blank` now sets `consoleblank=300` in the boot cmdline for
+`configure.sh -blank` now sets `consoleblank=5` in the boot cmdline for
 lite/console installs (reboot required). Revisit if a configurable timeout or a
 dedicated flag is needed.
 
