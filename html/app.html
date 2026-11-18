@@ -5,6 +5,11 @@
 
   <playbar></playbar>
 
+  <!-- A short confirmation that outlives the page that caused it: saving the
+       channel settings goes back to the list, and "Saved." has to be said
+       there rather than on the page being left. -->
+  <div show={ flash } class="bf-flash">{ flash }</div>
+
   <!-- The way back up, for a list that runs to a thousand rows. Hidden until
        the page has been scrolled far enough that walking back is work. -->
   <a show={ showTop } href="" onclick={ backToTop } class="bf-top" title="Back to top">
@@ -15,6 +20,8 @@
     var self = this
     self.mountedTag = null
     self.loadedTags = {}
+    self.flash = ''
+    self.flashTimer = null
 
     //: How far down the page has to be before the button is worth showing.
     //: About one screen of a phone, so it arrives before the top of the page is
@@ -25,6 +32,7 @@
       self.bindCtrlKeys()
       self.showTop = false
       $(window).on('scroll', self.updateTopButton)
+      RiotControl.on('se_flash', self.showFlash)
       riot.route.exec(function(page) {
         self.loadPage(page)
       })
@@ -32,7 +40,23 @@
 
     this.on('unmount', function() {
       $(window).off('scroll', self.updateTopButton)
+      RiotControl.off('se_flash')
+      if (self.flashTimer) clearTimeout(self.flashTimer)
     })
+
+    //: Say something for a few seconds. Used for a save that navigates away:
+    //: the page that caused it is gone before it could show the words.
+    showFlash(message, ms) {
+      if (!message) return
+      self.flash = message
+      self.update()
+      if (self.flashTimer) clearTimeout(self.flashTimer)
+      self.flashTimer = setTimeout(function() {
+        self.flash = ''
+        self.flashTimer = null
+        self.update()
+      }, ms || 3000)
+    }
 
     updateTopButton() {
       // Only when it changes: this runs on every scroll event, and re-rendering

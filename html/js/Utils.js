@@ -50,6 +50,17 @@ isOffline: function(err) {
      */
     return typeof err === 'string' && err.indexOf('/offline/') === 0
   },
+  /*
+   * A short confirmation, shown by the application shell for a few seconds.
+   *
+   * It exists for actions that navigate: saving the channel settings goes back
+   * to the list, so the page that did the saving is not there to say "Saved."
+   */
+  flash: function(message, ms) {
+    if (typeof RiotControl !== 'undefined') {
+      RiotControl.trigger('se_flash', message, ms || 3000)
+    }
+  },
   goRoute: function() {
     var route = arguments[0]
     for (i=1; i<arguments.length; i++) {

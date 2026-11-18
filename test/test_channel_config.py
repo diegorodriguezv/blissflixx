@@ -345,6 +345,19 @@ class TestTheInterfaceKnows:
         assert "oninput={ typed }" in tag
         assert "self.collect()" in tag
 
+    def test_saving_says_so_on_the_page_it_returns_to(self):
+        from pathlib import Path
+
+        root = Path(__file__).resolve().parents[1]
+        tag = (root / "html" / "tags" / "channelsettings.html").read_text()
+        utils = (root / "html" / "js" / "Utils.js").read_text()
+        shell = (root / "html" / "app.html").read_text()
+        assert "Utils.flash('Saved.')" in tag
+        assert "window.history.back()" in tag
+        assert "se_flash" in utils and "se_flash" in shell
+        assert "showFlash" in shell
+        assert ".bf-flash" in (root / "html" / "css" / "layout.css").read_text()
+
     def test_the_global_language_has_a_home_on_the_settings_page(self):
         from pathlib import Path
 
