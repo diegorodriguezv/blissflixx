@@ -544,9 +544,15 @@ class Alerts(threading.Thread):
         elif name in ("file_error_alert", "torrent_error_alert"):
             message = error_text(getattr(alert, "error", None)) or alert.message()
             with self.changed:
+                first = message != self.fatal
                 self.fatal = message
                 self.changed.notify_all()
-            print(TAG + "error " + message, flush=True)
+            # Once per distinct message. A torrent whose storage is unhappy
+            # emits these on every read attempt, thousands of times, and the
+            # same line repeated is a log nobody can read and a status loop
+            # that starves the check that would have fixed it.
+            if first:
+                print(TAG + "error " + message, flush=True)
 
     def clear_fatal(self):
         """Forget a storage error, after the torrent has been rechecked."""
@@ -662,10 +668,11 @@ class Window:
 class App:
     """The torrent, its files, and the reads being served from it."""
 
-    def __init__(self, lt, session, handle, index, subs):
+    def __init__(self, lt, session, handle, index, subs, save_dir=None):
         self.lt = lt
         self.session = session
         self.handle = handle
+        self.save_dir = save_dir
         self.info = handle.torrent_file()
         self.piece_length = self.info.piece_length()
         self.last_piece = self.info.num_pieces() - 1
@@ -714,6 +721,40 @@ class App:
         if self.files.file_size(index) == 0:
             return self.first_piece(index) - 1
         return min((offset - 1) // self.piece_length, self.last_piece)
+
+    def repair_short_files(self):
+        """
+        Extend any file that is shorter than the torrent says it is.
+
+        libtorrent creates a file at its full length, but one can be left
+        short -- partially materialised by an earlier session, or by a play
+        that wanted a neighbour only for the piece they share. A short file
+        makes every read past its end fail with "file too short" instead of
+        returning the missing bytes as a hole, which looks exactly like a
+        broken torrent. Extending it restores the hole; a recheck then reports
+        the bytes as absent and they download like any others.
+
+        Never shrinks and never creates: a missing file is already a hole.
+        """
+        if not self.save_dir:
+            return []
+        fixed = []
+        for i in range(self.files.num_files()):
+            path = os.path.join(self.save_dir, self.files.file_path(i))
+            size = self.files.file_size(i)
+            try:
+                have = os.path.getsize(path)
+            except OSError:
+                continue
+            if have < size:
+                try:
+                    os.truncate(path, size)
+                    fixed.append(self.name(i))
+                except OSError as exc:
+                    print(TAG + "could not extend %s: %s" % (path, exc), flush=True)
+        if fixed:
+            print(TAG + "extended short file(s): " + ", ".join(fixed), flush=True)
+        return fixed
 
     def crop(self):
         """
@@ -1139,7 +1180,7 @@ def main(argv=None):
         print(TAG + "error --port is required to serve", flush=True)
         return 2
 
-    app = App(lt, session, handle, args.index, subs)
+    app = App(lt, session, handle, args.index, subs, args.dir)
     app.metadata_after = time.time() - started
     app.crop()
     server = Server(("127.0.0.1", args.port), app)
@@ -1204,6 +1245,7 @@ def main(argv=None):
                     flush=True,
                 )
             app.alerts.clear_fatal()
+            app.repair_short_files()
             app.handle.force_recheck()
             while "checking" in str(app.handle.status().state):
                 if stopping["now"]:
