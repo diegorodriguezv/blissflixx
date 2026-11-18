@@ -332,6 +332,19 @@ class TestTheInterfaceKnows:
         assert "refreshShown" in tag
         assert "field.depends_on" in tag
 
+    def test_typing_is_captured_without_leaving_the_field(self):
+        """
+        A value typed and submitted without blurring never fired `change`, so
+        the form sent the value it loaded with -- an empty block list. The text
+        field now records each keystroke, and Save reads the controls again.
+        """
+        from pathlib import Path
+
+        root = Path(__file__).resolve().parents[1]
+        tag = (root / "html" / "tags" / "channelsettings.html").read_text()
+        assert "oninput={ typed }" in tag
+        assert "self.collect()" in tag
+
     def test_the_global_language_has_a_home_on_the_settings_page(self):
         from pathlib import Path
 

@@ -33,7 +33,7 @@
                type="text"
                data-key={ field.key }
                value={ field.value }
-               onchange={ changed } />
+               oninput={ typed } />
 
         <p class="help-block" show={ field.hint }>{ field.hint }</p>
       </div>
@@ -112,6 +112,37 @@
       })
     }
 
+    //: Typing in a text field. No update(): the input already shows what was
+    //: typed, and re-rendering it here would move the cursor to the end after
+    //: every character. `save()` reads the fields again in case something was
+    //: typed and the field never blurred.
+    typed(e) {
+      var key = e.target.getAttribute('data-key')
+      var value = e.target.value
+      self.values[key] = value
+      for (var i = 0; i < self.fields.length; i++) {
+        if (self.fields[i].key === key) {
+          self.fields[i].value = value
+          break
+        }
+      }
+      self.saved = false
+    }
+
+    //: Read every control's current value. `self.values` is updated as the
+    //: person types, but this is the authoritative read at Save time: a value
+    //: typed and then submitted without leaving the field never fired change.
+    collect() {
+      var nodes = self.root ? self.root.querySelectorAll('[data-key]') : []
+      for (var i = 0; i < nodes.length; i++) {
+        var key = nodes[i].getAttribute('data-key')
+        if (!key) continue
+        self.values[key] = nodes[i].type === 'checkbox'
+          ? nodes[i].checked
+          : nodes[i].value
+      }
+    }
+
     changed(e) {
       var key = e.target.getAttribute('data-key')
       var value = e.target.type === 'checkbox' ? e.target.checked : e.target.value
@@ -133,6 +164,7 @@
     save(e) {
       if (e) e.preventDefault()
       if (self.saving) return
+      self.collect()
       self.saving = true
       channelStore.setConfig(self.chid, self.values, function(err) {
         self.saving = false
