@@ -57,9 +57,9 @@ The media server can be controlled via a web interface from any computer, tablet
 
 **IMPORTANT: BlissFlixx installation requires Raspberry Pi OS 13 (trixie), desktop or lite**
 
-BlissFlixx for current Raspberry Pi OS is developed on the `bookworm` branch:
+BlissFlixx for current Raspberry Pi OS is developed on the `phoenix` branch:
 
-    git clone -b bookworm https://github.com/diegorodriguezv/blissflixx.git
+    git clone -b phoenix https://github.com/diegorodriguezv/blissflixx.git
 
 Once it has been tested it will be published to the main repository, and this
 line will go back to being a plain `git clone`.
@@ -293,9 +293,35 @@ Movies and TV shows will have an option saying 'Play With Subtitles'. Selecting 
 
 ## Settings
 
-The settings page currently contains two options. The first - MANAGE CHANNELS - allows you to disable or enable any installed channels. 
+The settings page contains:
 
-The second option - RESTART & UPDATE - will restart and also update the server to the latest release. If you come across any problems make sure you first update the server to the latest version to check if the issue has already been fixed.
+- **MANAGE CHANNELS** — enable or disable installed channels, and open each
+  channel's own settings.
+- **UPDATE** — pull the latest release and restart the server. If you come
+  across a problem, update first: it may already be fixed.
+- **SHUTDOWN** and **REBOOT** — power actions.
+- **Channel settings** — the channels that have options of their own, listed
+  under the buttons.
+
+### Channel settings
+
+Channels can have options of their own. They are stored **per installation** in
+`data/settings/channels`, beside the channel's disabled flag; nothing is written
+to the repository, so two boxes can be configured differently.
+
+Every channel that has more than one feed offers a **default feed** — the one
+opened when the channel is first shown. Every channel that supports subtitles
+offers a **subtitle language** (overriding the global `data/settings/subtitles`)
+and an **Add Subtitles** toggle. A channel may declare more options; the form is
+built from what it declares, and a channel with nothing to set gets no Settings
+button.
+
+The same settings are available over the API:
+
+```
+/api/channels?fn=config&data={"chid":"bfch_iptv_org"}
+/api/channels?fn=set_config&data={"chid":"bfch_xnxx","values":{"default_feed":"Cuckold","subtitles":false}}
+```
 
 # Player backends
 
