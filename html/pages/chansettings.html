@@ -29,7 +29,7 @@
                  class="form-control"
                  type="checkbox"
                  data-key={ field.key }
-                 checked={ field.value }
+                 __checked={ field.value }
                  onchange={ changed } />
 
           <input if={ field.type != 'choice' && field.type != 'bool' }
@@ -52,9 +52,11 @@
 
   <script>
     var self = this
+    self.title = ''
     self.fields = []
     self.values = {}
     self.loading = true
+    self.saving = false
     self.saved = false
     self.errorMsg = ''
 
