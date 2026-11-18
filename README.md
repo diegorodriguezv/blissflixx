@@ -370,7 +370,8 @@ the port and input device name checked, and it does nothing without CEC.
 
 # Player
 
-BlissFlixx plays through VLC, the only player.
+BlissFlixx plays through VLC — backend name `vlc`, binary `cvlc` — the only
+player.
 
 | Player | Control | Subtitles | Audio tracks |
 |---|---|---|---|

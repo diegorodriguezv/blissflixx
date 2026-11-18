@@ -612,15 +612,19 @@ class TestABusyArchiveReachesTheInterfaceAsAMessage:
         import lib.api.channels as api_channels
 
         class Channel:
-            def getFeed(self, idx):
+            def getFeed(self, idx, config=None):
                 return reddit.get_feed(feed)
 
-            def search(self, q):
+            def search(self, q, config=None):
                 return reddit.search("Shortfilms", q)
 
         class Installed:
             def getChannel(self, chid):
                 return Channel()
+
+            def getChannelConfig(self, chid):
+                # These tests are about a busy archive, not channel settings.
+                return {}
 
         monkeypatch.setattr(api_channels, "_installed", Installed())
         return api_channels
