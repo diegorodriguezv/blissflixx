@@ -17,7 +17,7 @@
         self.title = decodeURIComponent(title)
         self.link = decodeURIComponent(link)
         self.update()
-        Utils.rpc('torrent', 'files', {link:self.link}, function(err, items) {
+        Utils.rpc('torrent', 'files', {link:self.link, title:self.title}, function(err, items) {
           if (err) return Utils.showError(err)
           self.results = items;
           var videos = 0, subs = 0

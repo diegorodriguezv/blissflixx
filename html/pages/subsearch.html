@@ -8,25 +8,45 @@
 
   <form onsubmit={ search }>
     <div class="row">
-      <div class="col-md-8 col-sm-9 col-xs-12">
+      <div class="col-md-6 col-sm-12 col-xs-12">
         <div class="form-group">
           <label>Title:</label>
           <input type="text" class="form-control" name="f_title" required autofocus>
         </div>
       </div>
-      <div class="col-md-2 col-sm-3 col-xs-6">
+      <div class="col-md-2 col-sm-4 col-xs-4">
         <div class="form-group">
           <label>Year:</label>
           <input type="text" class="form-control" name="f_year">
         </div>
       </div>
-      <div class="col-md-2 col-sm-3 col-xs-6">
+      <div class="col-md-2 col-sm-4 col-xs-4">
+        <div class="form-group">
+          <label>Season:</label>
+          <input type="text" class="form-control" name="f_season">
+        </div>
+      </div>
+      <div class="col-md-2 col-sm-4 col-xs-4">
+        <div class="form-group">
+          <label>Episode:</label>
+          <input type="text" class="form-control" name="f_episode">
+        </div>
+      </div>
+    </div>
+    <div class="row">
+      <div class="col-md-3 col-sm-4 col-xs-6">
         <div class="form-group">
           <label>Language:</label>
           <select name="f_lang" class="form-control">
             <option each={ langlist } value={ code } selected={ code == parent.lang }>{ name }</option>
           </select>
         </div>
+      </div>
+      <div class="col-md-9 col-sm-8 col-xs-6">
+        <p class="help-block">
+          Season and episode identify an episode inside a pack; leave them
+          empty for a film.
+        </p>
       </div>
     </div>
     <div class="row">
@@ -148,16 +168,31 @@
       self.pack = false
       self.errorMsg = null
       self.showErrorDetails = false
-      riot.route.exec(function(page, url, name) {
+      riot.route.exec(function(page, url, name, context) {
         self.url = decodeURIComponent(url)
         self.name = decodeURIComponent(name)
         // "live" is the control panel's Add Subtitles button: a film is already
         // playing, and what is picked here is attached to it rather than played.
         // Everything else is the release's own page, where Play starts it.
         self.live = self.url === 'live'
-        // The release name is what the search starts from: it carries the
-        // title and the year, and it is editable because releases abbreviate.
-        self.f_title.value = self.name
+        // What the row already knows: a channel's title/year/imdb, or a pack's
+        // series and this file's season/episode.
+        self.context = {}
+        if (context) {
+          try {
+            self.context = JSON.parse(decodeURIComponent(context)) || {}
+          } catch (e) {
+            self.context = {}
+          }
+        }
+        self.imdb = self.context.imdb || null
+        // A file inside a pack is named "Episode 09" and says nothing about the
+        // series; the context is what makes these fields useful. Empty fields
+        // mean "read the release name", which the server can still do.
+        self.f_title.value = self.context.series || self.context.title || ''
+        self.f_year.value = self.context.year || ''
+        self.f_season.value = self.context.season || ''
+        self.f_episode.value = self.context.episode || ''
         self.search()
       })
     })
@@ -181,9 +216,19 @@
       self.showErrorDetails = false
       self.chosen = []
       self.update()
-      var title = self.f_title.value
-      var year = self.f_year.value
-      Utils.rpc('subtitles', 'search', {name: title, year: year || null, lang: self.f_lang.value}, function(err, data) {
+      var title = self.f_title.value.trim()
+      var year = self.f_year.value.trim()
+      var season = self.f_season.value.trim()
+      var episode = self.f_episode.value.trim()
+      Utils.rpc('subtitles', 'search', {
+        name: self.name,
+        title: title || null,
+        year: year ? parseInt(year, 10) : null,
+        season: season ? parseInt(season, 10) : null,
+        episode: episode ? parseInt(episode, 10) : null,
+        imdb: self.imdb || null,
+        lang: self.f_lang.value
+      }, function(err, data) {
         self.searching = false
         if (err) {
           var p = parseRpcError(err)
@@ -207,9 +252,9 @@
         // What the server read out of the release name, so a second search is
         // the same search rather than a wider one.
         if (data.year && !self.f_year.value) self.f_year.value = data.year
-        if (data.kind === 'tv_season' && data.season && self.f_title.value === data.title) {
-          self.f_title.value = data.title + ' Season ' + data.season
-        }
+        if (data.season && !self.f_season.value) self.f_season.value = data.season
+        if (data.episode && !self.f_episode.value) self.f_episode.value = data.episode
+        if (data.imdb) self.imdb = data.imdb
         self.update()
       })
     }

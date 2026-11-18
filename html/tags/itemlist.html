@@ -140,6 +140,22 @@
       })
     }
 
+    //: What the row already knows about its subtitles: a channel's title/year/
+    //: imdb, or a pack's series and the file's season/episode. Passed to the
+    //: search page so it does not have to guess from a file name alone.
+    subtitleContext(item) {
+      var subs = item.subs || {}
+      var keys = ['title', 'year', 'series', 'season', 'episode', 'imdb']
+      var context = {}
+      for (var i = 0; i < keys.length; i++) {
+        var value = subs[keys[i]]
+        if (value !== undefined && value !== null && value !== '') {
+          context[keys[i]] = value
+        }
+      }
+      return context
+    }
+
     getItemForAction(action) {
       for (i=0; i<opts.items.length; i++) {
         var actions = opts.items[i].actions
@@ -171,11 +187,17 @@
       case 'showmore':
         Utils.goRoute('showmore', action.chid, action.title, action.link)
         break
-      case 'addsubtitles':
+      case 'addsubtitles': {
         // The search page needs the release name, because that is what says
-        // which film it is; it searches by what the name means.
-        Utils.goRoute('subsearch', item.url, item.title)
+        // which film it is; context fills what a bare file name cannot.
+        var context = self.subtitleContext(item)
+        if (Object.keys(context).length) {
+          Utils.goRoute('subsearch', item.url, item.title, JSON.stringify(context))
+        } else {
+          Utils.goRoute('subsearch', item.url, item.title)
+        }
         break
+      }
       case 'torrfiles':
         Utils.goRoute('torrfiles', action.title, action.link)
         break

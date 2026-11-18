@@ -54,3 +54,51 @@ class TestTheButton:
         body = _method(_page(), "play")
         assert "if (!self.chosen.length) return" in body
         assert body.index("if (!self.chosen.length) return") < body.index("add_subtitles")
+
+
+class TestTheSearchTarget:
+    """
+    The search is for the current file, but neither its name nor the pack's is
+    enough on its own. The row's context fills the gaps, and all of it stays
+    editable.
+    """
+
+    def test_the_page_has_season_and_episode_fields(self):
+        page = _page()
+        assert 'name="f_season"' in page
+        assert 'name="f_episode"' in page
+
+    def test_a_context_fills_the_fields(self):
+        page = _page()
+        assert "self.context.series" in page
+        assert "self.context.title" in page
+        assert "self.context.season" in page
+        assert "self.context.episode" in page
+        assert "self.context.imdb" in page
+
+    def test_the_release_name_is_kept_for_the_server(self):
+        body = _method(_page(), "search")
+        assert "name: self.name" in body
+        assert "title: title || null" in body
+        assert "season:" in body
+        assert "episode:" in body
+        assert "imdb: self.imdb" in body
+
+    def test_the_server_answer_fills_what_is_empty(self):
+        page = _page()
+        assert "data.season && !self.f_season.value" in page
+        assert "data.episode && !self.f_episode.value" in page
+        assert "data.imdb" in page
+
+
+class TestTheContextIsPassed:
+    def test_a_row_hands_its_context_to_the_search(self):
+        root = pathlib.Path(__file__).resolve().parents[1]
+        tag = (root / "html" / "tags" / "itemlist.html").read_text()
+        assert "subtitleContext" in tag
+        assert "JSON.stringify(context)" in tag
+
+    def test_the_files_page_names_the_pack(self):
+        root = pathlib.Path(__file__).resolve().parents[1]
+        page = (root / "html" / "pages" / "torrfiles.html").read_text()
+        assert "title:self.title" in page

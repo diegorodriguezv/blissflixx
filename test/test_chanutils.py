@@ -16,6 +16,7 @@ from lib.chanutils import (
     series_season_episode,
 )
 from lib.chanutils.chanutils import (
+    release_kind,
     convert_date,
     convert_duration,
     get_attr,
@@ -235,3 +236,30 @@ class TestLxmlHelpers:
 
         doc = lxml.html.fromstring("<div><b>bold</b> text</div>")
         assert get_text_content(select_one(doc, "div")) == "bold text"
+
+
+class TestReleaseKindEpisodes:
+    """Episodes a pack names by word, and season directories."""
+
+    def test_an_episode_named_by_word(self):
+        found = release_kind("The Pacific Episode 09.mp4")
+        assert found == {
+            "kind": "episode",
+            "series": "The Pacific",
+            "episode": 9,
+        }
+
+    def test_a_season_directory_is_kept(self):
+        found = release_kind("Season 2/The Pacific Episode 09.mp4")
+        assert found["series"] == "The Pacific"
+        assert found["season"] == 2
+        assert found["episode"] == 9
+
+    def test_sxxeyy_still_works(self):
+        found = release_kind("The Pacific S01E09 1080p")
+        assert (found["season"], found["episode"]) == (1, 9)
+
+    def test_a_film_is_still_a_film(self):
+        found = release_kind("Spider-Man.Brand.New.Day.2026.1080p")
+        assert found["kind"] == "movie"
+        assert found["year"] == 2026

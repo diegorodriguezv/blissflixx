@@ -210,6 +210,17 @@ _PART_RE = re.compile(r"\b(?:part\s*)?(\d{1,2})\s*of\s*(\d{1,2})\b", re.IGNORECA
 # pack or a full season from a one-off episode or a film. Exclude "S4:"-style
 # title prefixes (e.g. "S4: The Bob Lazar Story").
 _SEASON_TOKEN_RE = re.compile(r"\bS(\d{1,2})\b(?!\s*E\d{1,2})(?!:)", re.IGNORECASE)
+# An episode named by word rather than by SxxEyy: a pack's file is often
+# "Show Episode 09.mp4" while the release name belongs to the pack. The
+# trailing "\b" keeps "episode 09" from matching the year or a codec.
+_EPISODE_WORD_RE = re.compile(
+    r"\b(?:episode|ep)\s*0*(\d{1,3})\b", re.IGNORECASE
+)
+# "Season 2/" or "S02/" as a directory in a path. The trailing slash is what
+# tells it from a season marker in a title.
+_SEASON_DIR_RE = re.compile(
+    r"(?:^|/)\s*(?:season|s)\s*0*(\d{1,2})\s*/", re.IGNORECASE
+)
 _SEASON_WORD_RE = re.compile(r"\bSeasons?\s*([\d][\d,\s&and\-–to]*)", re.IGNORECASE)
 _SEASON_RANGE_RE = re.compile(r"\bS(\d{1,2})\s*[-–to]+\s*S?(\d{1,2})\b", re.IGNORECASE)
 _COMPLETE_SERIES_RE = re.compile(
@@ -304,6 +315,27 @@ def release_kind(name):
             "series": series or _clean_title(norm),
             "episode": int(part_m.group(1)),
         }
+
+    # Episodes named by word, and sometimes under a season directory:
+    # "The Pacific Episode 09.mp4", "Season 2/The Pacific Episode 09.mp4".
+    # This is the shape of a file inside a pack, where the release name is the
+    # pack's and the file name is all that says which episode it is.
+    word_ep = _EPISODE_WORD_RE.search(norm)
+    if word_ep:
+        series = norm[: word_ep.start()].strip(" -([]/")
+        season = None
+        folder = _SEASON_DIR_RE.search(series)
+        if folder:
+            season = int(folder.group(1))
+            series = series[folder.end():].strip(" -([]/")
+        info = {
+            "kind": "episode",
+            "series": series or _clean_title(norm),
+            "episode": int(word_ep.group(1)),
+        }
+        if season is not None:
+            info["season"] = season
+        return info
 
     # Dated TV episodes (talk shows, sports, dailies): "Show 2026 11 13" / "2026-11-13"
     airdate_m = re.search(r"\b(20\d{2})[\s._-](0?[1-9]|1[0-2])[\s._-](0?[1-9]|[12]\d|3[01])\b", norm)

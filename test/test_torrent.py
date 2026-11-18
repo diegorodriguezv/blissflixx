@@ -10,7 +10,13 @@ import pathlib
 
 import pytest
 
-from lib.api.torrent import is_torrent_url, set_torridx, torrent2magnet, torrent_files
+from lib.api.torrent import (
+    is_torrent_url,
+    set_torridx,
+    subtitle_context,
+    torrent2magnet,
+    torrent_files,
+)
 from lib.chanutils.torrent import is_main, is_torrent, torrent_idx
 
 HASH = "A" * 40
@@ -352,3 +358,43 @@ class TestTorrentFiles:
         monkeypatch.setattr("lib.player.ltproc.subprocess.run", fake_run)
         with pytest.raises(RuntimeError, match="No answer listing this torrent"):
             torrent_files(HASH)
+
+
+class TestSubtitleContext:
+    """
+    What Add Subtitles on a file row knows: the series from the pack, the
+    season and episode from the file (or its folder).
+    """
+
+    def test_a_pack_file_gets_the_series_and_episode(self):
+        found = subtitle_context(
+            "The Pacific (2010) Mp4 1080p",
+            "The Pacific (2010) Mp4 1080p/The Pacific Episode 09.mp4",
+        )
+        assert found == {
+            "series": "The Pacific",
+            "year": 2010,
+            "season": 1,
+            "episode": 9,
+        }
+
+    def test_a_season_folder_sets_the_season(self):
+        found = subtitle_context(
+            "The Pacific 2010 Complete Series",
+            "The Pacific/Season 2/The Pacific Episode 09.mp4",
+        )
+        assert found["series"] == "The Pacific"
+        assert found["season"] == 2
+        assert found["episode"] == 9
+
+    def test_a_movie_gets_title_and_year(self):
+        found = subtitle_context(
+            "Spider-Man Brand New Day (2026) [1080p] [WEBRip]",
+            "Spider-Man.Brand.New.Day.2026.1080p.WEBRip.x265.mkv",
+        )
+        assert found == {"title": "Spider-Man Brand New Day", "year": 2026}
+
+    def test_a_single_episode_torrent_uses_the_pack(self):
+        found = subtitle_context("The Pacific S01E09 1080p", "anything.mkv")
+        assert found["series"] == "The Pacific"
+        assert (found["season"], found["episode"]) == (1, 9)

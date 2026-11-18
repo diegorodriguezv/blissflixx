@@ -121,8 +121,91 @@ def _stem(name):
     return os.path.splitext(os.path.basename(name))[0].lower()
 
 
-#: Which episode a name belongs to, if it says: S01E02, s1e2.
-_EPISODE_RE = re.compile(r"[sS](\d{1,2})[eE](\d{1,2})")
+def _file_for_parsing(path):
+    """
+    The file name, plus a season folder when it has one.
+
+    A torrent's paths start with the pack's own folder ("The Pacific (2010)
+    Mp4 1080p/..."), which is not part of the title. A season folder is,
+    because it is the only thing that says which season a file belongs to
+    when the file itself is just "Episode 09".
+    """
+    parts = path.replace("\\", "/").split("/")
+    if len(parts) >= 2 and re.match(
+        r"^(?:season|s)\s*0*\d{1,2}$", parts[-2], re.IGNORECASE
+    ):
+        return parts[-2] + "/" + parts[-1]
+    return parts[-1]
+
+
+def subtitle_context(pack_title, file_name):
+    """
+    What to search OpenSubtitles for, from the pack and the file inside it.
+
+    Neither name is enough on its own. A pack title carries the series (and
+    the year) but not which episode; a file called "The Pacific Episode 09.mp4"
+    carries the episode but no series, and the heuristics read that pack title
+    as a film. The context keeps both: the series/title from the pack, the
+    season/episode from the file (or its folder).
+
+    The parsing is `release_kind`, the same detector the rows and the subtitle
+    search use -- it knows SxxEyy, "Episode 09", parts and season directories.
+
+    A file with an episode number and no season is given season 1. That is
+    right for a single-season pack or a miniseries, and it is a value the
+    search page shows and lets the person correct; the alternative is a
+    search for the whole series.
+    """
+    from ..chanutils.chanutils import movie_title_year, release_kind
+
+    pack = release_kind(pack_title or "")
+    file_info = release_kind(_file_for_parsing(file_name or ""))
+    parsed = movie_title_year(pack_title or "")
+    pack_kind = pack.get("kind")
+    file_kind = file_info.get("kind")
+
+    series = (
+        file_info.get("series")
+        or (pack.get("series") if pack_kind in ("tv_pack", "episode") else None)
+        or parsed.get("title")
+    )
+    year = parsed.get("year")
+    season = file_info.get("season")
+    if season is None:
+        season = pack.get("season")
+    episode = file_info.get("episode")
+    if episode is None:
+        episode = pack.get("episode")
+
+    if pack_kind in ("tv_pack", "episode") or file_kind == "episode" or episode is not None:
+        context = {"series": series}
+        if year:
+            context["year"] = year
+        if season is not None:
+            context["season"] = season
+        elif episode is not None:
+            context["season"] = 1
+        if episode is not None:
+            context["episode"] = episode
+        return context if context.get("series") else None
+
+    context = {}
+    title = parsed.get("title") or file_info.get("title") or pack.get("title")
+    if title:
+        context["title"] = title
+    if year:
+        context["year"] = year
+    return context or None
+
+
+def _episode_of(name):
+    """(season, episode) a name belongs to, using the shared detector."""
+    from ..chanutils.chanutils import release_kind
+
+    info = release_kind(name or "")
+    if info.get("kind") != "episode":
+        return None
+    return (info.get("season"), info.get("episode"))
 
 
 def _subs_for(name, subs):
@@ -141,15 +224,15 @@ def _subs_for(name, subs):
     its other episodes' subtitles are named after those episodes.
     """
     stem = _stem(name)
-    video_episode = _EPISODE_RE.search(name)
+    video_episode = _episode_of(name)
     chosen = []
     for idx, sub_name in subs:
         if _stem(sub_name).startswith(stem):
             chosen.append((idx, sub_name))
             continue
-        sub_episode = _EPISODE_RE.search(sub_name)
+        sub_episode = _episode_of(sub_name)
         if sub_episode and (
-            video_episode is None or sub_episode.groups() != video_episode.groups()
+            video_episode is None or sub_episode != video_episode
         ):
             continue
         chosen.append((idx, sub_name))
@@ -189,7 +272,7 @@ def _subs_arg(name, subs):
     return {"torrent": {"files": [{"idx": i, "name": n} for i, n in chosen]}}
 
 
-def showmore(link):
+def showmore(link, title=None):
     files = torrent_files(link)
     if not files:
         raise Exception("Unable to retrieve torrent files")
@@ -219,17 +302,32 @@ def showmore(link):
             results.add(FileItem(f[0], "/img/icons/subtitles.svg", subtitle))
         elif _has_ext(f[0], VIDEO_EXTS):
             url = set_torridx(link, idx)
+            # The torrent's own subtitle files first; the OpenSubtitles
+            # context beside them, so Add Subtitles on this row knows both the
+            # series and which episode it is.
+            context = _subs_arg(f[0], subs)
+            if title:
+                # The OpenSubtitles context needs the pack's name; a channel's
+                # showmore has none, and an empty context would be noise. It
+                # travels beside a torrent's own subtitle files rather than
+                # replacing them, because Add Subtitles still has to say which
+                # series and episode the row is.
+                known = subtitle_context(title, f[0])
+                if known:
+                    context = dict(context or {})
+                    for key, value in known.items():
+                        context.setdefault(key, value)
             item = PlayItem(
-                f[0], "/img/icons/film.svg", url, subtitle, subs=_subs_arg(f[0], subs)
+                f[0], "/img/icons/film.svg", url, subtitle, subs=context
             )
             results.add(item)
     return results
 
 
-def files(link=None):
+def files(link=None, title=None):
     if not link:
         raise ApiError("Torrent URL must be defined")
-    return showmore(link).to_dict()
+    return showmore(link, title).to_dict()
 
 
 def set_torridx(url, idx=-1):

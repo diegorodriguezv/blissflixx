@@ -136,6 +136,11 @@ def candidates(args):
     if args.imdb:
         imdb = args.imdb[2:] if args.imdb[0:2] == "tt" else args.imdb
         params = [{"imdbid": imdb, "sublanguageid": args.lang}]
+        # An episode of a series needs both: the id says which series, the
+        # numbers say which file.
+        if args.season and args.episode:
+            params[0]["season"] = args.season
+            params[0]["episode"] = args.episode
     elif args.season and args.episode:
         params = [
             {
@@ -155,8 +160,11 @@ def candidates(args):
     for r in results:
         if r.get("SubFormat") != "srt":
             continue
+        # An id already names one film; filtering its results by year would
+        # drop any entry that left MovieYear out.
         if (
             args.year
+            and not args.imdb
             and _searched_as_movie(args)
             and int(r.get("MovieYear") or 0) != args.year
         ):
@@ -283,8 +291,8 @@ args = parser.parse_args()
 
 is_movie = True
 if args.season or args.episode:
-    if not (args.title and args.season and args.episode):
-        error("Must specify title, season and episode for series")
+    if not ((args.title or args.imdb) and args.season and args.episode):
+        error("Must specify title or imdb, season and episode for series")
     is_movie = False
 elif not (args.title or args.imdb) and not args.choosens:
     error("Must specify title or imdb code for movie")
