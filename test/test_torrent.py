@@ -398,3 +398,30 @@ class TestSubtitleContext:
         found = subtitle_context("The Pacific S01E09 1080p", "anything.mkv")
         assert found["series"] == "The Pacific"
         assert (found["season"], found["episode"]) == (1, 9)
+
+    def test_a_file_named_only_by_episode_takes_the_pack_series(self):
+        # The common shape of a pack: "Episode 09.mp4" says which episode and
+        # nothing else, so the pack has to say which show.
+        found = subtitle_context("The Pacific (2010) Mp4 1080p", "Episode 09.mp4")
+        assert found == {
+            "series": "The Pacific",
+            "year": 2010,
+            "season": 1,
+            "episode": 9,
+        }
+
+    def test_a_season_folder_sets_the_season_of_a_bare_episode(self):
+        found = subtitle_context(
+            "The Pacific 2010 Complete Series", "Season 2/Episode 09.mp4"
+        )
+        assert found["series"] == "The Pacific"
+        assert found["season"] == 2
+        assert found["episode"] == 9
+
+    def test_the_pack_year_is_not_part_of_the_series_name(self):
+        # release_kind keeps the year in a pack's series ("The Pacific 2010");
+        # OpenSubtitles does not list the show that way.
+        found = subtitle_context(
+            "The Pacific 2010 Complete Series", "Season 2/The Pacific Episode 09.mp4"
+        )
+        assert found["series"] == "The Pacific"

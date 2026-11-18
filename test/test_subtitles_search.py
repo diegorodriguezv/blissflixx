@@ -132,3 +132,17 @@ class TestWhatIsSentToOpenSubtitles:
         answer = api.search(name="Star Trek The Next Generation Complete Series 1-7")
         assert answer["pack"] is True
         assert answer["results"] == []
+
+
+class TestPackYears:
+    def test_a_season_pack_searches_the_show_without_its_year(self):
+        # release_kind's pack series is "The Pacific 2010"; the show is "The
+        # Pacific", and a query with the year in it matches less.
+        found = _search_name("The Pacific 2010 Season 1 Complete 720p")
+        assert found["kind"] == "tv_season"
+        assert found["title"] == "The Pacific"
+
+    def test_an_episode_with_a_year_in_its_name_keeps_the_show_clean(self):
+        found = _search_name("The.Pacific.2010.EP09.1080p.BluRay")
+        assert found["kind"] == "episode"
+        assert found["title"] == "The Pacific"

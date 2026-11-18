@@ -156,7 +156,7 @@ def subtitle_context(pack_title, file_name):
     search page shows and lets the person correct; the alternative is a
     search for the whole series.
     """
-    from ..chanutils.chanutils import movie_title_year, release_kind
+    from ..chanutils.chanutils import movie_title_year, release_kind, without_year
 
     pack = release_kind(pack_title or "")
     file_info = release_kind(_file_for_parsing(file_name or ""))
@@ -169,6 +169,7 @@ def subtitle_context(pack_title, file_name):
         or (pack.get("series") if pack_kind in ("tv_pack", "episode") else None)
         or parsed.get("title")
     )
+    series = without_year(series)
     year = parsed.get("year")
     season = file_info.get("season")
     if season is None:

@@ -249,10 +249,36 @@ class TestReleaseKindEpisodes:
             "episode": 9,
         }
 
-    def test_a_season_directory_is_kept(self):
+    def test_a_season_directory_sets_the_season(self):
         found = release_kind("Season 2/The Pacific Episode 09.mp4")
         assert found["series"] == "The Pacific"
         assert found["season"] == 2
+        assert found["episode"] == 9
+
+    def test_a_file_named_only_by_episode_has_no_series_to_claim(self):
+        # The series is in the pack's name; a guess here would be the file
+        # name itself, which the search would then use as a title.
+        found = release_kind("Episode 09.mp4")
+        assert found["kind"] == "episode"
+        assert found["episode"] == 9
+        assert "series" not in found
+
+    def test_a_season_folder_is_read_even_when_the_file_says_nothing_else(self):
+        found = release_kind("Season 2/Episode 09.mp4")
+        assert found["episode"] == 9
+        assert found["season"] == 2
+        assert "series" not in found
+
+    def test_a_series_folder_before_the_season_is_not_the_series(self):
+        found = release_kind("The Pacific/Season 2/Episode 09.mp4")
+        assert found["episode"] == 9
+        assert found["season"] == 2
+        assert "series" not in found
+
+    def test_a_bare_e_marker_is_an_episode(self):
+        found = release_kind("The Pacific E09 1080p")
+        assert found["kind"] == "episode"
+        assert found["series"] == "The Pacific"
         assert found["episode"] == 9
 
     def test_sxxeyy_still_works(self):

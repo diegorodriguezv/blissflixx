@@ -212,9 +212,10 @@ _PART_RE = re.compile(r"\b(?:part\s*)?(\d{1,2})\s*of\s*(\d{1,2})\b", re.IGNORECA
 _SEASON_TOKEN_RE = re.compile(r"\bS(\d{1,2})\b(?!\s*E\d{1,2})(?!:)", re.IGNORECASE)
 # An episode named by word rather than by SxxEyy: a pack's file is often
 # "Show Episode 09.mp4" while the release name belongs to the pack. The
-# trailing "\b" keeps "episode 09" from matching the year or a codec.
+# trailing "\b" keeps "episode 09" from matching the year or a codec; a bare
+# "E09" is allowed because that is how a pack names its files too.
 _EPISODE_WORD_RE = re.compile(
-    r"\b(?:episode|ep)\s*0*(\d{1,3})\b", re.IGNORECASE
+    r"\b(?:episodes?|ep|e)[\s._-]*0*(\d{1,3})\b", re.IGNORECASE
 )
 # "Season 2/" or "S02/" as a directory in a path. The trailing slash is what
 # tells it from a season marker in a title.
@@ -259,6 +260,19 @@ def _clean_title(name):
     # Drop trailing separator junk.
     name = re.sub(r"[\s\-]+$", "", name).strip()
     return name or _norm_release_name(name)
+
+
+def without_year(name):
+    """
+    A name without the release's year at the end.
+
+    The pack detector keeps the year inside the series name -- "The Pacific
+    2010 Complete Series" reads as the series "The Pacific 2010" -- and that is
+    not what OpenSubtitles calls the show. A year that is the whole name
+    ("1883") is left alone, because there is nothing left without it.
+    """
+    trimmed = re.sub(r"\s+[\(\[]?((?:19|20)\d\d)[\)\]]?\s*$", "", name or "")
+    return trimmed.strip() or name
 
 
 def movie_title_year(name):
@@ -322,17 +336,20 @@ def release_kind(name):
     # pack's and the file name is all that says which episode it is.
     word_ep = _EPISODE_WORD_RE.search(norm)
     if word_ep:
-        series = norm[: word_ep.start()].strip(" -([]/")
+        prefix = norm[: word_ep.start()]
         season = None
-        folder = _SEASON_DIR_RE.search(series)
+        # The season folder is looked for before the trailing slash is
+        # trimmed: "Season 2/" is all a file called "Episode 09.mp4" has.
+        folder = _SEASON_DIR_RE.search(prefix)
         if folder:
             season = int(folder.group(1))
-            series = series[folder.end():].strip(" -([]/")
-        info = {
-            "kind": "episode",
-            "series": series or _clean_title(norm),
-            "episode": int(word_ep.group(1)),
-        }
+            prefix = prefix[folder.end():]
+        series = prefix.strip(" -([]/")
+        info = {"kind": "episode", "episode": int(word_ep.group(1))}
+        # A file may be called just "Episode 09", with the series only in the
+        # pack's name. It has no series of its own; the caller fills it in.
+        if series:
+            info["series"] = series
         if season is not None:
             info["season"] = season
         return info

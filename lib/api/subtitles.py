@@ -3,7 +3,12 @@ import subprocess
 
 import cherrypy
 
-from ..chanutils.chanutils import movie_title_year, release_kind, series_season_episode
+from ..chanutils.chanutils import (
+    movie_title_year,
+    release_kind,
+    series_season_episode,
+    without_year,
+)
 from ..chanutils.languages import LANGUAGES  # noqa: F401  (re-export)
 from ..player.subsproc import GETSUBS_PATH
 from ..settings import load, save
@@ -58,7 +63,10 @@ def _search_name(name, context=None):
         return found
 
     if kind == "episode":
-        found = {"title": info.get("series") or str(ctitle or ""), "kind": "episode"}
+        found = {
+            "title": without_year(info.get("series") or "") or str(ctitle or ""),
+            "kind": "episode",
+        }
         for key, fallback in (
             ("season", cseason),
             ("episode", cepisode),
@@ -77,7 +85,7 @@ def _search_name(name, context=None):
         # multi-season/complete packs are not one subtitle search.
         if "season" in info and not info.get("pack") and not info.get("seasons"):
             found = {
-                "title": info["series"],
+                "title": without_year(info["series"]),
                 "season": info["season"],
                 "kind": "tv_season",
             }
@@ -85,7 +93,7 @@ def _search_name(name, context=None):
                 found["imdb"] = cimdb
             return found
         found = {
-            "title": info.get("series") or "",
+            "title": without_year(info.get("series") or ""),
             "kind": "tv_pack",
             "seasons": info.get("seasons"),
             "season": info.get("season"),
