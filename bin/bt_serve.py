@@ -1204,25 +1204,26 @@ def main(argv=None):
     last = app.last_piece_of(app.index)
     next_status = time.time()
     if first <= last:
-        while True:
+        # The bitfield can claim the opening piece is here when its bytes are
+        # gone: a piece is stored whole in the file it starts in, and an
+        # earlier session may have written the boundary piece into a part file
+        # that was truncated since. Every read of it then fails with ENOENT,
+        # which is what "could not open the stream" was. Read the opening piece
+        # once before saying "serving"; if it cannot be read, recheck, which
+        # turns the phantom piece into a genuinely missing one that downloads
+        # like any other.
+        for attempt in range(3):
             while not app.handle.have_piece(first):
                 if stopping["now"]:
                     app.close()
                     return 0
-                if app.alerts.fatal:
+                if app.alerts.fatal and attempt >= 2:
                     print(TAG + "error " + app.alerts.fatal, flush=True)
                     return 4
                 time.sleep(0.2)
                 if time.time() >= next_status:
                     next_status = time.time() + STATUS_EVERY
                     print_status(app.status())
-            # The bitfield can claim the opening piece is here when its bytes
-            # are gone: it is stored in the file it starts in, and an earlier
-            # session may have written it into a part file that was truncated
-            # since. Read it once before saying "serving" -- every read after
-            # this one would fail the same way, so finding out here is what
-            # turns a film that never opens into a torrent that rechecks
-            # itself and carries on.
             try:
                 app.alerts.read_piece(app.handle, first, timeout=15)
                 break
@@ -1230,6 +1231,7 @@ def main(argv=None):
                 if not app.alerts.fatal:
                     # Present but slow, not missing: serving will wait on it,
                     # which is the normal wait for a poorly seeded piece.
+                    app.alerts.clear_fatal()
                     break
                 print(
                     TAG + "opening piece unreadable (%s); rechecking" % exc,
@@ -1247,10 +1249,20 @@ def main(argv=None):
                     print_status(app.status())
             # A check can reset the crop; arm the pieces again and wait for
             # the opening one, which is now known to be genuinely absent and
-            # will download like any other missing piece.
+            # will download like any other missing piece. Alerts raised while
+            # the check and the crop were running are about the state that has
+            # just been repaired, so they are discarded rather than treated as
+            # the next failure.
             app.crop()
             app.prime()
+            app.alerts.clear_fatal()
             next_status = time.time()
+        else:
+            print(
+                TAG + "error opening piece still unreadable after recheck",
+                flush=True,
+            )
+            return 4
 
     index = app.index
     print(
