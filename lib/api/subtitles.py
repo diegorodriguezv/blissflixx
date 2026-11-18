@@ -24,12 +24,17 @@ def _search_name(name):
     info = release_kind(name)
     kind = info.get("kind")
     if kind == "episode":
-        return {
-            "title": info["series"],
-            "season": info["season"],
-            "episode": info["episode"],
-            "kind": "episode",
-        }
+        # A dated episode, a PPV special, or a "3of3" part has no season, and
+        # some of those have no episode number either. Reading the keys that
+        # are not there raised KeyError on exactly those rows; the search falls
+        # back to the series itself, which is the best a subtitle service can
+        # be asked for.
+        found = {"title": info.get("series") or "", "kind": "episode"}
+        if info.get("season") is not None:
+            found["season"] = info["season"]
+        if info.get("episode") is not None:
+            found["episode"] = info["episode"]
+        return found
     if kind == "tv_pack":
         # Single season can be searched as the show (season hinted in title);
         # multi-season/complete packs are not one subtitle search.
