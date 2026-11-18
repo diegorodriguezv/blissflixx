@@ -1,3 +1,4 @@
+import cherrypy
 import glob
 import os
 import re
@@ -45,6 +46,28 @@ _LINK_IN_DESC = re.compile(r"""href=['"]([^'"]+)['"]""")
 #: What one of those looks like, so a channel description cannot quietly become
 #: an anchor to somewhere unexpected.
 _EXTERNAL_LINK = re.compile(r"^https?://\S+$")
+
+
+def blocked_words(value):
+    """
+    The words in a block list, lowercased.
+
+    Commas and newlines separate them, not spaces: a phrase like "good day" is
+    a legitimate thing to block. Order and duplicates do not matter.
+    """
+    if not value:
+        return []
+    if isinstance(value, (list, tuple)):
+        parts = [str(part) for part in value]
+    else:
+        parts = re.split(r"[,\n]+", str(value))
+    return [part.strip().casefold() for part in parts if part.strip()]
+
+
+def is_blocked(title, words):
+    """Whether a row's title carries any of the blocked words."""
+    text = (title or "").casefold()
+    return any(word in text for word in words)
 
 
 class Channel:
@@ -186,6 +209,13 @@ class Channel:
                 + [{"value": c, "label": c} for c in choices],
                 "hint": "The feed opened when this channel is first shown.",
             }
+        schema["block_words"] = {
+            "label": "Blocked words",
+            "type": "text",
+            "default": "",
+            "hint": "Hide rows whose title contains any of these words. "
+            "Separate them with commas: telugu, h265, x265, 1080p.",
+        }
         if self.supports_subtitles:
             schema["subtitles"] = {
                 "label": "Add Subtitles button",
@@ -234,6 +264,7 @@ class Channel:
         items = items.to_dict()
         config = config if isinstance(config, dict) else {}
         lang = config.get("subtitles_lang") or ""
+        blocked = blocked_words(config.get("block_words"))
         # A channel that cannot use subtitles never offers the button; one that
         # can may still have it turned off for this installation.
         subtitles_on = self.supports_subtitles and config.get("subtitles", True)
@@ -257,6 +288,15 @@ class Channel:
                 for action in i["actions"]:
                     if action["type"] == "showmore":
                         action["chid"] = self.chid
+
+        if blocked:
+            kept = [i for i in items if not is_blocked(i.get("title"), blocked)]
+            if len(kept) != len(items):
+                cherrypy.log(
+                    "%s: hid %d row(s) with blocked words"
+                    % (self.chid, len(items) - len(kept))
+                )
+            items = kept
 
         return items
 

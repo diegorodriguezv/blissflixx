@@ -177,6 +177,63 @@ class TestTheRows:
         assert _channel().getConfig()["subtitles"] is True
 
 
+class TestBlockedWords:
+    """
+    A local block list for rows whose title carries a word the box cannot use
+    or does not want: a codec it cannot decode, a language nobody here speaks.
+    """
+
+    def _rows(self, *titles):
+        from lib.playitem import PlayItem, PlayItemList
+
+        listing = PlayItemList()
+        for title in titles:
+            listing.add(PlayItem(title, None, "http://x/" + title))
+        return listing
+
+    def test_the_schema_offers_a_block_list(self):
+        schema = _channel().getConfigSchema()
+        assert schema["block_words"]["type"] == "text"
+        assert schema["block_words"]["default"] == ""
+
+    def test_words_are_split_on_commas_and_newlines(self):
+        assert api_channels.blocked_words("telugu, h265\nx265") == [
+            "telugu",
+            "h265",
+            "x265",
+        ]
+
+    def test_a_phrase_keeps_its_spaces(self):
+        assert api_channels.blocked_words("good day") == ["good day"]
+
+    def test_an_empty_list_blocks_nothing(self):
+        assert api_channels.blocked_words("") == []
+        assert api_channels.blocked_words(None) == []
+
+    def test_matching_ignores_case(self):
+        assert api_channels.is_blocked("Film.TELUGU.1080p", ["telugu"])
+
+    def test_rows_with_a_blocked_word_are_hidden(self):
+        rows = _channel().getPlayItems(
+            self._rows("Film 1080p", "Film 720p", "Film x265"),
+            {"block_words": "1080p, x265"},
+        )
+        assert [row["title"] for row in rows] == ["Film 720p"]
+
+    def test_a_blocked_phrase_matches_inside_the_title(self):
+        rows = _channel().getPlayItems(
+            self._rows("A Good Day to Die Hard", "Another Film"),
+            {"block_words": "good day"},
+        )
+        assert [row["title"] for row in rows] == ["Another Film"]
+
+    def test_an_empty_list_keeps_every_row(self):
+        rows = _channel().getPlayItems(
+            self._rows("Film 1080p", "Film 720p"), {"block_words": ""}
+        )
+        assert len(rows) == 2
+
+
 class TestConfigurable:
     def test_subtitles_alone_make_a_channel_configurable(self):
         assert _channel(feeds=[{"title": "Only"}])._is_configurable()

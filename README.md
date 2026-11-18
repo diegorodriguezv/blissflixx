@@ -334,11 +334,14 @@ stored **per installation** in
 to the repository, so two boxes can be configured differently.
 
 Every channel that has more than one feed offers a **default feed** — the one
-opened when the channel is first shown. Every channel that supports subtitles
-offers a **subtitle language** (overriding the global `data/settings/subtitles`)
-and an **Add Subtitles** toggle. A channel may declare more options; the form is
-built from what it declares, and a channel with nothing to set gets no Settings
-button.
+opened when the channel is first shown. Every channel offers **Blocked words**:
+rows whose title contains any of them are hidden, comma-separated and
+case-insensitive. That is how a box that cannot decode `h265`/`x265`, or a
+person who does not want `telugu` or `1080p`, stops seeing those rows. Every
+channel that supports subtitles offers a **subtitle language** (overriding the
+global `data/settings/subtitles`) and an **Add Subtitles** toggle. A channel may
+declare more options; the form is built from what it declares, and a channel
+with nothing to set gets no Settings button.
 
 The same settings are available over the API:
 
