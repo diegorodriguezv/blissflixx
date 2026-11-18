@@ -722,40 +722,6 @@ class App:
             return self.first_piece(index) - 1
         return min((offset - 1) // self.piece_length, self.last_piece)
 
-    def repair_short_files(self):
-        """
-        Extend any file that is shorter than the torrent says it is.
-
-        libtorrent creates a file at its full length, but one can be left
-        short -- partially materialised by an earlier session, or by a play
-        that wanted a neighbour only for the piece they share. A short file
-        makes every read past its end fail with "file too short" instead of
-        returning the missing bytes as a hole, which looks exactly like a
-        broken torrent. Extending it restores the hole; a recheck then reports
-        the bytes as absent and they download like any others.
-
-        Never shrinks and never creates: a missing file is already a hole.
-        """
-        if not self.save_dir:
-            return []
-        fixed = []
-        for i in range(self.files.num_files()):
-            path = os.path.join(self.save_dir, self.files.file_path(i))
-            size = self.files.file_size(i)
-            try:
-                have = os.path.getsize(path)
-            except OSError:
-                continue
-            if have < size:
-                try:
-                    os.truncate(path, size)
-                    fixed.append(self.name(i))
-                except OSError as exc:
-                    print(TAG + "could not extend %s: %s" % (path, exc), flush=True)
-        if fixed:
-            print(TAG + "extended short file(s): " + ", ".join(fixed), flush=True)
-        return fixed
-
     def crop(self):
         """
         Want the played file only by piece, the subtitles whole, nothing else.
@@ -1245,7 +1211,6 @@ def main(argv=None):
                     flush=True,
                 )
             app.alerts.clear_fatal()
-            app.repair_short_files()
             app.handle.force_recheck()
             while "checking" in str(app.handle.status().state):
                 if stopping["now"]:
