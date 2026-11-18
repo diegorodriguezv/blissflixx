@@ -55,7 +55,9 @@
         <button onclick={ play } type="button" class="btn btn-primary btn-spacer-right" disabled={ !chosen.length }>
           { live ? 'Add To The Film' : 'Play With These Subtitles' }
         </button>
-        <span show={ searching } class="search-note">Searching OpenSubtitles...</span>
+        <!-- The search can take a few seconds; without the spinner the only
+             sign of it was the text appearing, which reads as a result. -->
+        <span show={ searching } class="search-note"><i class="fa fa-spinner fa-spin"></i> Searching OpenSubtitles...</span>
       </div>
     </div>
   </form>

@@ -102,3 +102,26 @@ class TestTheContextIsPassed:
         root = pathlib.Path(__file__).resolve().parents[1]
         page = (root / "html" / "pages" / "torrfiles.html").read_text()
         assert "title:self.title" in page
+
+
+class TestWaitingForResults:
+    """
+    A search can take a while, and the page sat still until it answered. The
+    note that says what is happening needs something moving beside it, or it
+    reads as a result that has already arrived.
+    """
+
+    def test_the_note_carries_a_spinner(self):
+        page = _page()
+        match = re.search(
+            r'<span show=\{ searching \} class="search-note">(.*?)</span>',
+            page,
+            re.S,
+        )
+        assert match, "the searching note is gone"
+        assert "fa-spinner" in match.group(1)
+        assert "fa-spin" in match.group(1)
+
+    def test_the_spinner_comes_before_the_words(self):
+        page = _page()
+        assert page.index("fa-spinner") < page.index("Searching OpenSubtitles...")
