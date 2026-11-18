@@ -294,10 +294,35 @@ class TestDetail:
         proc._started_at = time.time() - 90
         assert proc.stalled_for() == 0
 
-    def test_peers_present_is_not_a_stall_even_if_slow(self):
+    def test_a_check_keeps_the_stall_clock_moving(self):
+        """
+        The check itself is work. Without moving the clock, the whole check
+        counted as silence, and the moment it ended the play was already past
+        the stall threshold and was restarted -- throwing the check away and
+        starting it again.
+        """
+        proc = with_status(
+            LibtorrentProcess(MAGNET, 0), state="checking_files", checking=20, peers=0
+        )
+        proc._started_at = time.time() - 400
+        with_status(proc, state="checking_files", checking=40, peers=0)
+        assert proc._moved_at is not None
+        assert time.time() - proc._moved_at < 5
+
+    def test_peers_present_with_recent_progress_is_not_a_stall(self):
         proc = with_status(LibtorrentProcess(MAGNET, 0), peers=1)
         proc._started_at = time.time() - 400
+        proc._moved_at = time.time()
         assert proc.stalled_for() == 0
+
+    def test_peers_present_but_nothing_arriving_is_a_stall(self):
+        """
+        Peers that send nothing are the unproductive swarm a fresh session
+        often fixes. Progress is what says otherwise, not the peer count.
+        """
+        proc = with_status(LibtorrentProcess(MAGNET, 0), peers=1)
+        proc._started_at = time.time() - 400
+        assert proc.stalled_for() >= 45
 
     def test_nothing_to_say_before_the_first_status(self):
         assert LibtorrentProcess(MAGNET, 0).detail() == ""

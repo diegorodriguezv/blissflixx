@@ -283,6 +283,13 @@ class LibtorrentProcess(ExternalProcess):
             return
         if self._status is not None and stats.get("downloaded") != self._status.get("downloaded"):
             self._moved_at = time.time()
+        if stats.get("checking") is not None:
+            # A hash check is work, and the card being read is not a swarm with
+            # nothing to send. Without this the whole check counted as "nothing
+            # arriving", and the moment it ended the play was already past the
+            # stall threshold and was restarted -- which threw the check away
+            # and began it again.
+            self._moved_at = time.time()
         self._status = stats
         if not self._space_checked:
             self._space_checked = self._check_buffer_space()
