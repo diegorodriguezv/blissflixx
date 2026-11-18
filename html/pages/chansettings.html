@@ -103,6 +103,15 @@
       var key = e.target.getAttribute('data-key')
       var value = e.target.type === 'checkbox' ? e.target.checked : e.target.value
       self.values[key] = value
+      // Keep the rendered field in step with the value. The template draws
+      // the control from the field, so without this the re-render after a
+      // change puts the old selection back.
+      for (var i = 0; i < self.fields.length; i++) {
+        if (self.fields[i].key === key) {
+          self.fields[i].value = value
+          break
+        }
+      }
       self.saved = false
       self.update()
     }
