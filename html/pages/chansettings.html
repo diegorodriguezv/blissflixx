@@ -1,0 +1,123 @@
+<chansettings>
+  <div class="row">
+    <div class="col-md-6 col-md-offset-3 col-sm-8 col-sm-offset-2 col-xs-12">
+      <span class="item-list-title">
+        <backbtn></backbtn> <span>Channel settings</span>
+      </span>
+
+      <p class="channel-settings-name">{ title }</p>
+
+      <p show={ loading } class="search-note">Loading...</p>
+      <p show={ errorMsg } class="alert alert-warning">{ errorMsg }</p>
+
+      <form show={ !loading && !errorMsg } onsubmit={ save }>
+        <div each={ field in fields } class="form-group">
+          <label for="bf-set-{ field.key }">{ field.label }</label>
+
+          <select if={ field.type == 'choice' }
+                  id="bf-set-{ field.key }"
+                  class="form-control"
+                  data-key={ field.key }
+                  onchange={ changed }>
+            <option each={ opt in field.options }
+                    value={ opt.value }
+                    __selected={ opt.value == field.value }>{ opt.label }</option>
+          </select>
+
+          <input if={ field.type == 'bool' }
+                 id="bf-set-{ field.key }"
+                 class="form-control"
+                 type="checkbox"
+                 data-key={ field.key }
+                 checked={ field.value }
+                 onchange={ changed } />
+
+          <input if={ field.type != 'choice' && field.type != 'bool' }
+                 id="bf-set-{ field.key }"
+                 class="form-control"
+                 type="text"
+                 data-key={ field.key }
+                 value={ field.value }
+                 onchange={ changed } />
+
+          <p class="help-block" show={ field.hint }>{ field.hint }</p>
+        </div>
+
+        <button type="submit" class="btn btn-primary btn-spacer-right">Save</button>
+        <a href="#chanman" class="btn btn-link">Back to channels</a>
+        <span show={ saved } class="search-note">Saved.</span>
+      </form>
+    </div>
+  </div>
+
+  <script>
+    var self = this
+    self.fields = []
+    self.values = {}
+    self.loading = true
+    self.saved = false
+    self.errorMsg = ''
+
+    this.on('mount', function() {
+      riot.route.exec(function(page, chid) {
+        self.chid = chid
+        self.load()
+      })
+    })
+
+    load() {
+      self.loading = true
+      self.saved = false
+      self.errorMsg = ''
+      self.update()
+      channelStore.getConfig(self.chid, function(err, data) {
+        self.loading = false
+        if (err) {
+          self.errorMsg = Utils.decodeURI(err)
+          return self.update()
+        }
+        self.title = data.title
+        self.values = data.values || {}
+        self.fields = (data.schema || []).map(function(field) {
+          return {
+            key: field.key,
+            label: field.label || field.key,
+            type: field.type || 'text',
+            hint: field.hint || '',
+            value: self.values[field.key],
+            options: (field.choices || []).map(function(choice) {
+              if (typeof choice === 'string') {
+                return {value: choice, label: choice}
+              }
+              return {value: choice.value, label: choice.label || choice.value}
+            })
+          }
+        })
+        self.update()
+      })
+    }
+
+    changed(e) {
+      var key = e.target.getAttribute('data-key')
+      var value = e.target.type === 'checkbox' ? e.target.checked : e.target.value
+      self.values[key] = value
+      self.saved = false
+      self.update()
+    }
+
+    save(e) {
+      if (e) e.preventDefault()
+      if (self.saving) return
+      self.saving = true
+      channelStore.setConfig(self.chid, self.values, function(err) {
+        self.saving = false
+        if (err) {
+          self.errorMsg = Utils.decodeURI(err)
+          return self.update()
+        }
+        self.saved = true
+        self.update()
+      })
+    }
+  </script>
+</chansettings>

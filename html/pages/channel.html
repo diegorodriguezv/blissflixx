@@ -43,7 +43,10 @@
           self.query = decodeURIComponent(q)
         }
         else {
-          self.feed = feed ? parseInt(feed) : 0
+          // A feed named in the route always wins. When there is none, the
+          // channel's own default feed applies, if it has one.
+          self.explicitFeed = feed !== undefined && feed !== null && feed !== ''
+          self.feed = self.explicitFeed ? parseInt(feed) : 0
         }
         if (self.query) {
           self.enable_clear_form()
@@ -67,12 +70,21 @@
           self.channel = channel
           if (!channel.feeds) channel.feeds = []
           self.lastIdx = channel.feeds.length - 1
+          if (!self.explicitFeed) {
+            self.feed = self.defaultFeedIndex(channel.feeds, channel.config)
+          }
           self.query ? self.showSearch() : self.showFeed()
           if (channel.full_feeds) {
             channelStore.getFeeds(self.chid, function(err, feeds) {
               if (err || !feeds) return
               try {
+                var resolved = self.defaultFeedIndex(feeds, self.channel.config)
+                var changed = resolved !== self.feed
                 self.channel.feeds = feeds
+                if (!self.explicitFeed && changed) {
+                  self.feed = resolved
+                  if (!self.query) self.showFeed()
+                }
                 self.update()
               } catch (e) {
                 Utils.showError(Utils.createError('channel', e.message || e))
@@ -83,6 +95,19 @@
           Utils.showError(Utils.createError('channel', e.message || e))
         }
       })
+    }
+
+    //: The index of the feed a channel opens by default, by its title.
+    //: Resolved against the list on screen, so a country from IPTV's full
+    //: catalogue works once that list has loaded even though it is not in the
+    //: curated one.
+    defaultFeedIndex(feeds, config) {
+      var wanted = String((config || {}).default_feed || '').toLowerCase()
+      if (!wanted) return 0
+      for (var i = 0; i < (feeds || []).length; i++) {
+        if (String(feeds[i].title || '').toLowerCase() == wanted) return i
+      }
+      return 0
     }
 
     showSearch() {

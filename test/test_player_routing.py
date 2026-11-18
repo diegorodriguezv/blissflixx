@@ -409,6 +409,7 @@ class TestStatus:
             "Playlist",
             "Detail",
             "Live",
+            "Reconnections",
         }
 
     def test_idle_player_is_not_running(self):

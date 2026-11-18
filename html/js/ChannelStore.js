@@ -119,6 +119,16 @@ function ChannelStore() {
     self.getResults(key, 'channels', 'search_all', {q:q}, cb)
   }
 
+  // One channel's settings: the schema the server declares, and the values
+  // stored for this installation.
+  self.getConfig = function(chid, cb) {
+    Utils.rpc('channels', 'config', {chid: chid}, cb)
+  }
+
+  self.setConfig = function(chid, values, cb) {
+    Utils.rpc('channels', 'set_config', {chid: chid, values: values}, cb)
+  }
+
   self.toggleChannel = function(chid, disable, cb) {
     var fn = disable ? 'disable' : 'enable'
     Utils.rpc('channels', fn, {chid:chid}, function(err, data) {

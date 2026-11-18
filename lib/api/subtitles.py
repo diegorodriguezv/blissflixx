@@ -4,8 +4,11 @@ import subprocess
 import cherrypy
 
 from ..chanutils.chanutils import movie_title_year, release_kind, series_season_episode
+from ..chanutils.languages import LANGUAGES  # noqa: F401  (re-export)
 from ..player.subsproc import GETSUBS_PATH
 from .common import ApiError
+
+
 
 
 def _search_name(name):

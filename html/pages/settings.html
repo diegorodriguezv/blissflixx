@@ -49,6 +49,19 @@
     </div>
   </div>
 
+  <div show={ configurable.length } class="row">
+    <div class="col-md-4 col-md-offset-4 col-sm-6 col-sm-offset-3 col-xs-12">
+      <hr />
+      <h4 class="settings-subtitle">Channel settings</h4>
+      <p class="build-label">
+        These channels have options of their own, stored on this installation.
+      </p>
+      <p each={ c in configurable } class="channel-settings-link">
+        <a href="#chansettings/{ c.id }">{ c.title }</a>
+      </p>
+    </div>
+  </div>
+
   <script>
     var self = this
 
@@ -59,6 +72,9 @@
     self.running = '...'
     self.installed = '...'
     self.stale = false
+    //: Channels with at least one option to set. Empty until the list
+    //: arrives, so the section is not drawn for an installation with none.
+    self.configurable = []
 
     Utils.rpc('server', 'versions', null, function(err, data) {
       if (err || !data) return
@@ -151,6 +167,13 @@
     // all, which is exactly what it looked like.
     this.on('mount', function() {
       self.readLastUpdate()
+      channelStore.getChannels(function(err, list) {
+        if (err) return
+        self.configurable = (list || []).filter(function(c) {
+          return c.configurable
+        })
+        self.update()
+      })
     })
   </script>
 </settings>

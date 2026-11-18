@@ -14,6 +14,7 @@ from threading import Lock, Thread
 #: is translated here into an ApiError that says what happened in words the
 #: interface can put on screen.
 from ..chanutils.reddit import ArchiveBusy
+from ..chanutils.languages import LANGUAGES
 from ..locations import CHAN_PATH, PLUGIN_PATH, ROOT_PATH
 from ..settings import load, save
 from .common import ApiError
@@ -93,6 +94,32 @@ class Channel:
         self.chid = chid
         self.module = module
         self.cpath = cpath
+        #: Extra settings the channel declares, if any: a dict, or a callable
+        #: returning one. Evaluated at import, so it must be pure -- a channel
+        #: that fetched its catalogue here would hold up every page that lists
+        #: channels. `Channel.getConfigSchema()` adds the built-ins on top.
+        declared = getattr(module, "config", None)
+        try:
+            declared = declared() if callable(declared) else declared
+        except Exception:
+            declared = None
+        self.declared_config = declared if isinstance(declared, dict) else {}
+        #: Whether Add Subtitles makes sense for this channel's rows. A plugin
+        #: that carries material no subtitle service can help with sets
+        #: SUPPORTS_SUBTITLES = False.
+        self.supports_subtitles = getattr(module, "SUPPORTS_SUBTITLES", True)
+        #: Whether the channel has anything at all to configure. The interface
+        #: shows a Settings button only when this is true.
+        self.configurable = self._is_configurable()
+        self.info["configurable"] = self.configurable
+
+    def _is_configurable(self):
+        """Whether there is anything on this channel to set."""
+        return bool(
+            self.declared_config
+            or self.supports_subtitles
+            or len(self.info["feeds"] or []) > 1
+        )
 
     @staticmethod
     def _website(desc):
@@ -121,8 +148,93 @@ class Channel:
     def getFeeds(self):
         return self.info["feeds"]
 
-    def getPlayItems(self, items):
+    def getConfigSchema(self, expand=False):
+        """
+        The settings this channel offers, in the order they should be shown.
+
+        Two are built in, so a channel gets useful options without writing
+        anything: a default feed when it has more than one, and a subtitle
+        language when Add Subtitles is offered. A channel may add its own by
+        declaring `config()`; those are merged last.
+
+        `expand` asks for the full feed list, which for IPTV means fetching the
+        catalogue. Never set it while listing channels: only the settings page
+        needs it, and only when it is opened.
+        """
+        schema = {}
+        feeds = self.getFeeds() or []
+        if len(feeds) > 1:
+            choices = [f.get("title") for f in feeds if f.get("title")]
+            if expand:
+                full = getattr(self.module, "feedlist_full", None)
+                if callable(full):
+                    try:
+                        choices = [
+                            f.get("title")
+                            for f in (full() or feeds)
+                            if f.get("title")
+                        ]
+                    except Exception:
+                        # The catalogue could not be reached; the feeds we
+                        # already have are still a usable list to choose from.
+                        pass
+            schema["default_feed"] = {
+                "label": "Default feed",
+                "type": "choice",
+                "default": "",
+                "choices": [{"value": "", "label": "First feed"}]
+                + [{"value": c, "label": c} for c in choices],
+                "hint": "The feed opened when this channel is first shown.",
+            }
+        if self.supports_subtitles:
+            schema["subtitles"] = {
+                "label": "Add Subtitles button",
+                "type": "bool",
+                "default": True,
+                "hint": "Show Add Subtitles on this channel's rows.",
+            }
+            schema["subtitles_lang"] = {
+                "label": "Subtitle language",
+                "type": "choice",
+                "default": "",
+                "choices": [{"value": "", "label": "Use the global setting"}]
+                + [{"value": code, "label": name} for code, name in LANGUAGES],
+                "hint": "Used when Add Subtitles is chosen from this channel.",
+            }
+        for key, spec in self.declared_config.items():
+            if isinstance(spec, dict):
+                schema[key] = spec
+        return schema
+
+    def getConfig(self, stored=None):
+        """Effective settings: the declared defaults, then what is on disk."""
+        stored = stored if isinstance(stored, dict) else {}
+        schema = self.getConfigSchema()
+        values = {}
+        for key, spec in schema.items():
+            values[key] = spec.get("default", "")
+        for key, value in stored.items():
+            if key in schema:
+                values[key] = value
+        return values
+
+    def getDefaultFeedIndex(self, config=None):
+        """The feed to open when the route names none, by its title."""
+        wanted = str((config or {}).get("default_feed") or "").strip()
+        if not wanted:
+            return 0
+        for index, feed in enumerate(self.getFeeds() or []):
+            if (feed.get("title") or "").casefold() == wanted.casefold():
+                return index
+        return 0
+
+    def getPlayItems(self, items, config=None):
         items = items.to_dict()
+        config = config if isinstance(config, dict) else {}
+        lang = config.get("subtitles_lang") or ""
+        # A channel that cannot use subtitles never offers the button; one that
+        # can may still have it turned off for this installation.
+        subtitles_on = self.supports_subtitles and config.get("subtitles", True)
         # fix any missing images
         # and Add channel id to showmore items and actions
         for i in items:
@@ -130,6 +242,15 @@ class Channel:
                 i["chid"] = self.chid
             if ("img" not in i) or (i["img"] is None):
                 i["img"] = self.image
+            if lang and isinstance(i.get("subs"), dict):
+                # The channel's own language wins over the global setting.
+                i["subs"]["lang"] = lang
+            if not subtitles_on and i.get("actions"):
+                i["actions"] = [
+                    action
+                    for action in i["actions"]
+                    if action.get("type") != "addsubtitles"
+                ]
             if "actions" in i:
                 for action in i["actions"]:
                     if action["type"] == "showmore":
@@ -137,17 +258,17 @@ class Channel:
 
         return items
 
-    def getFeed(self, idx):
-        return self.getPlayItems(self.module.feed(idx))
+    def getFeed(self, idx, config=None):
+        return self.getPlayItems(self.module.feed(idx), config)
 
-    def getFeedByName(self, idx, name):
-        return self.getPlayItems(self.module.feed_by_name(idx, name))
+    def getFeedByName(self, idx, name, config=None):
+        return self.getPlayItems(self.module.feed_by_name(idx, name), config)
 
-    def search(self, q):
-        return self.getPlayItems(self.module.search(q))
+    def search(self, q, config=None):
+        return self.getPlayItems(self.module.search(q), config)
 
-    def showmore(self, link):
-        return self.getPlayItems(self.module.showmore(link))
+    def showmore(self, link, config=None):
+        return self.getPlayItems(self.module.showmore(link), config)
 
     def imageExists(self):
         return path.isfile(path.join(self.cpath, self.module.image()))
@@ -261,6 +382,57 @@ class InstalledChannels:
             settings = self.settings[chid]
         return settings
 
+    def getChannelConfig(self, chid):
+        """The channel's effective options: defaults with the stored values."""
+        channel = self.getChannel(chid)
+        return channel.getConfig(self.getChannelSettings(chid).get("config"))
+
+    def getChannelConfigSchema(self, chid, expand=False):
+        return self.getChannel(chid).getConfigSchema(expand)
+
+    def setChannelConfig(self, chid, values):
+        """
+        Store one channel's options, locally for this installation.
+
+        Keys and choices are checked against the schema the channel declares, so
+        a typo in a hand-written request is reported rather than stored and
+        silently ignored. Values live under the channel's entry in
+        data/settings/channels, beside its disabled flag.
+        """
+        if not isinstance(values, dict):
+            raise ApiError("Channel settings must be a mapping")
+        channel = self.getChannel(chid)
+        schema = channel.getConfigSchema(expand=True)
+        settings = self.getChannelSettings(chid)
+        config = dict(settings.get("config") or {})
+        for key, value in values.items():
+            if key not in schema:
+                raise ApiError(
+                    "Unknown setting '%s' for channel '%s'" % (key, chid)
+                )
+            spec = schema[key]
+            kind = spec.get("type", "text")
+            if kind == "choice":
+                choices = [
+                    choice.get("value")
+                    for choice in spec.get("choices", [])
+                    if isinstance(choice, dict)
+                ]
+                if choices and value not in choices:
+                    raise ApiError(
+                        "Invalid value for setting '%s' on channel '%s'"
+                        % (key, chid)
+                    )
+                config[key] = value
+            elif kind == "bool":
+                config[key] = bool(value)
+            else:
+                config[key] = "" if value is None else str(value)
+        settings["config"] = config
+        self.settings[chid] = settings
+        self._save_config()
+        return self.getChannelConfig(chid)
+
 
 _installed = None
 _installed_lock = Lock()
@@ -346,6 +518,11 @@ def info(chid=None):
     # "hint" rather than "title", which reads as the HTML attribute of the same
     # name but resolves inside itemlist's each={ actions } to the row's own
     # title first -- so every Disable button would have said "EZTV".
+    channel = installed.getChannel(chid)
+    config = installed.getChannelConfig(chid)
+    info["configurable"] = channel.configurable
+    info["config"] = config
+    info["default_feed"] = channel.getDefaultFeedIndex(config)
     if installed.isEnabled(chid):
         info["actions"] = [
             {
@@ -362,6 +539,12 @@ def info(chid=None):
                 "hint": "show",
             }
         ]
+    if channel.configurable:
+        # Between Disable and Source: what the channel does, then how it is
+        # configured, then where it comes from.
+        info["actions"].append(
+            {"label": "Settings", "type": "channelsettings", "hint": "configure"}
+        )
     # Where the posts come from, beside the button that turns it off rather
     # than in the description, which nothing renders. Added last so it sits
     # after Disable, and only when there is a link to go to.
@@ -420,28 +603,67 @@ def _reading_a_feed(call, *args):
 def feed(chid=None, idx=None):
     if chid is None or idx is None:
         raise ApiError("Both Channel ID and feed index must be defined")
-    channel = get_installed().getChannel(chid)
-    return _reading_a_feed(channel.getFeed, idx)
+    installed = get_installed()
+    channel = installed.getChannel(chid)
+    return _reading_a_feed(
+        channel.getFeed, idx, installed.getChannelConfig(chid)
+    )
 
 
 def feed_by_name(chid=None, idx=None, name=None):
     if chid is None or idx is None or name is None:
         raise ApiError("All of Channel ID, feed index and name must be defined")
-    channel = get_installed().getChannel(chid)
-    return _reading_a_feed(channel.getFeedByName, idx, name)
+    installed = get_installed()
+    channel = installed.getChannel(chid)
+    return _reading_a_feed(
+        channel.getFeedByName, idx, name, installed.getChannelConfig(chid)
+    )
 
 
 def search(chid=None, q=None):
     if chid is None or q is None:
         raise ApiError("Both Channel ID and search query must be defined")
-    channel = get_installed().getChannel(chid)
-    return _reading_a_feed(channel.search, q)
+    installed = get_installed()
+    channel = installed.getChannel(chid)
+    return _reading_a_feed(channel.search, q, installed.getChannelConfig(chid))
 
 
 def showmore(chid=None, link=None):
     if chid is None or link is None:
         raise ApiError("Both channel ID and link must be defined")
-    return get_installed().getChannel(chid).showmore(link)
+    installed = get_installed()
+    return installed.getChannel(chid).showmore(
+        link, installed.getChannelConfig(chid)
+    )
+
+
+def config(chid=None):
+    """A channel's settings schema and effective values, for the settings page."""
+    if chid is None:
+        raise ApiError("Channel ID is missing")
+    installed = get_installed()
+    channel = installed.getChannel(chid)
+    schema = []
+    for key, spec in channel.getConfigSchema(expand=True).items():
+        row = dict(spec)
+        row["key"] = key
+        schema.append(row)
+    return {
+        "id": chid,
+        "title": channel.getTitle(),
+        "schema": schema,
+        "values": installed.getChannelConfig(chid),
+    }
+
+
+def set_config(chid=None, values=None):
+    """Save one channel's options, on this installation only."""
+    if chid is None:
+        raise ApiError("Channel ID is missing")
+    if values is None:
+        raise ApiError("No settings were given")
+    get_installed().setChannelConfig(chid, values)
+    return config(chid)
 
 
 def _search_thread(queue, chid, q):

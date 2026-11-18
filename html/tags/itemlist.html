@@ -201,6 +201,9 @@
       case 'editplaylistitem':
         Utils.goRoute('playedit', 'item', item.playlist, item.itemnum)
         break
+      case 'channelsettings':
+        Utils.goRoute('chansettings', item.id)
+        break
       case 'disablechannel':
         channelStore.toggleChannel(item.id, true, function(err) {
 	  if (err) return Utils.showError(err)
