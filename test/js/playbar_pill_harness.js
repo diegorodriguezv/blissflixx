@@ -190,12 +190,12 @@ now = 0;
 // The loading count, held for five seconds once the picture starts.
 {
   const tag = newTag();
-  check('the count while loading', poll(tag, status({ State: 1, Title: 'LOADING STREAM', Elapsed: 3 })), '3s');
-  check('it follows the wait', poll(tag, status({ State: 1, Title: 'LOADING STREAM', Elapsed: 4 })), '4s');
-  check('and stays when the picture starts', poll(tag, status({ Elapsed: 5 })), '4s');
+  check('the count while loading', poll(tag, status({ State: 1, Title: 'LOADING STREAM', Elapsed: 3 })), '0:00:03');
+  check('it follows the wait', poll(tag, status({ State: 1, Title: 'LOADING STREAM', Elapsed: 4 })), '0:00:04');
+  check('and stays when the picture starts', poll(tag, status({ Elapsed: 5 })), '0:00:04');
   fireLinger();
   checkNotEmpty('then hands over to a clock even with no position', tag.pill);
-  check('which counts from the play request', tag.pill, '0:05');
+  check('which counts from the play request', tag.pill, '0:00:05');
 }
 
 // A film whose player answers only some polls (the live-channel pattern):
@@ -205,12 +205,12 @@ now = 0;
   poll(tag, status({ State: 1, Title: 'LOADING STREAM', Elapsed: 3 }));
   poll(tag, status({ Elapsed: 3 }));
   fireLinger();
-  check('a film with a position shows it', poll(tag, status({ Elapsed: 6, Position: 4 })), '0:04');
+  check('a film with a position shows it', poll(tag, status({ Elapsed: 6, Position: 4 })), '0:00:04');
   tick(1000);
   checkNotEmpty('a poll with no position does not hide it', poll(tag, status({ Elapsed: 7 })));
-  check('and keeps the last reading', tag.pill, '0:05');
+  check('and keeps the last reading', tag.pill, '0:00:05');
   tick(1000);
-  check('the next reading takes over', poll(tag, status({ Elapsed: 8, Position: 9 })), '0:09');
+  check('the next reading takes over', poll(tag, status({ Elapsed: 8, Position: 9 })), '0:00:09');
 }
 
 // A live stream: the player's number is the rolling window, so it is not a
@@ -219,15 +219,15 @@ now = 0;
 {
   const tag = newTag();
   check('live: the count while loading',
-    poll(tag, status({ State: 1, Title: 'LOADING STREAM', Elapsed: 7, Live: true })), '7s');
-  check('live: held when the picture starts', poll(tag, status({ Elapsed: 8, Live: true })), '7s');
+    poll(tag, status({ State: 1, Title: 'LOADING STREAM', Elapsed: 7, Live: true })), '0:00:07');
+  check('live: held when the picture starts', poll(tag, status({ Elapsed: 8, Live: true })), '0:00:07');
   tick(5000);
   fireLinger();
-  check('live: the clock starts at the picture', tag.pill, '0:05');
+  check('live: the clock starts at the picture', tag.pill, '0:00:05');
   tick(1000);
-  check('live: it ticks without a status poll', tag.clockText(), '0:06');
+  check('live: it ticks without a status poll', tag.clockText(), '0:00:06');
   check('live: a position does not become the clock',
-    poll(tag, status({ Elapsed: 20, Position: 4, Live: true })), '0:06');
+    poll(tag, status({ Elapsed: 20, Position: 4, Live: true })), '0:00:06');
 }
 
 // Paused live: the picture is not running, so neither is its clock.
@@ -237,15 +237,15 @@ now = 0;
   poll(tag, status({ Title: 'Live', Elapsed: 5, Live: true }));
   tick(5000);
   fireLinger();
-  check('live: the clock runs', tag.pill, '0:05');
+  check('live: the clock runs', tag.pill, '0:00:05');
   check('live: pause freezes it',
-    poll(tag, status({ Title: 'Live', Elapsed: 6, Live: true, Paused: true })), '0:05');
+    poll(tag, status({ Title: 'Live', Elapsed: 6, Live: true, Paused: true })), '0:00:05');
   tick(3000);
-  check('live: it stays frozen', tag.clockText(), '0:05');
+  check('live: it stays frozen', tag.clockText(), '0:00:05');
   check('live: resume carries on from where it stopped',
-    poll(tag, status({ Title: 'Live', Elapsed: 9, Live: true })), '0:05');
+    poll(tag, status({ Title: 'Live', Elapsed: 9, Live: true })), '0:00:05');
   tick(1000);
-  check('live: and ticks again', tag.clockText(), '0:06');
+  check('live: and ticks again', tag.clockText(), '0:00:06');
 }
 
 // A live stream already playing when the page opens: there is no picture
@@ -253,19 +253,27 @@ now = 0;
 {
   const tag = newTag();
   check('live: a stream found mid-play counts its age',
-    poll(tag, status({ Title: 'Live', Elapsed: 600, Live: true })), '10:00');
+    poll(tag, status({ Title: 'Live', Elapsed: 600, Live: true })), '0:10:00');
   tick(1000);
-  check('live: and keeps ticking', tag.clockText(), '10:01');
+  check('live: and keeps ticking', tag.clockText(), '0:10:01');
 }
 
 // A film: the same missed sample, without handing the pill to the count.
 {
   const tag = newTag();
-  check('a film shows its position', poll(tag, status({ Elapsed: 5, Position: 100 })), '1:40');
+  check('a film shows its position', poll(tag, status({ Elapsed: 5, Position: 100 })), '0:01:40');
   tick(1000);
   checkNotEmpty('a missed sample keeps the clock', poll(tag, status({ Elapsed: 6 })));
-  check('at the last reading plus the allowed lead', tag.pill, '1:41');
-  check('the next sample takes over', poll(tag, status({ Elapsed: 7, Position: 103 })), '1:43');
+  check('at the last reading plus the allowed lead', tag.pill, '0:01:41');
+  check('the next sample takes over', poll(tag, status({ Elapsed: 7, Position: 103 })), '0:01:43');
+}
+
+// A film with a known length: where it is and how long it is, both h:m:s.
+{
+  const tag = newTag();
+  check('a film shows its position and length',
+    poll(tag, status({ Title: 'Film', Elapsed: 5, Position: 100, Length: 6000 })),
+    '0:01:40 / 1:40:00');
 }
 
 // A new play between two polls: its first playing poll has no position, and
@@ -273,8 +281,8 @@ now = 0;
 {
   const tag = newTag();
   poll(tag, status({ Title: 'First', Elapsed: 600, Position: 600 }));
-  check('the old film is where it was', tag.pill, '10:00');
-  check('a new title starts the clock over', poll(tag, status({ Title: 'Second', Elapsed: 0 })), '0:00');
+  check('the old film is where it was', tag.pill, '0:10:00');
+  check('a new title starts the clock over', poll(tag, status({ Title: 'Second', Elapsed: 0 })), '0:00:00');
 }
 
 // A play fast enough to go from stopped to playing between two polls: the bar
@@ -284,7 +292,7 @@ now = 0;
   const tag = newTag();
   poll(tag, status({ State: 0, Title: '', Elapsed: 0 }));
   checkNotEmpty('a start between polls still has a pill', poll(tag, status({ Title: 'Fast', Elapsed: 0 })));
-  check('counting from the request', tag.pill, '0:00');
+  check('counting from the request', tag.pill, '0:00:00');
 }
 
 // Nothing playing: the pill is gone, which is how the bar is meant to look.

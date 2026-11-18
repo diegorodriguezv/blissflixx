@@ -182,7 +182,7 @@
       self.starting = !!self.status.State &&
                       (self.status.State < 3 || !!self.status.Waiting)
       if (self.starting && self.status.Elapsed) {
-        self.lastCount = self.status.Elapsed + 's'
+        self.lastCount = self.duration(self.status.Elapsed)
       }
       if (wasStarting && !self.starting && self.lastCount) {
         // The picture started. Hold the number that said how long it took.
@@ -302,31 +302,30 @@
         if (self.status.Paused && self.pausedAt !== undefined && self.pausedAt !== null) {
           until = self.pausedAt
         }
-        return self.formatClock((until - self.pictureAt) / 1000)
+        return self.duration((until - self.pictureAt) / 1000)
       }
       if (self.posBase !== null && self.posBase !== undefined) {
         var lead = self.status && self.status.Paused
           ? 0
           : Math.min((Date.now() - self.posAt) / 1000, CLOCK_LEAD)
-        return self.formatClock(self.posBase + lead)
+        return self.clockPair(self.posBase + lead)
       }
       // The player has not said where the film is. The pill is also the only
       // way into the diagnostics panel, so it does not go blank while
       // something is playing: count from the play request instead.
       if (self.status && self.status.State == 3 &&
           typeof self.status.Elapsed === 'number') {
-        return self.formatClock(self.status.Elapsed)
+        return self.duration(self.status.Elapsed)
       }
       return ''
     }
 
-    formatClock(seconds) {
-      var total = Math.max(0, Math.floor(seconds))
-      var h = Math.floor(total / 3600)
-      var m = Math.floor((total % 3600) / 60)
-      var s = total % 60
-      var mm = h ? ('0' + m).slice(-2) : String(m)
-      return (h ? h + ':' : '') + mm + ':' + ('0' + s).slice(-2)
+    //: "where it is / how long it is", both as h:m:s. The length is left off
+    //: when the player does not know it, which is the live case.
+    clockPair(position) {
+      var length = self.status && self.status.Length
+      if (!length || length <= 0) return self.duration(position)
+      return self.duration(position) + ' / ' + self.duration(length)
     }
 
     //: A number of seconds as h:m:s, always. The diagnostics panel is read to
