@@ -1,0 +1,67 @@
+<sysoptions>
+  <div class="row">
+    <div class="col-md-6 col-md-offset-3 col-sm-8 col-sm-offset-2 col-xs-12">
+      <span class="item-list-title">
+        <backbtn></backbtn> <span>System options</span>
+      </span>
+
+      <p show={ loading } class="search-note">Loading...</p>
+      <p show={ errorMsg } class="alert alert-warning">{ errorMsg }</p>
+
+      <form show={ !loading && !errorMsg } onsubmit={ save }>
+        <div class="form-group">
+          <label for="bf-global-lang">Default subtitle language</label>
+          <select id="bf-global-lang" name="f_lang" class="form-control">
+            <option each={ l in languages }
+                    value={ l.code }
+                    __selected={ l.code == lang }>{ l.name }</option>
+          </select>
+          <p class="help-block">
+            Used by channels that do not choose a language of their own.
+          </p>
+        </div>
+
+        <button type="submit" class="btn btn-primary btn-spacer-right">Save</button>
+        <span show={ saved } class="search-note">Saved.</span>
+      </form>
+    </div>
+  </div>
+
+  <script>
+    var self = this
+    self.lang = 'eng'
+    self.languages = []
+    self.loading = true
+    self.saving = false
+    self.saved = false
+    self.errorMsg = ''
+
+    Utils.rpc('subtitles', 'language', null, function(err, data) {
+      self.loading = false
+      if (err) {
+        self.errorMsg = Utils.decodeURI(err)
+        return self.update()
+      }
+      self.lang = data.lang
+      self.languages = data.languages || []
+      self.update()
+    })
+
+    save(e) {
+      if (e) e.preventDefault()
+      if (self.saving) return
+      self.saving = true
+      self.saved = false
+      Utils.rpc('subtitles', 'set_language', {lang: self.f_lang.value}, function(err, data) {
+        self.saving = false
+        if (err) {
+          self.errorMsg = Utils.decodeURI(err)
+          return self.update()
+        }
+        self.lang = data.lang
+        self.saved = true
+        self.update()
+      })
+    }
+  </script>
+</sysoptions>

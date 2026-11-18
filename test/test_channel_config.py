@@ -358,13 +358,20 @@ class TestTheInterfaceKnows:
         assert "showFlash" in shell
         assert ".bf-flash" in (root / "html" / "css" / "layout.css").read_text()
 
-    def test_the_global_language_has_a_home_on_the_settings_page(self):
+    def test_the_global_language_has_a_home_on_the_system_options_page(self):
         from pathlib import Path
 
         root = Path(__file__).resolve().parents[1]
-        page = (root / "html" / "pages" / "settings.html").read_text()
-        assert "setSubtitleLang" in page
-        assert "subtitleLanguages" in page
+        settings = (root / "html" / "pages" / "settings.html").read_text()
+        options = (root / "html" / "pages" / "sysoptions.html").read_text()
+        assert "#sysoptions" in settings
+        assert "Default subtitle language" in options
+        assert "set_language" in options
+
+    def test_the_channel_language_says_what_the_global_one_is(self):
+        schema = _channel().getConfigSchema()
+        labels = [c["label"] for c in schema["subtitles_lang"]["choices"]]
+        assert any(label.startswith("Use the global setting (") for label in labels)
 
     def test_a_search_starts_from_the_global_language(self):
         from pathlib import Path

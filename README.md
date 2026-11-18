@@ -322,6 +322,7 @@ The settings page contains:
 - **UPDATE** — pull the latest release and restart the server. If you come
   across a problem, update first: it may already be fixed.
 - **SHUTDOWN** and **REBOOT** — power actions.
+- **SYSTEM OPTIONS** — global options, currently the default subtitle language.
 - **Channel settings** — opened from a channel's Settings button in **Manage
   Channels**.
 
@@ -339,7 +340,7 @@ rows whose title contains any of them are hidden, comma-separated and
 case-insensitive. That is how a box that cannot decode `h265`/`x265`, or a
 person who does not want `telugu` or `1080p`, stops seeing those rows. Every
 channel that supports subtitles offers a **subtitle language** (overriding the
-global `data/settings/subtitles`) and an **Add Subtitles** toggle. A channel may
+global one in **SYSTEM OPTIONS**, stored in `data/settings/subtitles`) and an **Add Subtitles** toggle. A channel may
 declare more options; the form is built from what it declares, and a channel
 with nothing to set gets no Settings button.
 

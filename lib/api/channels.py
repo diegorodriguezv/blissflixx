@@ -217,6 +217,11 @@ class Channel:
             "Separate them with commas: telugu, h265, x265, 1080p.",
         }
         if self.supports_subtitles:
+            global_lang = (load("subtitles").get("lang") or "eng")
+            global_name = next(
+                (name for code, name in LANGUAGES if code == global_lang),
+                global_lang,
+            )
             schema["subtitles"] = {
                 "label": "Add Subtitles button",
                 "type": "bool",
@@ -227,7 +232,12 @@ class Channel:
                 "label": "Subtitle language",
                 "type": "choice",
                 "default": "",
-                "choices": [{"value": "", "label": "Use the global setting"}]
+                "choices": [
+                    {
+                        "value": "",
+                        "label": "Use the global setting (%s)" % global_name,
+                    }
+                ]
                 + [{"value": code, "label": name} for code, name in LANGUAGES],
                 "hint": "Used when Add Subtitles is chosen from this channel.",
                 # Only worth showing while the button itself is on.
