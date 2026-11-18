@@ -147,6 +147,8 @@ class LibtorrentProcess(ExternalProcess):
         #: When the payload last changed, for the stalled line.
         self._moved_at = None
         self._started_at = None
+        #: When the source first said "serving". See _read_until_serving.
+        self._served_at = None
         #: The files inside this torrent to serve as subtitles, most probable
         #: first: [{"idx": n, "name": ".."}]. Empty when this play asked for
         #: none.
@@ -213,6 +215,12 @@ class LibtorrentProcess(ExternalProcess):
                 raise ProcessException(line[len(_ERROR_PREFIX):])
             serving = _SERVING_RE.search(line)
             if serving:
+                # When the player was first given something to read. The
+                # no-picture retry is measured from here, not from the play
+                # request: before this line the source is still preparing --
+                # checking, or fetching an opening piece -- and restarting it
+                # then would undo the work rather than rescue the play.
+                self._served_at = time.time()
                 self.args["outfile"] = serving.group(1).rstrip("/")
                 info = {
                     "index": int(serving.group(2)),

@@ -1146,13 +1146,20 @@ class _Player:
                     pass
         if worst > 0:
             return worst
-        # No explicit peer/progress stall, but playback has not started for a long
-        # time (VLC produced no picture) while the torrent is active. A fresh
-        # session often recovers these "downloading but won't start" hangs.
-        if active and self.play_requested_at is not None:
-            waited = int(time.time() - self.play_requested_at)
-            if waited >= _TORRENT_NOPICTURE_RETRY_AFTER:
-                return waited
+        # No explicit peer/progress stall, but the source has been serving for a
+        # long time with no picture. Only counted from "serving": before that
+        # the source is still preparing -- checking a torrent, or fetching an
+        # opening piece -- and restarting it would undo that work rather than
+        # rescue the play. This is the "downloading, player attached, picture
+        # never starts" case.
+        if active:
+            served = None
+            for proc in getattr(pipe, "procs", []):
+                served = getattr(proc, "_served_at", None) or served
+            if served is not None:
+                waited = int(time.time() - served)
+                if waited >= _TORRENT_NOPICTURE_RETRY_AFTER:
+                    return waited
         return 0
 
     def _maybe_retry_torrent(self, status, pipe):
