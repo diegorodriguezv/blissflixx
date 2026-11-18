@@ -399,7 +399,7 @@ def hash_text(hashes):
 WANTED = 4
 
 
-def file_priorities(count, playing, subs, shared=()):
+def file_priorities(count, playing, subs):
     """
     Every file unwanted, except the one being played and the subtitles.
 
@@ -408,21 +408,10 @@ def file_priorities(count, playing, subs, shared=()):
     part file instead of the film's own, so a film watched that way is never a
     file on the card. Prioritised pieces of a wanted file are written in place,
     as a sparse film, and a later play can see what is there.
-
-    `shared` names files that share a piece with the played one. A piece is
-    stored whole in the file it starts in, so the opening piece of an episode
-    can include bytes from the previous one. If that neighbour is unwanted its
-    bytes go to the part file, and a later session that truncates the part file
-    leaves a bitfield that claims the piece is present when its bytes are gone
-    -- every read of it then fails with ENOENT. Keeping the neighbour wanted
-    writes those bytes in place and keeps the piece real.
     """
     priorities = [0] * count
     if 0 <= playing < count:
         priorities[playing] = WANTED
-    for i in shared:
-        if 0 <= i < count:
-            priorities[i] = WANTED
     for i in subs:
         if 0 <= i < count:
             priorities[i] = WANTED
@@ -726,27 +715,6 @@ class App:
             return self.first_piece(index) - 1
         return min((offset - 1) // self.piece_length, self.last_piece)
 
-    def shared_files(self):
-        """
-        Files whose bytes share a piece with the played file.
-
-        A piece is stored whole, so the piece at either end of the file can
-        include bytes from the file before or after it. Those files have to be
-        wanted too (see file_priorities) so the boundary piece is written in
-        place instead of into a part file that a later session may truncate.
-        """
-        count = self.files.num_files()
-        first = self.first_piece(self.index) * self.piece_length
-        last = (self.last_piece_of(self.index) + 1) * self.piece_length
-        shared = []
-        offset = 0
-        for i in range(count):
-            size = self.files.file_size(i)
-            if i != self.index and size and offset < last and offset + size > first:
-                shared.append(i)
-            offset += size
-        return shared
-
     def crop(self):
         """
         Want the played file only by piece, the subtitles whole, nothing else.
@@ -764,9 +732,7 @@ class App:
         # the whole CROP_TIMEOUT. Measured: 5.15s of a 5.7s start was this wait.
         self.handle.prioritize_pieces([0] * self.info.num_pieces())
         self.handle.prioritize_files(
-            file_priorities(
-                self.files.num_files(), self.index, self.subs, self.shared_files()
-            )
+            file_priorities(self.files.num_files(), self.index, self.subs)
         )
         # The crop lands on libtorrent's client thread. Asking for a piece
         # before it does gets the request overwritten by the crop, leaving a

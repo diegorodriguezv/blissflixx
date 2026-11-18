@@ -384,26 +384,6 @@ class TestPriorities:
     def test_a_file_named_out_of_range_is_ignored(self):
         assert bt.file_priorities(2, 9, [7]) == [0, 0]
 
-    def test_a_file_sharing_the_opening_piece_is_wanted(self):
-        """
-        A piece is stored whole in the file it starts in, so the opening piece
-        of an episode can include bytes from the previous one. That neighbour
-        must be wanted, or its bytes go to a part file that a later session can
-        truncate, leaving a bitfield that claims a piece whose data is gone.
-        """
-        assert bt.file_priorities(3, 2, [], shared=[1]) == [0, bt.WANTED, bt.WANTED]
-
-    def test_a_shared_file_can_also_carry_subtitles(self):
-        assert bt.file_priorities(4, 2, [3], shared=[1]) == [
-            0,
-            bt.WANTED,
-            bt.WANTED,
-            bt.WANTED,
-        ]
-
-    def test_shared_files_out_of_range_are_ignored(self):
-        assert bt.file_priorities(2, 0, [], shared=[-1, 5]) == [bt.WANTED, 0]
-
     def test_the_played_file_stays_wanted_though_its_pieces_do_not(self):
         """
         The file priority is what makes libtorrent write the film into its own
