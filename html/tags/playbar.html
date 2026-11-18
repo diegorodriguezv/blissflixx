@@ -182,7 +182,7 @@
       self.starting = !!self.status.State &&
                       (self.status.State < 3 || !!self.status.Waiting)
       if (self.starting && self.status.Elapsed) {
-        self.lastCount = self.duration(self.status.Elapsed)
+        self.lastCount = self.status.Elapsed + 's'
       }
       if (wasStarting && !self.starting && self.lastCount) {
         // The picture started. Hold the number that said how long it took.

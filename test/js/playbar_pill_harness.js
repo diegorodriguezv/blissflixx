@@ -190,9 +190,9 @@ now = 0;
 // The loading count, held for five seconds once the picture starts.
 {
   const tag = newTag();
-  check('the count while loading', poll(tag, status({ State: 1, Title: 'LOADING STREAM', Elapsed: 3 })), '0:00:03');
-  check('it follows the wait', poll(tag, status({ State: 1, Title: 'LOADING STREAM', Elapsed: 4 })), '0:00:04');
-  check('and stays when the picture starts', poll(tag, status({ Elapsed: 5 })), '0:00:04');
+  check('the count while loading', poll(tag, status({ State: 1, Title: 'LOADING STREAM', Elapsed: 3 })), '3s');
+  check('it follows the wait', poll(tag, status({ State: 1, Title: 'LOADING STREAM', Elapsed: 4 })), '4s');
+  check('and stays when the picture starts', poll(tag, status({ Elapsed: 5 })), '4s');
   fireLinger();
   checkNotEmpty('then hands over to a clock even with no position', tag.pill);
   check('which counts from the play request', tag.pill, '0:00:05');
@@ -219,8 +219,8 @@ now = 0;
 {
   const tag = newTag();
   check('live: the count while loading',
-    poll(tag, status({ State: 1, Title: 'LOADING STREAM', Elapsed: 7, Live: true })), '0:00:07');
-  check('live: held when the picture starts', poll(tag, status({ Elapsed: 8, Live: true })), '0:00:07');
+    poll(tag, status({ State: 1, Title: 'LOADING STREAM', Elapsed: 7, Live: true })), '7s');
+  check('live: held when the picture starts', poll(tag, status({ Elapsed: 8, Live: true })), '7s');
   tick(5000);
   fireLinger();
   check('live: the clock starts at the picture', tag.pill, '0:00:05');
