@@ -328,7 +328,8 @@ The settings page contains:
 ### Channel settings
 
 Channels can have options of their own, opened from the Settings button on each
-row of **Manage Channels**. They are stored **per installation** in
+row of **Manage Channels**, which opens the channel's settings page. They are
+stored **per installation** in
 `data/settings/channels`, beside the channel's disabled flag; nothing is written
 to the repository, so two boxes can be configured differently.
 

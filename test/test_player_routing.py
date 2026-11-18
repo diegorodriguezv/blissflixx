@@ -211,25 +211,28 @@ class TestPlayrRouting:
         with pytest.raises(ApiError):
             playr.play()
 
-    def test_subtitles_prefs_are_saved(self, settings):
+    def test_playing_with_subtitles_does_not_change_the_global(self, settings):
         """
-        The chosen subtitle language persists so the next play reuses it.
-
-        _start_thread is stubbed so the player's background loop never runs;
-        without it this would queue a real pipeline and spawn yt-dlp.
+        The global subtitle language is changed on the Settings page, not as a
+        side effect of a search. A search's language applies to that play only;
+        otherwise the setting moved every time somebody watched something.
         """
+        settings.save("subtitles", {"lang": "spa"})
+        settings._cache.clear()
         with m.patch("lib.player.player._start_thread", lambda *a, **k: m.Mock()):
             with m.patch.object(player_module._Player, "playYtdl"):
                 playr.play(url="https://x/v.mp4", title="T", subs={"lang": "fra"})
         settings._cache.clear()
-        assert settings.load("subtitles") == {"lang": "fra"}
+        assert settings.load("subtitles") == {"lang": "spa"}
 
-    def test_no_prefs_saved_without_subs(self, settings):
+    def test_a_play_without_subtitles_leaves_the_global_alone(self, settings):
+        settings.save("subtitles", {"lang": "spa"})
+        settings._cache.clear()
         with m.patch("lib.player.player._start_thread", lambda *a, **k: m.Mock()):
             with m.patch.object(player_module._Player, "playYtdl"):
                 playr.play(url="https://x/v.mp4", title="T")
         settings._cache.clear()
-        assert settings.load("subtitles") == {}
+        assert settings.load("subtitles") == {"lang": "spa"}
 
 
 class TestControlRouting:

@@ -97,6 +97,15 @@
   <script>
     var self = this
 
+    // The global default, so a search starts where the person left it. The
+    // language picked here applies to this search only; the global is changed
+    // on the Settings page.
+    Utils.rpc('subtitles', 'language', null, function(err, data) {
+      if (err || !data) return
+      self.lang = data.lang
+      self.update()
+    })
+
     this.langlist = [
       {code:"eng", name:"English"},
       {code:"spa", name:"Spanish"},

@@ -7,6 +7,22 @@
       <a href="" onclick={ reboot } type="button" class="btn btn-primary btn-block btn-lg"><span class="glyphicon glyphicon-repeat"></span> REBOOT</a>
 
       <!--
+      The language a channel uses when it has not chosen one of its own. It is
+      the only place this changes: a subtitle search uses the language picked
+      for that search without overwriting this.
+      -->
+      <hr />
+      <h4 class="settings-subtitle">Subtitle language</h4>
+      <p class="build-label">
+        Used by channels that do not choose their own.
+      </p>
+      <select class="form-control" onchange={ setSubtitleLang }>
+        <option each={ l in subtitleLanguages }
+                value={ l.code }
+                __selected={ l.code == subtitleLang }>{ l.name }</option>
+      </select>
+
+      <!--
       What is on disk, and what this server is actually running, shown
       separately.
 
@@ -59,6 +75,8 @@
     self.running = '...'
     self.installed = '...'
     self.stale = false
+    self.subtitleLang = 'eng'
+    self.subtitleLanguages = []
 
     Utils.rpc('server', 'versions', null, function(err, data) {
       if (err || !data) return
@@ -67,6 +85,22 @@
       self.stale = data.same ? false : true
       self.update()
     })
+
+    Utils.rpc('subtitles', 'language', null, function(err, data) {
+      if (err || !data) return
+      self.subtitleLang = data.lang
+      self.subtitleLanguages = data.languages || []
+      self.update()
+    })
+
+    setSubtitleLang(e) {
+      var lang = e.target.value
+      Utils.rpc('subtitles', 'set_language', {lang: lang}, function(err, data) {
+        if (err) return Utils.showError(err)
+        self.subtitleLang = data.lang
+        self.update()
+      })
+    }
 
     restart() {
       // Said before the call, because the call is slow.

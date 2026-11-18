@@ -4,7 +4,6 @@ import cherrypy
 
 from ..chanutils.torrent import torrent_idx
 from ..player import Player
-from ..settings import save
 from . import playlists
 from .common import ApiError
 from .torrent import is_torrent_url
@@ -13,11 +12,6 @@ from .torrent import is_torrent_url
 #: Mirrors one play may carry. A channel can have thirty-five in the catalogue;
 #: the player tries them in order and keeps going until one works.
 _MAX_SOURCES = 50
-
-
-def _save_subs_prefs(subs):
-    if "lang" in subs:
-        save("subtitles", {"lang": subs["lang"]})
 
 
 def _sources(url, sources):
@@ -93,8 +87,6 @@ def _place_in_playlist(plid, itemnum, url):
 def play(url=None, title=None, subs=None, plid=None, itemnum=None, sources=None):
     if url is None:
         raise ApiError("Play url is undefined")
-    if subs is not None:
-        _save_subs_prefs(subs)
     playlist, index = _place_in_playlist(plid, itemnum, url)
     mirrors = _sources(url, sources)
     obj = urllib.parse.urlparse(url)

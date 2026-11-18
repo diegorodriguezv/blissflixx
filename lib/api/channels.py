@@ -200,6 +200,8 @@ class Channel:
                 "choices": [{"value": "", "label": "Use the global setting"}]
                 + [{"value": code, "label": name} for code, name in LANGUAGES],
                 "hint": "Used when Add Subtitles is chosen from this channel.",
+                # Only worth showing while the button itself is on.
+                "depends_on": "subtitles",
             }
         for key, spec in self.declared_config.items():
             if isinstance(spec, dict):

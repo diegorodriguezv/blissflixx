@@ -6,7 +6,7 @@
     <p show={ errorMsg } class="alert alert-warning">{ errorMsg }</p>
 
     <form show={ !loading && !errorMsg } onsubmit={ save }>
-      <div each={ field in fields } class="form-group">
+      <div each={ field in shown } class="form-group">
         <label for="bf-set-{ field.key }">{ field.label }</label>
 
         <select if={ field.type == 'choice' }
@@ -48,6 +48,7 @@
     self.title = ''
     self.chid = null
     self.fields = []
+    self.shown = []
     self.values = {}
     self.loading = false
     self.saving = false
@@ -56,6 +57,14 @@
 
     // The channel can change while the tag stays mounted: the Manage Channels
     // page reuses one form for whichever row was chosen.
+    //: Fields whose controlling switch is on. A setting that only means
+    //: something while another is enabled is not shown while it is off.
+    function refreshShown() {
+      self.shown = self.fields.filter(function(field) {
+        return !field.depends_on || !!self.values[field.depends_on]
+      })
+    }
+
     function sync() {
       if (opts.chid && opts.chid !== self.chid) {
         self.chid = opts.chid
@@ -89,6 +98,7 @@
             type: field.type || 'text',
             hint: field.hint || '',
             value: self.values[field.key],
+            depends_on: field.depends_on || null,
             options: (field.choices || []).map(function(choice) {
               if (typeof choice === 'string') {
                 return {value: choice, label: choice}
@@ -97,6 +107,7 @@
             })
           }
         })
+        refreshShown()
         self.update()
       })
     }
@@ -115,6 +126,7 @@
         }
       }
       self.saved = false
+      refreshShown()
       self.update()
     }
 

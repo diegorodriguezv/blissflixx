@@ -6,6 +6,7 @@ import cherrypy
 from ..chanutils.chanutils import movie_title_year, release_kind, series_season_episode
 from ..chanutils.languages import LANGUAGES  # noqa: F401  (re-export)
 from ..player.subsproc import GETSUBS_PATH
+from ..settings import load, save
 from .common import ApiError
 
 
@@ -148,3 +149,30 @@ def search(name=None, lang=None, title=None, year=None):
         "kind": wanted_kind,
         "results": found,
     }
+
+
+#: Where the global subtitle language lives. A channel may override it; a
+#: subtitle search uses the language chosen for that search, not this one.
+_GLOBAL = "subtitles"
+
+
+def _language_choices():
+    return [{"code": code, "name": name} for code, name in LANGUAGES]
+
+
+def language():
+    """The global subtitle language and the choices, for the settings page."""
+    stored = load(_GLOBAL).get("lang") or "eng"
+    if stored not in {code for code, _ in LANGUAGES}:
+        stored = "eng"
+    return {"lang": stored, "languages": _language_choices()}
+
+
+def set_language(lang=None):
+    """Set the language used by channels that do not choose their own."""
+    if lang is None:
+        raise ApiError("Subtitle language is missing")
+    if lang not in {code for code, _ in LANGUAGES}:
+        raise ApiError("Unknown subtitle language: " + str(lang))
+    save(_GLOBAL, {"lang": lang})
+    return language()

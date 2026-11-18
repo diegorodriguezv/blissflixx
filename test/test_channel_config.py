@@ -62,6 +62,8 @@ class TestTheSchema:
         schema = _channel().getConfigSchema()
         assert schema["subtitles_lang"]["default"] == ""
         assert schema["subtitles"]["default"] is True
+        # The language only means something while the button is on.
+        assert schema["subtitles_lang"]["depends_on"] == "subtitles"
         codes = [choice["value"] for choice in schema["subtitles_lang"]["choices"]]
         assert "" in codes
         assert "eng" in codes
@@ -233,21 +235,20 @@ class TestStoring:
 
 
 class TestTheInterfaceKnows:
-    def test_the_manage_channels_page_owns_the_form(self):
-        from pathlib import Path
-
-        root = Path(__file__).resolve().parents[1]
-        page = (root / "html" / "pages" / "chanman.html").read_text()
-        assert "<channelsettings" in page
-        assert "se_channel_settings" in page
-
-    def test_a_channel_row_asks_the_manage_page_to_open_its_settings(self):
+    def test_a_channel_row_opens_the_settings_page(self):
         from pathlib import Path
 
         root = Path(__file__).resolve().parents[1]
         tag = (root / "html" / "tags" / "itemlist.html").read_text()
         assert "channelsettings" in tag
-        assert "RiotControl.trigger('se_channel_settings'" in tag
+        assert "Utils.goRoute('chansettings', item.id)" in tag
+
+    def test_the_manage_page_does_not_carry_the_form(self):
+        from pathlib import Path
+
+        root = Path(__file__).resolve().parents[1]
+        page = (root / "html" / "pages" / "chanman.html").read_text()
+        assert "<channelsettings" not in page
 
     def test_the_form_tag_renders_the_fields_it_is_given(self):
         from pathlib import Path
@@ -265,7 +266,31 @@ class TestTheInterfaceKnows:
         page = (root / "html" / "index.html").read_text()
         assert "tags/channelsettings.html" in page
 
-    def test_a_direct_link_still_has_a_page(self):
+    def test_the_language_is_hidden_while_the_button_is_off(self):
+        from pathlib import Path
+
+        root = Path(__file__).resolve().parents[1]
+        tag = (root / "html" / "tags" / "channelsettings.html").read_text()
+        assert "field in shown" in tag
+        assert "refreshShown" in tag
+        assert "field.depends_on" in tag
+
+    def test_the_global_language_has_a_home_on_the_settings_page(self):
+        from pathlib import Path
+
+        root = Path(__file__).resolve().parents[1]
+        page = (root / "html" / "pages" / "settings.html").read_text()
+        assert "setSubtitleLang" in page
+        assert "subtitleLanguages" in page
+
+    def test_a_search_starts_from_the_global_language(self):
+        from pathlib import Path
+
+        root = Path(__file__).resolve().parents[1]
+        page = (root / "html" / "pages" / "subsearch.html").read_text()
+        assert "self.lang = data.lang" in page
+
+    def test_the_settings_page_is_the_form(self):
         from pathlib import Path
 
         root = Path(__file__).resolve().parents[1]
@@ -279,3 +304,35 @@ class TestTheInterfaceKnows:
         page = (root / "html" / "pages" / "channel.html").read_text()
         assert "defaultFeedIndex" in page
         assert "config.default_feed" in page or "config || {}).default_feed" in page
+
+
+class TestTheGlobalLanguage:
+    """The language a channel uses when it has not chosen one of its own."""
+
+    def test_it_cannot_be_set_to_something_unknown(self, settings):
+        from lib.api import subtitles
+
+        with pytest.raises(ApiError):
+            subtitles.set_language("nope")
+
+    def test_it_round_trips(self, settings):
+        from lib.api import subtitles
+
+        subtitles.set_language("spa")
+        settings._cache.clear()
+        assert settings.load("subtitles") == {"lang": "spa"}
+        assert subtitles.language()["lang"] == "spa"
+
+    def test_it_exposes_the_choices_the_form_needs(self, settings):
+        from lib.api import subtitles
+
+        answer = subtitles.language()
+        codes = [choice["code"] for choice in answer["languages"]]
+        assert "eng" in codes and "spa" in codes
+
+    def test_a_stored_value_that_is_gone_falls_back_to_english(self, settings):
+        from lib.api import subtitles
+
+        settings.save("subtitles", {"lang": "zzz"})
+        settings._cache.clear()
+        assert subtitles.language()["lang"] == "eng"

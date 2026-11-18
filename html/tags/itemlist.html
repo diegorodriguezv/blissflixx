@@ -202,10 +202,7 @@
         Utils.goRoute('playedit', 'item', item.playlist, item.itemnum)
         break
       case 'channelsettings':
-        // The Manage Channels page owns one form and reuses it for whichever
-        // channel was asked for; a direct link still works through the
-        // chansettings page.
-        RiotControl.trigger('se_channel_settings', item.id)
+        Utils.goRoute('chansettings', item.id)
         break
       case 'disablechannel':
         channelStore.toggleChannel(item.id, true, function(err) {
