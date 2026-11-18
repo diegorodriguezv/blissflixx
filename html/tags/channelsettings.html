@@ -56,12 +56,17 @@
 
     // The channel can change while the tag stays mounted: the Manage Channels
     // page reuses one form for whichever row was chosen.
-    this.on('update', function() {
+    function sync() {
       if (opts.chid && opts.chid !== self.chid) {
         self.chid = opts.chid
         self.load()
       }
-    })
+    }
+
+    // `update` covers a parent changing the channel; `mount` covers the first
+    // render, where the script may be built after that update has happened.
+    this.on('update', sync)
+    this.on('mount', sync)
 
     load() {
       if (!self.chid) return
