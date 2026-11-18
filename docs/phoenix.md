@@ -1,11 +1,11 @@
 # Phoenix
 
-The release this branch is aiming at, what counts as done, and what is
-deliberately left until after it.
+This is the Phoenix release: the code as it stands, what counts as done, and
+what is deliberately left out.
 
-Phoenix is not a redesign. It is the old BlissFlixx, made solid: the same
-jobs, on current Raspberry Pi OS, with nothing on screen that the person
-watching cannot make sense of.
+Phoenix is not a redesign. It is the old BlissFlixx, made solid: the same jobs,
+on current Raspberry Pi OS, with nothing on screen that the person watching
+cannot make sense of.
 
 The measure of success is the one from the beginning. Installing BlissFlixx
 should be easy enough for someone who has never used it: one command, and a
@@ -26,7 +26,10 @@ thing as one that works for someone who has just found it.
    "the interface goes quiet" below; this has cost more time than anything
    else in the VLC work.
 3. **Nothing is deleted that the person did not ask to have deleted.** Not on
-   stop, not on restart, not automatically.
+   stop and not on restart. The torrent buffer is the one exception, and it is
+   the person asking for a film that triggers it: when space is needed, the
+   least recently used entries are pruned to make room, and the entry being
+   played is never a candidate.
 4. **A film fits on the disk.** It did not on tmpfs, and could not.
 5. **Readable on a television from a sofa**, which is where it is watched.
 
@@ -106,9 +109,10 @@ layout that replaced it, EZTV reads the site's own torrent API rather than
 scraping a page, and TechCrunch matches the current card and falls back to the
 one it replaced.
 
-## After Phoenix
+## Carried into Phoenix
 
-Noted, agreed, not started. In the order they were raised.
+Status of the work raised after the first Phoenix plan. **Done** means on the
+release branch with its tests and documentation. In the order they were raised.
 
 ### Let the television sleep
 
@@ -126,6 +130,12 @@ Noted, agreed, not started. In the order they were raised.
 `-uninstall` removes the BlissFlixx blank-screen service but does not modify boot
 cmdline settings.
 
+**Status:** partly done. `consoleblank=5` covers lite/console installs and the
+DPMS service is installed for X, but the X path is not validated yet and true TV
+sleep remains open. `vcgencmd display_power` was tested on a Pi 3 under KMS and
+had no effect; framebuffer blanking affects the console picture, not the TV's
+backlight.
+
 **History / still open:** `tvservice -p` (legacy display stack, no longer shipped)
 used to produce a blank/sleep-friendly state on some TVs. A true TV-sleep
 replacement remains TV-dependent: candidates like `vcgencmd display_power 0/1`,
@@ -135,6 +145,10 @@ or wake issues on others. If/when active blanking is added, it must be driven by
 and it must reliably unblank on playback start.
 
 ### Say what is happening while a stream loads
+
+**Status: done.** The bar shows the item's title while it loads, and the source
+detail line says what the torrent is doing: share on disk, speed, peers, and how
+long nothing has arrived. The original note follows.
 
 A torrent can take the better part of a minute to start producing, and all
 of that time the screen says `LOADING STREAM`. Long enough that it reads as
@@ -153,6 +167,9 @@ a stalled seek.
 
 ### Volume in finer steps
 
+**Status:** the step is configurable — `volume_step` in
+`data/settings/player-vlc` — and is a real percentage; the default remains 10%.
+
 Ten percent per press is what the television wants. Ten presses to silence is
 a lot of pressing, and the difference between 40% and 45% matters more at the
 bottom of the range than it does at the top. Not before Phoenix.
@@ -163,6 +180,9 @@ labelled 10% was really 10.16% -- and the overlay drifted as it counted down,
 showing 100, 89, 79, 69 rather than round numbers.
 
 ### Popular videos, from YouTube or an aggregator
+
+**Status: resolved** by narrowing the channel to `/r/youtubevideos`; the
+sitewide Reddit listing could not be kept.
 
 There was a YouTube channel (`bfch_youtube`) built on Reddit's sitewide
 `/domain/youtube.com` listing: whatever anyone posted anywhere on Reddit that

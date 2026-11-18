@@ -20,14 +20,14 @@ BlissFlixx allows you to stream various types of video and audio content directl
  - Catchup TV services such as BBC iPlayer
  - Full movies and documentaries on Youtube
  - Torrents (including magnet links)
- - Local media files
+ - Local media files (played from the Play URL page with a `file://` address)
  - Video/Audio from hundreds of other websites
 
 All media (including torrents) are streamed on demand and you do not need to wait for a download to complete. 
 
 BlissFlixx allows for easy discovery of media by installing channels which group related content by category and allow user defined searches. e.g Documentary channel, Youtube channel, BBC iPlayer channel etc. New channels are easily created.
 
-Multilingual subtitles can automatically be added to Movies and TV shows.
+Subtitles can be added to films and TV shows from OpenSubtitles, and a torrent's own subtitle files are added while it plays.
 
 The user may also create multiple playlists to organise their favourite content.
 
@@ -52,6 +52,23 @@ The media server can be controlled via a web interface from any computer, tablet
  - Broadband connection with enough speed to support video streaming. Ideally you should have a wired ethernet connection into your Pi as some WiFi adapters may have problems with streaming.
  - Television plugged into Raspberry Pi.
  - Computer, tablet or smartphone for controlling server.
+
+## Supported hardware
+
+BlissFlixx runs on **Raspberry Pi OS 13 (Trixie)**, desktop or lite.
+
+| Board | Status | Notes |
+|---|---|---|
+| Pi 3B / 3B+ / 3A+ / CM3 | **Supported — reference** | Both the 32-bit and 64-bit images are tested |
+| Pi 4B / Pi 400 / CM4 | **Supported** | H.264 hardware decode; HDMI audio is `vc4hdmi0` / `vc4hdmi1` |
+| Pi 5 / Pi 500 / CM5 | **Supported with caveats** | No H.264 hardware decoder (software decode; HEVC is hardware); HDMI audio is `vc4hdmi0` / `vc4hdmi1`; CEC may need the right port. Not yet verified by the project |
+| Zero 2 W | **Runs, but marginal** | Pi 3-class SoC with 512 MB RAM: the 32-bit Lite image, and expect 720p rather than 1080p |
+| Pi 2B | **Not supported** | Installs, but is below the Pi 3 minimum and slower |
+| Pi 1 / Zero / Zero W / WH / CM1 | **Not supported** | ARMv6: the Python packages and Node have no builds, and 1080p is not possible |
+| Bookworm / Legacy images | **Not supported** | The project requires Trixie 13 |
+
+VLC is the player on every board. On a Pi 4 and older the H.264 decoder is
+hardware; a Pi 5 decodes H.264 in software.
 
 # Installation
 
@@ -130,8 +147,13 @@ and nothing else; `sudo ./configure.sh -only -boot` rewrites the boot service.
 
 * `-no-players`
 
-Skips installing the player backends, for when they are already present or you
-want a smaller install. Everything else is installed as usual.
+Skips installing the player, for when it is already present or you want a
+smaller install. Everything else is installed as usual.
+
+* `-rejoin`
+
+Install `rejoin.service`, which repairs a dropped Wi-Fi connection and is off
+unless it was asked for.
 
 ## After installing
 
@@ -289,7 +311,7 @@ The search page allows you to search all of your channels simultaneously. Simply
 
 ## Subtitles
 
-Movies and TV shows will have an option saying 'Play With Subtitles'. Selecting this option will allow you to specify your preferred language as well as other metadata required to find the correct subtitles.
+Films and TV shows have an **Add Subtitles** action. It searches OpenSubtitles for the title and plays the item with the subtitles you pick; the language comes from the global setting or the channel's own. A torrent that carries `.srt`/`.sub` files gets the matching ones added while it plays, with no search at all.
 
 ## Settings
 
@@ -323,23 +345,45 @@ The same settings are available over the API:
 /api/channels?fn=set_config&data={"chid":"bfch_xnxx","values":{"default_feed":"Cuckold","subtitles":false}}
 ```
 
-# Player backends
+## Downloads and the buffer
 
-BlissFlixx plays through VLC. Other backends exist in the code and can still be
-selected through `set_backend` below, but they are not part of this release and
-are not supported.
+Torrents are written under `data/downloads/torrent-stream`, on the card rather
+than in `/tmp` (a RAM-backed tmpfs here, smaller than a film). Downloads are
+kept between plays. When a new film needs room, the least recently used buffer
+entries are deleted — incomplete ones included — and the entry being played is
+never a candidate. Deleting is a consequence of asking for space, not of
+stopping a film.
 
-| Backend name | Player | Control | Subtitles | Audio tracks |
-|---|---|---|---|---|
-| `vlc` | cvlc | cli interface | yes | no |
+## TV remote (HDMI-CEC)
 
-`vlc` decodes H.264 in hardware, sends audio to HDMI and burns in subtitles.
+Off by default. Enable it with `data/settings/cec.json`:
+
+```json
+{"enabled": true}
+```
+
+`bin/cec_listener.py` (installed as `blissflixx-cec.service`) then claims the Pi
+as a playback device and forwards the TV remote's play/pause, arrows, select and
+back keys to the player; the back key stops the film. Volume, numbers and menus
+stay with the TV. HDMI-CEC is one port on a board with two, so a Pi 4/5 may need
+the port and input device name checked, and it does nothing without CEC.
+
+# Player
+
+BlissFlixx plays through VLC, the only player.
+
+| Player | Control | Subtitles | Audio tracks |
+|---|---|---|---|
+| cvlc | cli interface | yes | no |
+
+VLC sends audio to HDMI and burns in subtitles. It decodes H.264 in hardware on
+a Pi 3/4 and in software on a Pi 5, which has no H.264 decoder.
 Video output is pinned to `drm_vout` through the `vc4` driver, which is what
 makes the Pi decode in hardware.
 
 VLC is controlled through its cli interface: commands are typed into the
 player's stdin and the replies read from its stdout. The rc interface would be
-the more usual choice, but Debian trixie's VLC 3.0.23 for armhf ships no
+the more usual choice, but Debian trixie's VLC 3.0.24 for armhf ships no
 `librc_plugin.so`, so `--extraintf=rc` is silently ignored and no control socket
 is ever created. Subtitles and audio tracks are selected through `strack` and `atrack`,
 which list the available tracks and mark the active one with an asterisk,
@@ -377,54 +421,28 @@ Subtitle delay is a separate capability from subtitle selection, and VLC's cli
 interface has no verb for it. VLC does not advertise the capability, so a client
 knows not to offer buttons that would do nothing.
 
-## Choosing a backend
+## Configuring the player
 
-Which backend is active is a plain JSON file, `data/settings/player`:
-
-```json
-{"backend": "vlc"}
-```
-
-Delete the file, or leave it out, and the default is used. The choice is read on
-each `play`, so it takes effect from the next item onwards rather than needing a
-restart.
-
-It can also be changed over the API, which writes the same file:
-
-```
-/api/playr?fn=backends                            # every backend, with the active one marked
-/api/playr?fn=backend                             # just the active one
-/api/playr?fn=set_backend&data={"name":"vlc"}     # select one
-```
-
-`backends` reports each backend's capabilities, so a client can hide the buttons
-a backend would silently drop rather than offering controls that do nothing.
-
-Switching does not disturb what is already playing: the current item keeps the
-backend it started with.
-
-## Configuring a backend
-
-Each backend's settings live in `data/settings/player-<backend name>`, and only
-need to contain what differs from the built-in defaults. This is where the parts
-that vary between machines go: an ALSA card name, a KMS plane id.
+The player's settings live in `data/settings/player-vlc`, and only need to
+contain what differs from the built-in defaults. This is where the parts that
+vary between machines go: an ALSA card name, a KMS plane id.
 
 ```json
-{"audio_device": "alsa/hdmi:CARD=hdmi_zero,DEV=0"}
+{"audio_device": "hdmi:CARD=vc4hdmi0,DEV=0"}
 ```
 
-A Pi 4 uses `CARD=vc4hdmi`, a Pi 5 uses `CARD=hdmi_zero`. Because the file is
-per backend, the same checkout can hold a Pi 4 profile and a Pi 5 profile at once
-by registering the second under another name.
+A Pi 3 has one HDMI output and names the card `vc4hdmi`. A Pi 4 or 5 names them
+`vc4hdmi0` and `vc4hdmi1`, one per port; use the one the television is plugged
+into. `aplay -L` lists what the box actually has.
 
-The full set of keys, and their defaults, is each backend's `defaults` dict:
+The full set of keys, and their defaults, is the player's `defaults` dict:
 
-| Backend | Keys |
-|---|---|
-| `vlc` | `binary`, `extra_args`, `audio_device`, `video_output`, `video_output_module`, `source_modeset`, `fill_screen`, `network_caching`, `prefetch_seek_threshold`, `fast_seek`, `subtitle_text_scale`, `start_timeout`, `report_progress`, `osd_overlay`, `osd_refresh`, `osd_position`, `osd_size`, `osd_opacity`,  `sub_margin`, `volume_step`, `volume_max`, `subtitle_delay_step` |
+| Keys |
+|---|
+| `binary`, `extra_args`, `audio_device`, `video_output`, `video_output_module`, `source_modeset`, `fill_screen`, `network_caching`, `prefetch_seek_threshold`, `fast_seek`, `subtitle_text_scale`, `start_timeout`, `report_progress`, `osd_overlay`, `osd_refresh`, `osd_timeout`, `osd_position`, `osd_size`, `osd_opacity`, `sub_margin`, `volume_step`, `volume_max`, `subtitle_delay_step` |
 
 `extra_args` replaces the built-in flag list rather than adding to it, so a flag
-the backend always passes can be removed by naming the list without it.
+the player always passes can be removed by naming the list without it.
 
 `fill_screen` makes the film fill the screen instead of a window inside it.
 VLC's display window is not fullscreen by default, and a window is scaled into
@@ -458,12 +476,12 @@ amount, so a step is rounded to whole multiples of that and the confirmation
 shows the offset actually in force. The default is a quarter second; set it to
 `0.05` when a film needs an offset the quarter-second grid misses.
 
-A key the backend does not recognise is logged and ignored, so a settings file
+A key the player does not recognise is logged and ignored, so a settings file
 written for a different version stays usable.
 
 ## What still needs the Pi
 
-The command for each backend, its readiness handling and its control commands
+The player's command, its readiness handling and its control commands
 are all covered by the test suite on a development machine. What cannot be is
 whether the video actually appears: `drm_vout` needs the Pi's kernel and
 hardware.

@@ -1,7 +1,12 @@
 # Temporary file cleanup
 
-Design note. Not implemented, and nothing here is required for anything to work
-— downloads are simply kept forever until this gets built.
+Design note for the parts that are still open.
+
+The torrent buffer is no longer "kept forever": `lib/player/buffer.py:reclaim()`
+deletes the least recently used entries — incomplete ones included — when a new
+film needs room, and the entry being played is never a candidate. That is a
+consequence of asking for a film, not of stopping one. What remains open is the
+manual clear, the age-based cleanup, and the disk-space warning below.
 
 ## Why
 
@@ -66,6 +71,12 @@ is not a faster disk, it is not finishing the film.
 
 ## Proposed behaviour
 
+0. **Already done:** make room by pruning least recently used buffer entries
+   when space is needed, never the entry being played. See
+   `lib/player/buffer.py`. This supersedes the "never delete an incomplete
+   play" proposal for the buffer — a dormant partial entry is exactly what gets
+   pruned when a new film needs the space.
+
 1. **`player.keep_downloads`, default true.** When false, a download is removed
    once the play ends normally — not when it is stopped part-way, and not on
    error.
@@ -73,10 +84,10 @@ is not a faster disk, it is not finishing the film.
    total size shown first. Explicit, never automatic.
 3. **Age-based cleanup, opt-in.** Off by default. When on, removes downloads
    untouched for *N* days (default 7).
-4. **Never delete an incomplete or errored play.** This is the case the whole
-   change exists for. A torrent still seeding, or one that failed on a flaky
-   connection, is exactly what must survive. Age alone should never be a reason
-   to remove something that was never finished.
+4. **Never delete an incomplete or errored play by age.** Age alone should
+   never be a reason to remove something that was never finished. Space pressure
+   is different: a new play that needs the room may evict it, as the buffer
+   already does.
 5. **Disk-space warning, not deletion.** Above a threshold, tell the user how
    much is held and that it can be cleared. Removing anything the user did not
    ask for is the thing that was just fixed; a warning is the right size of
