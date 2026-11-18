@@ -39,10 +39,25 @@ class TestEpisodesWithoutASeason:
         assert "season" not in found
         assert "episode" not in found
 
-    def test_a_part_keeps_its_number_but_not_a_season(self):
+    def test_a_part_is_the_first_season_when_nothing_says_otherwise(self):
+        # "1of3" is a file of a series, and the first season is the only one
+        # that can be assumed; the page shows it and it can be corrected.
         found = _search_name("Planet Earth 3of3 1080p BluRay")
         assert found["episode"] == 3
-        assert "season" not in found
+        assert found["season"] == 1
+
+
+class TestAContextDoesNotInventAnEpisode:
+    def test_a_pack_row_whose_series_is_its_whole_name_stays_a_pack(self):
+        # A TV category writes the release name under "series" when it has no
+        # SxxEyy; that is not an episode, and searching it as one lost the
+        # pack's "open View Files" advice.
+        found = _search_name(
+            "The Pacific - Complete Mini Series - Mp4 x264 AC3 1080p",
+            {"series": "The Pacific - Complete Mini Series - Mp4 x264 AC3 1080p"},
+        )
+        assert found["kind"] == "tv_pack"
+        assert found.get("pack") is True
 
 
 class TestOtherKinds:
@@ -121,6 +136,21 @@ class TestWhatIsSentToOpenSubtitles:
         assert cmd[cmd.index("-t") + 1] == "The Pacific"
         assert cmd[cmd.index("-s") + 1] == "1"
         assert cmd[cmd.index("-e") + 1] == "9"
+
+    def test_a_part_sends_its_numbers(self, monkeypatch):
+        cmd = self._command(
+            monkeypatch,
+            name="Scorched.Earth.Infantry.Firepower.1of3.x264.AC3.MVGroup.org.mkv",
+            context={
+                "series": (
+                    "Scorched Earth Infantry Firepower 1of3 x264 AC3 "
+                    "MVGroup org mkv"
+                )
+            },
+        )
+        assert cmd[cmd.index("-t") + 1] == "Scorched Earth Infantry Firepower"
+        assert cmd[cmd.index("-s") + 1] == "1"
+        assert cmd[cmd.index("-e") + 1] == "1"
 
     def test_a_whole_series_pack_is_not_one_search(self, monkeypatch):
         from lib.api import subtitles as api

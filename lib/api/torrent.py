@@ -138,6 +138,25 @@ def _file_for_parsing(path):
     return parts[-1]
 
 
+def _pack_folder_info(file_name):
+    """
+    What the torrent's own folder says, when the row title does not.
+
+    A pack's row title can be generic -- "The Pacific - Complete Mini Series -
+    Mp4 x264 AC3 1080p" has no year -- while the folder inside the torrent is
+    the release name and does: "The Pacific (2010) Mp4 1080p/...". Only a folder
+    that carries a year is read; "Season 2" parses to a title too, and it is
+    not one.
+    """
+    from ..chanutils.chanutils import movie_title_year
+
+    parts = (file_name or "").replace("\\", "/").split("/")
+    if len(parts) < 2:
+        return {}
+    parsed = movie_title_year(parts[0])
+    return parsed if parsed.get("year") else {}
+
+
 def subtitle_context(pack_title, file_name):
     """
     What to search OpenSubtitles for, from the pack and the file inside it.
@@ -161,6 +180,7 @@ def subtitle_context(pack_title, file_name):
     pack = release_kind(pack_title or "")
     file_info = release_kind(_file_for_parsing(file_name or ""))
     parsed = movie_title_year(pack_title or "")
+    folder = _pack_folder_info(file_name or "")
     pack_kind = pack.get("kind")
     file_kind = file_info.get("kind")
 
@@ -168,9 +188,10 @@ def subtitle_context(pack_title, file_name):
         file_info.get("series")
         or (pack.get("series") if pack_kind in ("tv_pack", "episode") else None)
         or parsed.get("title")
+        or folder.get("title")
     )
     series = without_year(series)
-    year = parsed.get("year")
+    year = parsed.get("year") or folder.get("year")
     season = file_info.get("season")
     if season is None:
         season = pack.get("season")
@@ -191,7 +212,12 @@ def subtitle_context(pack_title, file_name):
         return context if context.get("series") else None
 
     context = {}
-    title = parsed.get("title") or file_info.get("title") or pack.get("title")
+    title = (
+        parsed.get("title")
+        or file_info.get("title")
+        or pack.get("title")
+        or folder.get("title")
+    )
     if title:
         context["title"] = title
     if year:

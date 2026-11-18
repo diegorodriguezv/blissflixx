@@ -418,6 +418,17 @@ class TestSubtitleContext:
         assert found["season"] == 2
         assert found["episode"] == 9
 
+    def test_the_year_comes_from_the_folder_when_the_row_title_has_none(self):
+        # The torrent's row title is "The Pacific - Complete Mini Series -
+        # Mp4 x264 AC3 1080p": no year. The folder inside it is the release
+        # name, and it has one.
+        found = subtitle_context(
+            "The Pacific - Complete Mini Series - Mp4 x264 AC3 1080p",
+            "The Pacific (2010) Mp4 1080p/The Pacific Episode 10.mp4",
+        )
+        assert found["year"] == 2010
+        assert found["series"] == "The Pacific"
+
     def test_the_pack_year_is_not_part_of_the_series_name(self):
         # release_kind keeps the year in a pack's series ("The Pacific 2010");
         # OpenSubtitles does not list the show that way.

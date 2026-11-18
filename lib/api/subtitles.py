@@ -50,7 +50,10 @@ def _search_name(name, context=None):
     info = release_kind(name)
     kind = info.get("kind")
 
-    if cseries and (cepisode is not None or kind != "episode"):
+    # Only an episode number in the context says "this is an episode". A row in
+    # a TV category carries its whole release name under "series" when the name
+    # has no SxxEyy, and that must not turn a pack into one episode.
+    if cseries and cepisode is not None:
         found = {"title": str(cseries), "kind": "episode"}
         if cseason is not None:
             found["season"] = cseason
@@ -77,6 +80,11 @@ def _search_name(name, context=None):
                 value = fallback
             if value is not None:
                 found[key] = value
+        if "episode" in found and "season" not in found:
+            # A part ("1of3") or an "Episode 09" is almost always the first
+            # season; the page shows the number and lets it be corrected, and
+            # the search is for one file rather than the whole series.
+            found["season"] = 1
         if cimdb:
             found["imdb"] = cimdb
         return found

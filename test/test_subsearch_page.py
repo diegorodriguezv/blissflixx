@@ -68,13 +68,21 @@ class TestTheSearchTarget:
         assert 'name="f_season"' in page
         assert 'name="f_episode"' in page
 
-    def test_a_context_fills_the_fields(self):
+    def test_the_context_goes_to_the_server_rather_than_the_fields(self):
+        # Prefilling the title from the context hid the release name from the
+        # server: a channel row whose context was the whole name was searched
+        # as a title, and "1of3" never became an episode.
+        body = _method(_page(), "search")
+        assert "context: self.context" in body
         page = _page()
-        assert "self.context.series" in page
-        assert "self.context.title" in page
-        assert "self.context.season" in page
-        assert "self.context.episode" in page
-        assert "self.context.imdb" in page
+        assert "self.context.series ||" not in page
+        assert "self.f_title.value = self.context" not in page
+        assert "self.f_season.value = self.context" not in page
+        assert "self.f_episode.value = self.context" not in page
+
+    def test_the_imdb_id_the_row_knew_still_travels(self):
+        body = _method(_page(), "search")
+        assert "imdb: self.imdb" in body
 
     def test_the_release_name_is_kept_for_the_server(self):
         body = _method(_page(), "search")

@@ -11,7 +11,7 @@
       <div class="col-md-6 col-sm-12 col-xs-12">
         <div class="form-group">
           <label>Title:</label>
-          <input type="text" class="form-control" name="f_title" required autofocus>
+          <input type="text" class="form-control" name="f_title" autofocus>
         </div>
       </div>
       <div class="col-md-2 col-sm-4 col-xs-4">
@@ -188,13 +188,12 @@
           }
         }
         self.imdb = self.context.imdb || null
-        // A file inside a pack is named "Episode 09" and says nothing about the
-        // series; the context is what makes these fields useful. Empty fields
-        // mean "read the release name", which the server can still do.
-        self.f_title.value = self.context.series || self.context.title || ''
-        self.f_year.value = self.context.year || ''
-        self.f_season.value = self.context.season || ''
-        self.f_episode.value = self.context.episode || ''
+        // The release name is what the server reads; the context only fills
+        // what it cannot say (a file called "Episode 09" has no series, and a
+        // torrent's folder may hold the year). Filling these fields from the
+        // context here would hide the name from the server: a channel row
+        // whose context is the whole release name became a title, and "1of3"
+        // was never read as an episode.
         self.search()
       })
     })
@@ -224,6 +223,9 @@
       var episode = self.f_episode.value.trim()
       Utils.rpc('subtitles', 'search', {
         name: self.name,
+        // The server has the same context the row gave the page: it decides
+        // whether this is an episode and fills the fields with what it read.
+        context: self.context,
         title: title || null,
         year: year ? parseInt(year, 10) : null,
         season: season ? parseInt(season, 10) : null,
