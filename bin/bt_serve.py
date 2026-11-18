@@ -399,7 +399,7 @@ def hash_text(hashes):
 WANTED = 4
 
 
-def file_priorities(count, playing, subs):
+def file_priorities(count, playing, subs, shared=()):
     """
     Every file unwanted, except the one being played and the subtitles.
 
@@ -408,10 +408,21 @@ def file_priorities(count, playing, subs):
     part file instead of the film's own, so a film watched that way is never a
     file on the card. Prioritised pieces of a wanted file are written in place,
     as a sparse film, and a later play can see what is there.
+
+    `shared` names files that share a piece with the played one. A piece is
+    stored whole in the file it starts in, so the opening piece of an episode
+    can include bytes from the previous one. If that neighbour is unwanted its
+    bytes go to the part file, and a later session that truncates the part file
+    leaves a bitfield that claims the piece is present when its bytes are gone
+    -- every read of it then fails with ENOENT. Keeping the neighbour wanted
+    writes those bytes in place and keeps the piece real.
     """
     priorities = [0] * count
     if 0 <= playing < count:
         priorities[playing] = WANTED
+    for i in shared:
+        if 0 <= i < count:
+            priorities[i] = WANTED
     for i in subs:
         if 0 <= i < count:
             priorities[i] = WANTED
@@ -547,6 +558,11 @@ class Alerts(threading.Thread):
                 self.fatal = message
                 self.changed.notify_all()
             print(TAG + "error " + message, flush=True)
+
+    def clear_fatal(self):
+        """Forget a storage error, after the torrent has been rechecked."""
+        with self.changed:
+            self.fatal = None
 
     def read_piece(self, handle, piece, timeout=None):
         """
@@ -710,6 +726,27 @@ class App:
             return self.first_piece(index) - 1
         return min((offset - 1) // self.piece_length, self.last_piece)
 
+    def shared_files(self):
+        """
+        Files whose bytes share a piece with the played file.
+
+        A piece is stored whole, so the piece at either end of the file can
+        include bytes from the file before or after it. Those files have to be
+        wanted too (see file_priorities) so the boundary piece is written in
+        place instead of into a part file that a later session may truncate.
+        """
+        count = self.files.num_files()
+        first = self.first_piece(self.index) * self.piece_length
+        last = (self.last_piece_of(self.index) + 1) * self.piece_length
+        shared = []
+        offset = 0
+        for i in range(count):
+            size = self.files.file_size(i)
+            if i != self.index and size and offset < last and offset + size > first:
+                shared.append(i)
+            offset += size
+        return shared
+
     def crop(self):
         """
         Want the played file only by piece, the subtitles whole, nothing else.
@@ -727,7 +764,9 @@ class App:
         # the whole CROP_TIMEOUT. Measured: 5.15s of a 5.7s start was this wait.
         self.handle.prioritize_pieces([0] * self.info.num_pieces())
         self.handle.prioritize_files(
-            file_priorities(self.files.num_files(), self.index, self.subs)
+            file_priorities(
+                self.files.num_files(), self.index, self.subs, self.shared_files()
+            )
         )
         # The crop lands on libtorrent's client thread. Asking for a piece
         # before it does gets the request overwritten by the crop, leaving a
@@ -1165,17 +1204,53 @@ def main(argv=None):
     last = app.last_piece_of(app.index)
     next_status = time.time()
     if first <= last:
-        while not app.handle.have_piece(first):
-            if stopping["now"]:
-                app.close()
-                return 0
-            if app.alerts.fatal:
-                print(TAG + "error " + app.alerts.fatal, flush=True)
-                return 4
-            time.sleep(0.2)
-            if time.time() >= next_status:
-                next_status = time.time() + STATUS_EVERY
-                print_status(app.status())
+        while True:
+            while not app.handle.have_piece(first):
+                if stopping["now"]:
+                    app.close()
+                    return 0
+                if app.alerts.fatal:
+                    print(TAG + "error " + app.alerts.fatal, flush=True)
+                    return 4
+                time.sleep(0.2)
+                if time.time() >= next_status:
+                    next_status = time.time() + STATUS_EVERY
+                    print_status(app.status())
+            # The bitfield can claim the opening piece is here when its bytes
+            # are gone: it is stored in the file it starts in, and an earlier
+            # session may have written it into a part file that was truncated
+            # since. Read it once before saying "serving" -- every read after
+            # this one would fail the same way, so finding out here is what
+            # turns a film that never opens into a torrent that rechecks
+            # itself and carries on.
+            try:
+                app.alerts.read_piece(app.handle, first, timeout=15)
+                break
+            except IOError as exc:
+                if not app.alerts.fatal:
+                    # Present but slow, not missing: serving will wait on it,
+                    # which is the normal wait for a poorly seeded piece.
+                    break
+                print(
+                    TAG + "opening piece unreadable (%s); rechecking" % exc,
+                    flush=True,
+                )
+            app.alerts.clear_fatal()
+            app.handle.force_recheck()
+            while "checking" in str(app.handle.status().state):
+                if stopping["now"]:
+                    app.close()
+                    return 0
+                time.sleep(0.5)
+                if time.time() >= next_status:
+                    next_status = time.time() + STATUS_EVERY
+                    print_status(app.status())
+            # A check can reset the crop; arm the pieces again and wait for
+            # the opening one, which is now known to be genuinely absent and
+            # will download like any other missing piece.
+            app.crop()
+            app.prime()
+            next_status = time.time()
 
     index = app.index
     print(
