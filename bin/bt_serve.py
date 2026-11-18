@@ -1212,6 +1212,24 @@ def main(argv=None):
                 )
             app.alerts.clear_fatal()
             app.handle.force_recheck()
+            # force_recheck() is asynchronous: the state can still read
+            # "downloading" for a moment after the call. Wait for the check to
+            # be visible before waiting for it to end -- otherwise the crop
+            # below is armed against the very bitfield that is about to be
+            # rebuilt, the phantom piece is read again, and the retries run out
+            # before the check that would have fixed it has begun.
+            begun = time.time()
+            while (
+                "checking" not in str(app.handle.status().state)
+                and time.time() - begun < 10
+            ):
+                if stopping["now"]:
+                    app.close()
+                    return 0
+                time.sleep(0.2)
+                if time.time() >= next_status:
+                    next_status = time.time() + STATUS_EVERY
+                    print_status(app.status())
             while "checking" in str(app.handle.status().state):
                 if stopping["now"]:
                     app.close()
