@@ -19,9 +19,9 @@ So the channel is built the way EZTV is used: a show, then its episodes.
   matches are a picker, because "harry potter" is a not-yet-aired series and a
   baking show, and guessing between them is how a search finds nothing.
 
-Show rows carry showmore:// links; the show page lists the episodes newest
-first. Episode rows carry the IMDb id, so Add Subtitles asks OpenSubtitles by
-id instead of by the release name.
+Show rows carry showmore:// links; the show page lists the episodes most
+seeded first. Episode rows carry the IMDb id, so Add Subtitles asks
+OpenSubtitles by id instead of by the release name.
 """
 
 import math
@@ -43,7 +43,6 @@ from lib.chanutils import (
     title_query,
 )
 from lib.playitem import PlayItemList, ShowMoreItem
-
 
 _BASE_API = "https://eztvx.to/api/get-torrents"
 
@@ -399,9 +398,9 @@ def _item(t, imdb=None):
     seeds = str(seeds)
     released_unix = t.get("date_released_unix")
     try:
-        released = datetime.fromtimestamp(
-            int(released_unix), tz=timezone.utc
-        ).strftime("%Y-%m-%d")
+        released = datetime.fromtimestamp(int(released_unix), tz=timezone.utc).strftime(
+            "%Y-%m-%d"
+        )
     except (TypeError, ValueError, OSError, OverflowError):
         released = "NA"
     subtitle = "Size: " + size
@@ -416,6 +415,23 @@ def _item(t, imdb=None):
 
 
 def _rows(torrents, imdb=None):
+    """
+    Torrents as rows, most seeded first.
+
+    EZTV's API orders by release date. The number on every row is its seeds,
+    and that is what the person is choosing between, so the list is ordered by
+    it instead. Season and episode break ties, so equally seeded episodes
+    still read newest first.
+    """
+    torrents = sorted(
+        torrents,
+        key=lambda t: (
+            _int(t.get("seeds")),
+            _int(t.get("season")),
+            _int(t.get("episode")),
+        ),
+        reverse=True,
+    )
     results = PlayItemList()
     for t in torrents:
         item = _item(t, imdb=imdb)
@@ -426,7 +442,7 @@ def _rows(torrents, imdb=None):
 
 def _episodes(imdb):
     """
-    Every episode EZTV has for the show, newest first, up to a page cap.
+    Every episode EZTV has for the show, up to a page cap.
 
     The API pages at a hundred; the first answer says how many there are, so
     the remaining pages are read until the cap rather than guessed at.
@@ -439,28 +455,12 @@ def _episodes(imdb):
         total = len(torrents)
     pages = min(_MAX_PAGES, max(1, int(math.ceil(total / 100.0))))
     for page in range(2, pages + 1):
-        more = get_json(
-            _BASE_API, params={"imdb_id": imdb, "limit": 100, "page": page}
-        )
+        more = get_json(_BASE_API, params={"imdb_id": imdb, "limit": 100, "page": page})
         batch = more.get("torrents") or []
         if not batch:
             break
         torrents.extend(batch)
     return torrents
-
-
-def _episode_order(t):
-    def number(value):
-        try:
-            return int(value)
-        except (TypeError, ValueError):
-            return 0
-
-    return (
-        number(t.get("season")),
-        number(t.get("episode")),
-        _int(t.get("seeds")),
-    )
 
 
 def _episode_rows(imdb, show_name):
@@ -481,7 +481,6 @@ def _episode_rows(imdb, show_name):
             "may be wrong." % show_name,
             404,
         )
-    torrents.sort(key=_episode_order, reverse=True)
     return _rows(torrents, imdb=imdb)
 
 
@@ -551,9 +550,7 @@ def search(q):
         )
     if len(matches) == 1:
         match = matches[0]
-        return _episode_rows(
-            match["imdb"], match["show"].get("name") or q
-        )
+        return _episode_rows(match["imdb"], match["show"].get("name") or q)
 
     results = PlayItemList()
     for match in matches[:20]:

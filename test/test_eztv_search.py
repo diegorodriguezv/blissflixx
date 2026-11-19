@@ -8,10 +8,10 @@ title, while Trending is built from EZTV's own recent seeds. The fixtures are
 recorded shapes; no test reaches the network.
 """
 
+import bfch_eztv as eztv
 import lxml.html
 import pytest
 
-import bfch_eztv as eztv
 from lib.api.common import ApiError
 
 
@@ -88,9 +88,7 @@ class TestTheFeeds:
         assert len(set(names)) == len(names)
 
     def test_a_name_resolves_after_the_list_moves(self, monkeypatch):
-        monkeypatch.setattr(
-            eztv, "_latest_page", lambda page: {"torrents": []}
-        )
+        monkeypatch.setattr(eztv, "_latest_page", lambda page: {"torrents": []})
         assert eztv._feed_index(0, "trending") == 1
         # The same name still finds Trending from an index that now points
         # somewhere else; an unknown name falls back to that index.
@@ -103,8 +101,40 @@ class TestTheFeeds:
             "_latest_page",
             lambda page: {"torrents": [torrent("A Show S01E01")]},
         )
+        assert [row.title for row in eztv.feed(0).to_list()] == ["A Show S01E01"]
+
+    def test_latest_is_sorted_by_seeds(self, monkeypatch):
+        monkeypatch.setattr(
+            eztv,
+            "_latest_page",
+            lambda page: {
+                "torrents": [
+                    torrent("Low S01E01", seeds=5),
+                    torrent("High S01E02", seeds=50),
+                    torrent("Mid S01E03", seeds=20),
+                ]
+            },
+        )
         assert [row.title for row in eztv.feed(0).to_list()] == [
-            "A Show S01E01"
+            "High S01E02",
+            "Mid S01E03",
+            "Low S01E01",
+        ]
+
+    def test_a_show_page_is_sorted_by_seeds(self, monkeypatch):
+        # The show page used to sort by season and episode. Seeds are what the
+        # row is chosen by, so an older but busier episode comes first.
+        monkeypatch.setattr(
+            eztv,
+            "_episodes",
+            lambda imdb: [
+                torrent("Old S01E01", season="1", episode="1", seeds=5),
+                torrent("New S01E02", season="1", episode="2", seeds=50),
+            ],
+        )
+        assert [row.title for row in eztv._episode_rows("123", "Show").to_list()] == [
+            "New S01E02",
+            "Old S01E01",
         ]
 
     def test_browse_feeds_use_their_filter(self, monkeypatch):
@@ -167,11 +197,33 @@ class TestTrending:
             {
                 1: {
                     "torrents": [
-                        torrent("Low Show S01E01", imdb="2", season="1", episode="1", seeds=5),
-                        torrent("High Show S01E02", imdb="1", season="1", episode="2", seeds=50),
+                        torrent(
+                            "Low Show S01E01",
+                            imdb="2",
+                            season="1",
+                            episode="1",
+                            seeds=5,
+                        ),
+                        torrent(
+                            "High Show S01E02",
+                            imdb="1",
+                            season="1",
+                            episode="2",
+                            seeds=50,
+                        ),
                     ]
                 },
-                2: {"torrents": [torrent("High Show S01E03", imdb="1", season="1", episode="3", seeds=40)]},
+                2: {
+                    "torrents": [
+                        torrent(
+                            "High Show S01E03",
+                            imdb="1",
+                            season="1",
+                            episode="3",
+                            seeds=40,
+                        )
+                    ]
+                },
             },
         )
         rows = eztv._trending_shows().to_list()
@@ -374,17 +426,21 @@ class TestTheEpisodes:
         assert titles == ["S05E08 1080p", "S05E08 720p"]
 
     def test_the_rows_carry_the_imdb_id_for_subtitles(self, monkeypatch):
-        monkeypatch.setattr(
-            eztv, "_episodes", lambda imdb: [torrent("An episode")]
-        )
+        monkeypatch.setattr(eztv, "_episodes", lambda imdb: [torrent("An episode")])
         row = eztv._episode_rows("1190634", "Show").to_list()[0]
         assert row.subs["imdb"] == "tt1190634"
 
     def test_it_reads_the_pages_the_show_needs(self, monkeypatch):
         pages = {
             1: {"torrents_count": 250, "torrents": [torrent("S05E01")]},
-            2: {"torrents_count": 250, "torrents": [torrent("S03E01", season="3", episode="1")]},
-            3: {"torrents_count": 250, "torrents": [torrent("S01E01", season="1", episode="1")]},
+            2: {
+                "torrents_count": 250,
+                "torrents": [torrent("S03E01", season="3", episode="1")],
+            },
+            3: {
+                "torrents_count": 250,
+                "torrents": [torrent("S01E01", season="1", episode="1")],
+            },
         }
         calls = []
 
