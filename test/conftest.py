@@ -23,10 +23,19 @@ channels can also be imported directly by name.
 """
 
 import socket
+import threading
 
 import pytest
 
 from lib import settings as settings_module
+
+# A 32-bit Pi has about 3 GB of address space and gives each thread an 8 MB
+# stack by default. The suite creates threads by the hundred -- every VlcProcess
+# has readers, every overlay an expiry -- and around 350 of them the address
+# space is gone: "can't start new thread" from tests that have nothing to do
+# with threads, varying from run to run. One megabyte is plenty for what these
+# threads do, and lets the same suite run on armhf and arm64.
+threading.stack_size(1024 * 1024)
 
 
 class NetworkAccessDenied(RuntimeError):
