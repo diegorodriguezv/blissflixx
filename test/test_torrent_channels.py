@@ -1,3 +1,8 @@
+import base64
+import codecs
+
+import bfch_divxtotal
+import bfch_elitetorrent
 import bfch_limetorrents
 import bfch_therarbg
 import lxml.html
@@ -270,3 +275,319 @@ def test_therarbg_search_skips_unplayable_categories_and_sorts_by_seeds(monkeypa
     assert items[0].subs["episode"] == 3
     assert items[2].img == "/img/icons/music.svg"
     assert items[2].subs is None
+
+
+_DIVX_MOVIE_B64 = "aHR0cHM6Ly9kaXZ4dG90YWwuZm9vL3dwLWNvbnRlbnQvdXBsb2Fkcy8yMDI2LzExL2EtbW92aWUudG9ycmVudA=="
+_DIVX_EP1_B64 = "aHR0cHM6Ly9kaXZ4dG90YWwuZm9vL3dwLWNvbnRlbnQvdXBsb2Fkcy8yMDI2LzExL2Etc2hvdzN4NC50b3JyZW50"
+_DIVX_EP2_B64 = "aHR0cHM6Ly9kaXZ4dG90YWwuZm9vL3dwLWNvbnRlbnQvdXBsb2Fkcy8yMDI2LzExL2Etc2hvdzR4MS50b3JyZW50"
+_DIVX_FALLBACK_B64 = "aHR0cHM6Ly9kaXZ4dG90YWwuZm9vL3dwLWNvbnRlbnQvdXBsb2Fkcy8yMDI2LzExL2ZhbGxiYWNrLnRvcnJlbnQ="
+
+_DIVX_LIST = """
+<table class="table"><thead><tr>
+  <th>Nombre</th><th>Categoría</th><th>Fecha</th><th>Tamaño</th>
+</tr></thead><tbody>
+  <tr><td class="text-left"><a href="https://divxtotal.foo/peliculas/a-movie/" title="A Movie">A Movie</a></td>
+      <td><a href="https://divxtotal.foo/category/accion/">Accion</a></td><td>01-01-2026</td><td>1.2 GB</td></tr>
+  <tr><td class="text-left"><a href="https://divxtotal.foo/series/a-show/" title="A Show">A Show</a></td>
+      <td>Drama</td><td>01-01-2026</td><td>N/A</td></tr>
+  <tr><td class="text-left"><a href="https://divxtotal.foo/peliculas/broken/" title="Broken">Broken</a></td>
+      <td>Drama</td><td>01-01-2026</td><td>N/A</td></tr>
+  <tr><td class="text-left"><a href="https://divxtotal.foo/peliculas/fallback/" title="Fallback">Fallback</a></td>
+      <td>Drama</td><td>01-01-2026</td><td>N/A</td></tr>
+</tbody></table>
+"""
+
+_DIVX_MOVIE = (
+    """
+<html><body>
+<h1>A Movie</h1>
+<div id="bloque_poster"><img src="https://divxtotal.foo/posters/a-movie.jpg"></div>
+<div class="info-item"><p class="tagitem">Idioma:&nbsp;</p><p>Español</p></div>
+<div class="info-item"><p class="tagitem">Formato:&nbsp;</p><p>MKV</p></div>
+<table class="rwd-table">
+  <tr><th>Idioma</th><th>Formato</th><th>Calidad</th><th>Peso</th><th>Descargar</th></tr>
+  <tr><td><img src="https://divxtotal.foo/wp-content/themes/DivxTotal/css/images/ES.png"></td>
+      <td>MKV</td><td>1080p</td><td>2.1 GB</td>
+      <td><a class="linktorrent" data-src="%s" href="https://short-info.link/a">Descargar</a></td></tr>
+</table>
+</body></html>
+"""
+    % _DIVX_MOVIE_B64
+)
+
+_DIVX_SERIES = """
+<html><body>
+<h1>A Show</h1>
+<div id="bloque_poster"><img src="https://divxtotal.foo/posters/a-show.jpg"></div>
+<table class="rwd-table">
+  <tr><th>Capítulo</th><th>Opcion 1</th><th>Opcion 2</th></tr>
+  <tr><td><img data-pagespeed-lazy-src="https://divxtotal.foo/css/images/ES.png" src="/p.gif">
+      <a class="linktorrent" data-src="%s" href="https://short-info.link/b">A Show3x4</a></td>
+      <td><a class="linktorrent" data-src="%s" href="https://short-info.link/c">dup</a></td></tr>
+  <tr><td><img data-pagespeed-lazy-src="https://divxtotal.foo/css/images/ES.png" src="/p.gif">
+      <a class="linktorrent" data-src="%s" href="https://short-info.link/d">A Show4x1</a></td>
+      <td></td></tr>
+</table>
+</body></html>
+""" % (
+    _DIVX_EP1_B64,
+    _DIVX_EP1_B64,
+    _DIVX_EP2_B64,
+)
+
+_DIVX_FALLBACK = (
+    """
+<html><body><h1>Fallback Film</h1>
+<table class="rwd-table">
+  <tr><td><img src="https://divxtotal.foo/css/images/ES.png"></td>
+      <td>AVI</td><td>DVDRip</td><td>700 MB</td>
+      <td><a class="linktorrent" href="https://divxtotal.foo/download_tt.php?u=%s">Descargar</a></td></tr>
+</table>
+</body></html>
+"""
+    % _DIVX_FALLBACK_B64
+)
+
+
+def _fake_divx(monkeypatch, seen=None):
+    def fake_doc(url):
+        if seen is not None:
+            seen.append(url)
+        if "a-movie" in url:
+            return lxml.html.fromstring(_DIVX_MOVIE)
+        if "a-show" in url:
+            return lxml.html.fromstring(_DIVX_SERIES)
+        if "fallback" in url:
+            return lxml.html.fromstring(_DIVX_FALLBACK)
+        if "broken" in url:
+            raise RuntimeError("gone")
+        return lxml.html.fromstring(_DIVX_LIST)
+
+    monkeypatch.setattr(bfch_divxtotal, "get_doc", fake_doc)
+
+
+def test_divx_feedlist_names_the_categories():
+    assert [entry["title"] for entry in bfch_divxtotal.feedlist()] == [
+        "Películas",
+        "Películas HD",
+        "Series",
+        "Audio Latino",
+        "Películas 4K",
+        "Películas DVDR",
+    ]
+
+
+def test_divx_detail_pages_become_items_and_a_broken_one_is_skipped(monkeypatch):
+    _fake_divx(monkeypatch)
+
+    titles = [item.title for item in bfch_divxtotal.feed(0).to_list()]
+
+    assert titles == [
+        "A Movie [1080p]",
+        "A Show S03E04",
+        "Fallback Film [DVDRip]",
+        "A Show S04E01",
+    ]
+
+
+def test_divx_movie_row_decodes_the_torrent_and_reads_the_info(monkeypatch):
+    _fake_divx(monkeypatch)
+
+    item = bfch_divxtotal.feed(0).to_list()[0]
+
+    assert item.url.startswith("https://divxtotal.foo/")
+    assert "a-movie.torrent" in item.url
+    assert item.img == "https://divxtotal.foo/posters/a-movie.jpg"
+    assert (
+        item.subtitle == "Idioma: Español, Calidad: 1080p, Formato: MKV, Peso: 2.1 GB"
+    )
+    assert item.subs["title"] == "A Movie"
+
+
+def test_divx_series_rows_become_episodes_with_season_and_episode(monkeypatch):
+    _fake_divx(monkeypatch)
+
+    items = bfch_divxtotal.feed(0).to_list()
+    first = items[1]
+
+    assert first.title == "A Show S03E04"
+    assert first.subs["series"] == "A Show"
+    assert first.subs["season"] == 3
+    assert first.subs["episode"] == 4
+
+
+def test_divx_download_tt_fallback_is_decoded(monkeypatch):
+    _fake_divx(monkeypatch)
+
+    item = next(
+        item
+        for item in bfch_divxtotal.feed(0).to_list()
+        if item.title == "Fallback Film [DVDRip]"
+    )
+
+    assert "fallback.torrent" in item.url
+    assert (
+        item.subtitle == "Idioma: Español, Calidad: DVDRip, Formato: AVI, Peso: 700 MB"
+    )
+
+
+def test_divx_search_uses_the_site_query(monkeypatch):
+    seen = []
+    _fake_divx(monkeypatch, seen)
+
+    bfch_divxtotal.search("audio latino")
+
+    assert seen[0] == "https://divxtotal.foo/?s=audio%20latino"
+
+
+_ELITE_TORRENT = (
+    "https://www.elitetorrent.com/wp-content/uploads/2026/11/carrera.torrent"
+)
+_ELITE_MAGNET = "magnet:?xt=urn:btih:" + "E" * 40 + "&dn=Carrera"
+
+
+def _elite_href(url):
+    value = codecs.encode(url, "rot_13")
+    for _ in range(5):
+        value = base64.b64encode(value.encode("utf-8")).decode("ascii")
+    return "https://acortame-esto.com/s.php?i=%s&st=et" % value
+
+
+_ELITE_RSS = """<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:media="http://search.yahoo.com/mrss/"><channel>
+  <item>
+    <title>Carrera de bestias</title>
+    <link>https://www.elitetorrent.com/peliculas/carrera-de-bestias/</link>
+    <pubDate>Mon, 16 Nov 2026 02:50:08 +0000</pubDate>
+    <media:content url="https://www.elitetorrent.com/carrera.jpg" medium="image"/>
+  </item>
+  <item>
+    <title>Peaky Blinders 6×5</title>
+    <link>https://www.elitetorrent.com/series/peaky-blinders-65/</link>
+    <pubDate>Sun, 15 Nov 2026 10:00:00 +0000</pubDate>
+    <media:content url="https://www.elitetorrent.com/peaky.jpg" medium="image"/>
+  </item>
+  <item>
+    <title>Loki T01E05</title>
+    <link>https://www.elitetorrent.com/series/loki-t01e05/</link>
+    <pubDate>Sat, 14 Nov 2026 10:00:00 +0000</pubDate>
+    <media:content url="https://www.elitetorrent.com/loki.jpg" medium="image"/>
+  </item>
+</channel></rss>
+"""
+
+_ELITE_MOVIE = """
+<html><body>
+<a class="enlace_torrent" href="%s">Descargar el .torrent</a>
+<a class="enlace_torrent" href="%s">Descargar por magnet link</a>
+</body></html>
+""" % (
+    _elite_href(_ELITE_TORRENT),
+    _elite_href(_ELITE_MAGNET),
+)
+
+_ELITE_SERIES = """
+<html><body>
+<a class="enlace_torrent" href="%s">Descargar por magnet link</a>
+</body></html>
+""" % _elite_href(
+    _ELITE_MAGNET
+)
+
+_ELITE_TORRENT_ONLY = """
+<html><body>
+<a class="enlace_torrent" href="%s">Descargar el .torrent</a>
+</body></html>
+""" % _elite_href(
+    _ELITE_TORRENT
+)
+
+
+class _EliteResponse:
+    def __init__(self, content):
+        self.content = content
+
+
+def _fake_elite(monkeypatch, seen=None, detail=None):
+    def fake_get(url, params=None):
+        if seen is not None:
+            seen.append((url, params))
+        return _EliteResponse(_ELITE_RSS.encode("utf-8"))
+
+    monkeypatch.setattr(bfch_elitetorrent, "get", fake_get)
+
+    def fake_doc(url):
+        if detail is not None:
+            return lxml.html.fromstring(detail)
+        if "peaky" in url or "loki" in url:
+            return lxml.html.fromstring(_ELITE_SERIES)
+        return lxml.html.fromstring(_ELITE_MOVIE)
+
+    monkeypatch.setattr(bfch_elitetorrent, "get_doc", fake_doc)
+
+
+def test_elitetorrent_feedlist_names_the_sections():
+    assert [entry["title"] for entry in bfch_elitetorrent.feedlist()] == [
+        "Películas",
+        "Series",
+        "1080p",
+        "4K",
+    ]
+
+
+def test_elitetorrent_feed_reads_the_rss_and_prefers_the_magnet(monkeypatch):
+    _fake_elite(monkeypatch)
+
+    items = bfch_elitetorrent.feed(0).to_list()
+
+    assert [item.title for item in items] == [
+        "Carrera de bestias",
+        "Peaky Blinders 6×5",
+        "Loki T01E05",
+    ]
+    assert items[0].img == "https://www.elitetorrent.com/carrera.jpg"
+    assert items[0].subtitle == "Released: 2026-11-16"
+    assert items[0].url.startswith("magnet:")
+    assert items[0].subs["title"] == "Carrera de bestias"
+
+
+def test_elitetorrent_series_titles_get_season_and_episode(monkeypatch):
+    _fake_elite(monkeypatch)
+
+    items = bfch_elitetorrent.feed(1).to_list()
+
+    assert items[1].subs["series"] == "Peaky Blinders"
+    assert items[1].subs["season"] == 6
+    assert items[1].subs["episode"] == 5
+    assert items[2].subs["series"] == "Loki"
+    assert items[2].subs["season"] == 1
+    assert items[2].subs["episode"] == 5
+
+
+def test_elitetorrent_1080p_feed_labels_the_quality(monkeypatch):
+    _fake_elite(monkeypatch)
+
+    item = bfch_elitetorrent.feed(2).to_list()[0]
+
+    assert item.subtitle == "Calidad: 1080p, Released: 2026-11-16"
+
+
+def test_elitetorrent_search_passes_the_query_to_the_rss_feed(monkeypatch):
+    seen = []
+    _fake_elite(monkeypatch, seen)
+
+    bfch_elitetorrent.search("peaky")
+
+    assert seen[0] == (
+        "https://www.elitetorrent.com/",
+        {"s": "peaky", "feed": "rss2"},
+    )
+
+
+def test_elitetorrent_falls_back_to_the_torrent_link(monkeypatch):
+    _fake_elite(monkeypatch, detail=_ELITE_TORRENT_ONLY)
+
+    item = bfch_elitetorrent.feed(0).to_list()[0]
+
+    assert item.url.startswith("https://www.elitetorrent.com/")
+    assert "carrera.torrent" in item.url

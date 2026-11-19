@@ -75,6 +75,8 @@ class TestStandaloneImports:
         "module",
         [
             "bfch_bbc_iplayer",
+            "bfch_divxtotal",
+            "bfch_elitetorrent",
             "bfch_eztv",
             "bfch_iptv_org",
             "bfch_limetorrents",
