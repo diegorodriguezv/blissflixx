@@ -2,6 +2,7 @@ import cherrypy
 import glob
 import os
 import re
+import shlex
 import shutil
 import sys
 import traceback
@@ -52,15 +53,23 @@ def blocked_words(value):
     """
     The words in a block list, lowercased.
 
-    Commas and newlines separate them, not spaces: a phrase like "good day" is
-    a legitimate thing to block. Order and duplicates do not matter.
+    Commas, semicolons, newlines and spaces all separate entries, so a list
+    typed as "telugu h265 x265" is three words, which is what someone typing it
+    expects. A phrase keeps its spaces when it is quoted: "good day" hides
+    that title and leaves Training Day alone. Order and duplicates do not
+    matter.
     """
     if not value:
         return []
     if isinstance(value, (list, tuple)):
         parts = [str(part) for part in value]
     else:
-        parts = re.split(r"[,\n]+", str(value))
+        text = re.sub(r"[,;\n]+", " ", str(value))
+        try:
+            parts = shlex.split(text)
+        except ValueError:
+            # An unbalanced quote must not lose the rest of the list.
+            parts = text.split()
     return [part.strip().casefold() for part in parts if part.strip()]
 
 
@@ -214,7 +223,8 @@ class Channel:
             "type": "text",
             "default": "",
             "hint": "Hide rows whose title contains any of these words. "
-            "Separate them with commas: telugu, h265, x265, 1080p.",
+            "Separate them with commas or spaces: telugu, h265, x265, 1080p. "
+            'Put a phrase in quotes: "good day".',
         }
         if self.supports_subtitles:
             global_lang = (load("subtitles").get("lang") or "eng")

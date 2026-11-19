@@ -203,8 +203,21 @@ class TestBlockedWords:
             "x265",
         ]
 
-    def test_a_phrase_keeps_its_spaces(self):
-        assert api_channels.blocked_words("good day") == ["good day"]
+    def test_spaces_separate_words_too(self):
+        assert api_channels.blocked_words("telugu h265 x265") == [
+            "telugu",
+            "h265",
+            "x265",
+        ]
+
+    def test_a_quoted_phrase_keeps_its_spaces(self):
+        assert api_channels.blocked_words('"good day"') == ["good day"]
+
+    def test_an_unquoted_phrase_is_two_words(self):
+        assert api_channels.blocked_words("good day") == ["good", "day"]
+
+    def test_an_unbalanced_quote_does_not_lose_the_list(self):
+        assert "telugu" in api_channels.blocked_words('telugu "good')
 
     def test_an_empty_list_blocks_nothing(self):
         assert api_channels.blocked_words("") == []
@@ -220,12 +233,19 @@ class TestBlockedWords:
         )
         assert [row["title"] for row in rows] == ["Film 720p"]
 
-    def test_a_blocked_phrase_matches_inside_the_title(self):
+    def test_a_quoted_phrase_matches_inside_the_title(self):
         rows = _channel().getPlayItems(
-            self._rows("A Good Day to Die Hard", "Another Film"),
-            {"block_words": "good day"},
+            self._rows("A Good Day to Die Hard", "Training Day"),
+            {"block_words": '"good day"'},
         )
-        assert [row["title"] for row in rows] == ["Another Film"]
+        assert [row["title"] for row in rows] == ["Training Day"]
+
+    def test_words_typed_with_spaces_hide_rows(self):
+        rows = _channel().getPlayItems(
+            self._rows("Film Telugu 1080p", "Film 720p"),
+            {"block_words": "telugu h265 x265"},
+        )
+        assert [row["title"] for row in rows] == ["Film 720p"]
 
     def test_an_empty_list_keeps_every_row(self):
         rows = _channel().getPlayItems(
