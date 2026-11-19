@@ -77,6 +77,7 @@ class TestStandaloneImports:
             "bfch_bbc_iplayer",
             "bfch_eztv",
             "bfch_iptv_org",
+            "bfch_limetorrents",
             "bfch_pirate_bay",
             "bfch_rotten_tomatoes",
             "bfch_techcrunch",
