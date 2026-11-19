@@ -99,6 +99,15 @@
           self.lang = data2.lang
           self.saved = true
           self.update()
+          // Saving is the end of this page: go back to Settings, the way the
+          // back arrow does, with the confirmation waiting there. A direct
+          // visit has nothing behind it, so it goes to Settings instead.
+          Utils.flash('Saved.')
+          if (window.history.length > 1) {
+            window.history.back()
+          } else {
+            Utils.goRoute('settings')
+          }
         })
       })
     }
