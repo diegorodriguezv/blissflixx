@@ -81,6 +81,7 @@ class TestStandaloneImports:
             "bfch_pirate_bay",
             "bfch_rotten_tomatoes",
             "bfch_techcrunch",
+            "bfch_therarbg",
             "bfch_tmz",
             "bfch_twitch",
             "bfch_youtube",

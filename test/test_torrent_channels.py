@@ -1,4 +1,5 @@
 import bfch_limetorrents
+import bfch_therarbg
 import lxml.html
 
 #: One listing with a film, an episode, a music row, and a row that has no
@@ -161,3 +162,111 @@ def test_search_quotes_the_query_and_sorts_by_seeds(monkeypatch):
     bfch_limetorrents.search("a b")
 
     assert seen == ["https://www.limetorrents.fun/search/all/a%20b/seeds/1/"]
+
+
+_RARBG_RSS = """<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0"><channel>
+  <item>
+    <title>Film 2020 1080p</title>
+    <category>Movies</category>
+    <pubDate>Thu, 19 Nov 2026 22:21:51 +0000</pubDate>
+    <description>1.5 GB - 50 seeders - quality 47/100</description>
+    <enclosure url="magnet:?xt=urn:btih:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA&amp;dn=Film"
+               type="application/x-bittorrent"/>
+  </item>
+  <item>
+    <title>Some Show S02E03 1080p</title>
+    <category>TV</category>
+    <pubDate>Thu, 19 Nov 2026 22:20:00 +0000</pubDate>
+    <description>800 MB - 500 seeders - quality 60/100</description>
+    <enclosure url="magnet:?xt=urn:btih:BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB&amp;dn=Show"
+               type="application/x-bittorrent"/>
+  </item>
+  <item>
+    <title>Album 2024 MP3</title>
+    <category>Music</category>
+    <pubDate>Thu, 19 Nov 2026 22:19:00 +0000</pubDate>
+    <description>120 MB - 10 seeders - quality 40/100</description>
+    <enclosure url="magnet:?xt=urn:btih:CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC&amp;dn=Album"
+               type="application/x-bittorrent"/>
+  </item>
+  <item>
+    <title>A Book</title>
+    <category>Books</category>
+    <pubDate>Thu, 19 Nov 2026 22:18:00 +0000</pubDate>
+    <description>1 MB - 900 seeders - quality 10/100</description>
+    <enclosure url="magnet:?xt=urn:btih:DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD&amp;dn=Book"
+               type="application/x-bittorrent"/>
+  </item>
+  <item>
+    <title>No Magnet</title>
+    <category>Movies</category>
+    <pubDate>Thu, 19 Nov 2026 22:17:00 +0000</pubDate>
+    <description>1 MB - 999 seeders - quality 10/100</description>
+  </item>
+</channel></rss>
+"""
+
+
+class _RssResponse:
+    def __init__(self, content):
+        self.content = content
+
+
+def _fake_rarbg(monkeypatch, seen=None):
+    def fake_get(url, params=None):
+        if seen is not None:
+            seen.append((url, params))
+        return _RssResponse(_RARBG_RSS.encode("utf-8"))
+
+    monkeypatch.setattr(bfch_therarbg, "get", fake_get)
+
+
+def test_therarbg_feedlist_names_the_categories():
+    assert [entry["title"] for entry in bfch_therarbg.feedlist()] == [
+        "Latest Movies",
+        "Latest TV Shows",
+        "Latest Anime",
+        "Latest Music",
+    ]
+
+
+def test_therarbg_feed_asks_for_its_category(monkeypatch):
+    seen = []
+    _fake_rarbg(monkeypatch, seen)
+
+    items = bfch_therarbg.feed(0).to_list()
+
+    assert seen == [
+        ("https://therarbg.com/api/rss/search/", {"q": "", "category": "Movies"})
+    ]
+    assert [item.title for item in items] == ["Film 2020 1080p"]
+
+
+def test_therarbg_rows_carry_size_seeds_date_and_an_unescaped_magnet(monkeypatch):
+    _fake_rarbg(monkeypatch)
+
+    item = bfch_therarbg.feed(0).to_list()[0]
+
+    assert item.subtitle == "Size: 1.5 GB, Seeds: 50, Released: 2026-11-19"
+    assert "&amp;" not in item.url
+    assert "&dn=Film" in item.url
+    assert item.subs["year"] == 2020
+
+
+def test_therarbg_search_skips_unplayable_categories_and_sorts_by_seeds(monkeypatch):
+    seen = []
+    _fake_rarbg(monkeypatch, seen)
+
+    items = bfch_therarbg.search("film").to_list()
+
+    assert seen == [("https://therarbg.com/api/rss/search/", {"q": "film"})]
+    assert [item.title for item in items] == [
+        "Some Show S02E03 1080p",
+        "Film 2020 1080p",
+        "Album 2024 MP3",
+    ]
+    assert items[0].subs["season"] == 2
+    assert items[0].subs["episode"] == 3
+    assert items[2].img == "/img/icons/music.svg"
+    assert items[2].subs is None
