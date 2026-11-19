@@ -468,6 +468,18 @@ class TestSourceUrl:
         url = "http://host/film.torrent"
         assert bt.source_url(url) == url
 
+    def test_the_fetch_looks_like_a_browser(self):
+        """
+        Some hosts answer 403 to Python-urllib and 200 to a browser UA for the
+        same file. EliteTorrent does; the fetch must not wear the library's
+        default name.
+        """
+        req = bt.torrent_request("http://host/film.torrent?bf_torr_idx=2")
+
+        assert req.full_url == "http://host/film.torrent"
+        assert "Mozilla" in req.headers["User-agent"]
+        assert "bittorrent" in req.headers["Accept"]
+
 
 class TestReadSpans:
     """

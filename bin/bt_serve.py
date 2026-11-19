@@ -365,6 +365,23 @@ def source_url(source):
     )
 
 
+#: Public torrent hosts front their files with a WAF that answers 403 to
+#: Python-urllib's default User-Agent. EliteTorrent does exactly that: the same
+#: .torrent is 403 with "Python-urllib/3.13" and 200 with a browser's UA. The
+#: request has to introduce itself as a browser, or a play that worked from the
+#: channel's page fails at the first byte.
+_TORRENT_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/126.0 Safari/537.36",
+    "Accept": "application/x-bittorrent,application/octet-stream,*/*",
+}
+
+
+def torrent_request(source):
+    """The request used to fetch a .torrent, marker stripped and UA set."""
+    return urllib.request.Request(source_url(source), headers=_TORRENT_HEADERS)
+
+
 def top_entry(path):
     """
     The buffer entry a torrent-relative path lives in.
@@ -999,7 +1016,7 @@ def prepare(lt, source, buffer_dir):
         params = lt.parse_magnet_uri(source)
         info_hash = hash_text(params.info_hashes)
     else:
-        with urllib.request.urlopen(source_url(source), timeout=30) as response:
+        with urllib.request.urlopen(torrent_request(source), timeout=30) as response:
             data = response.read()
         params = lt.add_torrent_params()
         params.ti = lt.torrent_info(data)
