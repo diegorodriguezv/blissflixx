@@ -39,25 +39,29 @@ def _get_cached(key, **kwargs):
     return _cached(key, lambda: get_json(_API[key], **kwargs))
 
 
+#: The stable name comes from the filter, not from the position: the full
+#: catalogue is rebuilt whenever it changes, so a country inserted alphabetically
+#: shifts every later index. A link with ?name=country-at then still opens
+#: Austria, while the index in the same link is only what it was that day.
 _FEEDLIST = [
-    {"title": "Colombia", "group": "Countries", "filter": {"country": "CO"}},
-    {"title": "Great Britain", "group": "Countries", "filter": {"country": "UK"}},
-    {"title": "China", "group": "Countries", "filter": {"country": "CN"}},
-    {"title": "India", "group": "Countries", "filter": {"country": "IN"}},
-    {"title": "Indonesia", "group": "Countries", "filter": {"country": "ID"}},
-    {"title": "Pakistan", "group": "Countries", "filter": {"country": "PK"}},
-    {"title": "Nigeria", "group": "Countries", "filter": {"country": "NG"}},
-    {"title": "Brazil", "group": "Countries", "filter": {"country": "BR"}},
-    {"title": "Bangladesh", "group": "Countries", "filter": {"country": "BD"}},
-    {"title": "Russia", "group": "Countries", "filter": {"country": "RU"}},
-    {"title": "Mexico", "group": "Countries", "filter": {"country": "MX"}},
-    {"title": "United States", "group": "Countries", "filter": {"country": "US"}},
-    {"title": "Spanish", "group": "Languages", "filter": {"language": "es"}},
-    {"title": "English", "group": "Languages", "filter": {"language": "en"}},
-    {"title": "French", "group": "Languages", "filter": {"language": "fr"}},
-    {"title": "German", "group": "Languages", "filter": {"language": "de"}},
-    {"title": "Japanese", "group": "Languages", "filter": {"language": "ja"}},
-    {"title": "Portuguese", "group": "Languages", "filter": {"language": "pt"}},
+    {"title": "Colombia", "name": "country-co", "group": "Countries", "filter": {"country": "CO"}},
+    {"title": "Great Britain", "name": "country-uk", "group": "Countries", "filter": {"country": "UK"}},
+    {"title": "China", "name": "country-cn", "group": "Countries", "filter": {"country": "CN"}},
+    {"title": "India", "name": "country-in", "group": "Countries", "filter": {"country": "IN"}},
+    {"title": "Indonesia", "name": "country-id", "group": "Countries", "filter": {"country": "ID"}},
+    {"title": "Pakistan", "name": "country-pk", "group": "Countries", "filter": {"country": "PK"}},
+    {"title": "Nigeria", "name": "country-ng", "group": "Countries", "filter": {"country": "NG"}},
+    {"title": "Brazil", "name": "country-br", "group": "Countries", "filter": {"country": "BR"}},
+    {"title": "Bangladesh", "name": "country-bd", "group": "Countries", "filter": {"country": "BD"}},
+    {"title": "Russia", "name": "country-ru", "group": "Countries", "filter": {"country": "RU"}},
+    {"title": "Mexico", "name": "country-mx", "group": "Countries", "filter": {"country": "MX"}},
+    {"title": "United States", "name": "country-us", "group": "Countries", "filter": {"country": "US"}},
+    {"title": "Spanish", "name": "language-es", "group": "Languages", "filter": {"language": "es"}},
+    {"title": "English", "name": "language-en", "group": "Languages", "filter": {"language": "en"}},
+    {"title": "French", "name": "language-fr", "group": "Languages", "filter": {"language": "fr"}},
+    {"title": "German", "name": "language-de", "group": "Languages", "filter": {"language": "de"}},
+    {"title": "Japanese", "name": "language-ja", "group": "Languages", "filter": {"language": "ja"}},
+    {"title": "Portuguese", "name": "language-pt", "group": "Languages", "filter": {"language": "pt"}},
 ]
 _MAXRESULTS = 300
 
@@ -107,6 +111,7 @@ def _other_country_feeds():
         rows.append(
             {
                 "title": country.get("name") or code,
+                "name": "country-" + code.lower(),
                 "group": "More countries",
                 "filter": {"country": code},
             }
@@ -124,6 +129,7 @@ def _category_feeds():
         rows.append(
             {
                 "title": category.get("name") or cid,
+                "name": "category-" + cid.lower(),
                 "group": "Categories",
                 "filter": {"category": cid},
             }
@@ -216,8 +222,46 @@ def load_all_streams():
     return streams
 
 
+def _feed_index_by_name(idx, name, feeds):
+    """
+    The feed a route names, by its stable name first.
+
+    The catalogue is rebuilt when it changes and its countries and categories
+    are sorted, so an index saved in a link can point at a different country a
+    week later. The name is the country code or category id and does not move.
+    The index is still accepted, because a link written before the names, or a
+    stale name, has nothing else to go on.
+    """
+    if name:
+        name = str(name)
+        for i, feed in enumerate(feeds):
+            if feed.get("name") == name:
+                return i
+        lowered = name.lower()
+        for i, feed in enumerate(feeds):
+            if (feed.get("title") or "").lower() == lowered:
+                return i
+    try:
+        i = int(idx)
+    except (TypeError, ValueError):
+        i = 0
+    if i < 0 or i >= len(feeds):
+        i = 0
+    return i
+
+
 def feed(idx):
-    filter = _feeds()[idx]["filter"]
+    return _feed_for(_feeds()[idx]["filter"])
+
+
+def feed_by_name(idx, name):
+    """The feed a link names, resolved by its stable name when it has one."""
+    feeds = _feeds()
+    i = _feed_index_by_name(idx, name, feeds)
+    return _feed_for(feeds[i]["filter"])
+
+
+def _feed_for(filter):
     # only the language feeds need guides.json, so pay for it only there
     if "language" in filter:
         _language_index()

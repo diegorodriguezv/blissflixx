@@ -462,6 +462,84 @@ class TestTheFeeds:
         assert iptv.feed(0).to_list() == []
 
 
+class TestStableFeedNames:
+    """
+    A link carries the feed's index and its stable name. The catalogue is
+    rebuilt and sorted when it changes, so the index can point somewhere else
+    while the name still means the same country or category.
+    """
+
+    def test_every_curated_feed_has_a_unique_name(self):
+        names = [feed.get("name") for feed in iptv.feedlist()]
+        assert all(names)
+        assert len(set(names)) == len(names)
+
+    def test_the_full_list_names_countries_and_categories(self, monkeypatch):
+        countries = [
+            {"name": "Colombia", "code": "CO"},
+            {"name": "Austria", "code": "AT"},
+        ]
+        categories = [
+            {"id": "news", "name": "News"},
+            {"id": "sports", "name": "Sports"},
+        ]
+
+        def fake_get(key, **kwargs):
+            return {"countries": countries, "categories": categories}[key]
+
+        monkeypatch.setattr(iptv, "_get_cached", fake_get)
+        monkeypatch.setattr(iptv, "_CACHE", {})
+        feeds = iptv.feedlist_full()
+        by_title = {feed["title"]: feed for feed in feeds}
+        assert by_title["Austria"]["name"] == "country-at"
+        assert by_title["News"]["name"] == "category-news"
+        names = [feed["name"] for feed in feeds]
+        assert len(set(names)) == len(names)
+
+    def test_a_name_finds_its_country_after_the_catalogue_moves(self, monkeypatch):
+        before = [
+            {"title": "Colombia", "name": "country-co", "filter": {"country": "CO"}},
+            {"title": "Austria", "name": "country-at", "filter": {"country": "AT"}},
+            {"title": "Zimbabwe", "name": "country-zw", "filter": {"country": "ZW"}},
+        ]
+        # A country sorted in front moves Austria from 1 to 2.
+        after = [
+            {"title": "Albania", "name": "country-al", "filter": {"country": "AL"}},
+            {"title": "Colombia", "name": "country-co", "filter": {"country": "CO"}},
+            {"title": "Austria", "name": "country-at", "filter": {"country": "AT"}},
+            {"title": "Zimbabwe", "name": "country-zw", "filter": {"country": "ZW"}},
+        ]
+        streams = [
+            stream("co", "Colombia One", "http://co", country="CO"),
+            stream("at", "Austria One", "http://at", country="AT"),
+        ]
+        monkeypatch.setattr(iptv, "load_all_streams", lambda: streams)
+        monkeypatch.setattr(iptv, "_feeds", lambda: before)
+        assert [row.title for row in iptv.feed_by_name(1, "country-at").to_list()] == [
+            "Austria One"
+        ]
+        monkeypatch.setattr(iptv, "_feeds", lambda: after)
+        # Index 1 is Colombia now; the name still opens Austria.
+        assert [row.title for row in iptv.feed_by_name(1, "country-at").to_list()] == [
+            "Austria One"
+        ]
+
+    def test_an_unknown_name_falls_back_to_the_index(self, monkeypatch):
+        feeds = [
+            {"title": "Colombia", "name": "country-co", "filter": {"country": "CO"}},
+            {"title": "Austria", "name": "country-at", "filter": {"country": "AT"}},
+        ]
+        streams = [
+            stream("co", "Colombia One", "http://co", country="CO"),
+            stream("at", "Austria One", "http://at", country="AT"),
+        ]
+        monkeypatch.setattr(iptv, "load_all_streams", lambda: streams)
+        monkeypatch.setattr(iptv, "_feeds", lambda: feeds)
+        assert [row.title for row in iptv.feed_by_name(1, "country-zz").to_list()] == [
+            "Austria One"
+        ]
+
+
 class TestTheClientChain:
     """The row's mirrors have to survive the trip to the play request."""
 
