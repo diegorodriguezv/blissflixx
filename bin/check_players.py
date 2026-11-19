@@ -1,15 +1,16 @@
 #!/usr/bin/env python3
 
 """
-Report whether the installed player can actually run.
+Report whether the installed player is there.
 
-configure.sh installs packages; this checks that what arrived is usable. The
-KMS and ALSA device names in the defaults are specific to one model, so rather
-than assume, this asks the registry what the configured defaults need and says
-what is missing, with the setting to change.
+configure.sh installs packages; this checks that the binary the backend's
+defaults name is actually on the box, and prints the extra flags and device
+names for reference. It does not open the ALSA or KMS devices: whether a card
+exists depends on the board and on what is plugged into it, which is a question
+for the person at the television, not for this script.
 
-Checks are derived from the backend's defaults, so a new required option is
-covered without editing list in this file.
+The check is derived from the backend's defaults, so a changed binary is
+covered without editing a list in this file.
 """
 
 import os

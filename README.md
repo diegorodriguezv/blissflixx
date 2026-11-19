@@ -108,12 +108,20 @@ takes minutes.
 
 The `configure.sh` script installs the dependencies, builds the Python
 environment, and installs the service that runs BlissFlixx when the system
-starts up. Its other tasks are invoked with the following arguments:
+starts up. Its other tasks are invoked with the following arguments; options
+are matched exactly, and an unknown one is refused with the usage rather than
+ignored:
+
+* `--help`, `-h`
+
+Print the options and exit. This works without `sudo`, so the list is available
+before installing anything.
 
 * `--no-boot`
 
 Install the dependencies but not the boot service. For a checkout you start by
-hand; a normal install starts when the box does.
+hand; a normal install starts when the box does. `-boot` is still accepted and
+asks for what already happens. Use one or the other, not both.
 
 * `-blank`
 
@@ -157,10 +165,10 @@ unless it was asked for.
 
 ## After installing
 
-`configure.sh` finishes by running `bin/check_players.py`, which reports whether
-the player can actually run rather than merely being installed. Worth knowing,
-because the two are not the same thing and a missing codec only shows up when
-something tries to play.
+`configure.sh` finishes by running `bin/check_players.py`, which checks that
+the player binary is on the box and prints the configured device names for
+reference. It does not open the ALSA or KMS devices; whether a card is there
+depends on the board and on what is plugged into it.
 Run it again at any time:
 
 ```
@@ -214,6 +222,17 @@ If you have netbios installed in your network, chances are you can access your r
 *    http://raspberrypi.local
 
 If you have an Apple device (iPad, Mac etc) read [this article](http://www.howtogeek.com/167190/how-and-why-to-assign-the-.local-domain-to-your-raspberry-pi/) for details on how to get this to work with Windows devices.
+
+### Slow channel requests
+
+Channel reads wait 20 seconds for an answer and then report the channel as
+unavailable rather than holding the server. Override that with `BF_TIMEOUT`, in
+seconds:
+
+    BF_TIMEOUT=40 ./start.sh
+
+The value is read when the server starts, so set it before the process starts
+or in the service's environment; changing it while the server runs does nothing.
 
 ## Driving it from a terminal
 
@@ -344,13 +363,17 @@ to the repository, so two boxes can be configured differently.
 
 Every channel that has more than one feed offers a **default feed** — the one
 opened when the channel is first shown. Every channel offers **Blocked words**:
-rows whose title contains any of them are hidden, comma-separated and
-case-insensitive. That is how a box that cannot decode `h265`/`x265`, or a
-person who does not want `telugu` or `1080p`, stops seeing those rows. Every
-channel that supports subtitles offers a **subtitle language** (overriding the
-global one in **SYSTEM OPTIONS**, stored in `data/settings/subtitles`) and an **Add Subtitles** toggle. A channel may
-declare more options; the form is built from what it declares, and a channel
-with nothing to set gets no Settings button.
+rows whose title contains any of them are hidden, case-insensitive. Separate
+them with commas or spaces (`telugu h265 x265`); put a phrase in quotes
+(`"good day"`) so its words are not matched on their own. That is how a box
+that cannot decode `h265`/`x265`, or a person who does not want `telugu` or
+`1080p`, stops seeing those rows. The channel page says what was hidden above
+the results (`68 of 200 rows blocked · telugu 10 · h265 2 · x265 60`), so a
+short feed is explained rather than looking broken. Every channel that supports
+subtitles offers a **subtitle language** (overriding the global one in
+**SYSTEM OPTIONS**, stored in `data/settings/subtitles`) and an **Add Subtitles**
+toggle. A channel may declare more options; the form is built from what it
+declares, and a channel with nothing to set gets no Settings button.
 
 The same settings are available over the API:
 

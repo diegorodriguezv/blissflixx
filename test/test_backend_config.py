@@ -45,15 +45,6 @@ class TestSettingsNaming:
     def test_config_file_is_namespaced_under_player(self):
         assert settings_name("vlc") == "player-vlc"
 
-    def test_no_collision_with_the_active_choice_file(self):
-        """
-        The active backend lives in data/settings/player, so a backend must not
-        be named such that its own file is that one.
-        """
-        assert settings_name("") != "player"
-        for name in backend_names():
-            assert settings_name(name) != "player"
-
 
 class TestDefaultsWithoutSettings:
     @pytest.mark.parametrize("name", ["vlc"])

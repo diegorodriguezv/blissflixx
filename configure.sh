@@ -44,6 +44,60 @@ elapsed() {
     fi
 }
 
+usage() {
+    cat <<'EOF'
+Usage: sudo ./configure.sh [options]
+
+Installs BlissFlixx's dependencies, Python environment and services.
+
+  --no-boot      install the dependencies but not the boot service
+  -boot          install the boot service (the default; kept for old scripts)
+  -only          do only the options named, and nothing else
+  -blank         configure screen blanking
+  -rejoin        install rejoin.service (Wi-Fi repair)
+  -no-players    skip the player packages
+  -uninstall     remove the services BlissFlixx installed
+  -h, --help     show this help and exit
+EOF
+}
+
+# Options are matched exactly. The old tests were substrings of the whole
+# argument list, so -boot was found inside --no-boot and --no-boot installed
+# the service it was named to skip. Anything not listed is refused rather than
+# silently ignored: a typo used to do nothing and look like success.
+ONLY=0
+NO_BOOT=0
+BOOT=0
+BLANK=0
+REJOIN=0
+UNINSTALL=0
+NO_PLAYERS=0
+
+for arg in "$@"
+do
+    case "$arg" in
+        -only) ONLY=1 ;;
+        --no-boot) NO_BOOT=1 ;;
+        -boot) BOOT=1 ;;
+        -blank) BLANK=1 ;;
+        -rejoin) REJOIN=1 ;;
+        -uninstall) UNINSTALL=1 ;;
+        -no-players) NO_PLAYERS=1 ;;
+        -h|--help) usage; exit 0 ;;
+        *)
+            echo "Unknown option: $arg" 1>&2
+            echo "" 1>&2
+            usage 1>&2
+            exit 2
+            ;;
+    esac
+done
+
+if [ "$NO_BOOT" = 1 ] && [ "$BOOT" = 1 ]; then
+    echo "Use either -boot or --no-boot, not both." 1>&2
+    exit 2
+fi
+
 # Make sure only root can run our script
 if [ "$(id -u)" != "0" ]; then
     echo "This script must be run using sudo" 1>&1
@@ -128,7 +182,7 @@ require_packages() {
     fi
 }
 
-if [[ $@ == *-only* ]] ; then
+if [ "$ONLY" = 1 ]; then
     echo running only optional arguments
 else
     echo ""
@@ -202,7 +256,7 @@ else
     # cli binary, the base plugins (demuxers, decoders, the DRM output and ALSA)
     # and the video output plugins. Measured on a Pi 3: 31MB instead of 80MB,
     # same picture, same hardware decoder.
-    if [[ $@ != *-no-players* ]] ; then
+    if [ "$NO_PLAYERS" = 0 ]; then
         install_or_stop vlc-bin vlc-plugin-base vlc-plugin-video-output
         stage "vlc"
     fi
@@ -292,10 +346,10 @@ else
     fi
     stage "python virtual environment"
 
-    # Report what is actually usable. Installing a player is not the same as
-    # being able to run it: the ALSA and video output names in its defaults are
-    # specific to one model. The checks come from those defaults, so they stay
-    # correct as they change.
+    # Report what is actually usable. The binary is checked against the
+    # backend's defaults; the ALSA and video output names are printed for
+    # reference, because whether a card exists depends on the board and what
+    # is plugged into it.
     echo ""
     echo "============================================================"
     echo ""
@@ -317,8 +371,8 @@ fi
 
 # -only keeps its old meaning -- do nothing except what was named -- so there
 # the service has to be asked for with -boot. Every other run installs it.
-if [[ $@ != *--no-boot* ]] &&
-   { [[ $@ != *-only* ]] || [[ $@ == *-boot* ]]; } ; then
+if [ "$NO_BOOT" = 0 ] &&
+   { [ "$ONLY" = 0 ] || [ "$BOOT" = 1 ]; } ; then
     # A fresh card has no such unit; that is not a failure worth printing.
     systemctl stop blissflixx.service 2>/dev/null || true
     systemctl disable blissflixx.service 2>/dev/null || true
@@ -569,7 +623,7 @@ print(f"Set consoleblank={secs} in {path} (reboot required)")
 PY
 }
 
-if [[ $@ == *-blank* ]] ; then
+if [ "$BLANK" = 1 ]; then
     # Lite/console: robust framebuffer/tty blanking via kernel cmdline.
     # (Does not guarantee TV low-power sleep; requires reboot.)
     if ! bf_set_consoleblank 5; then
@@ -598,7 +652,7 @@ _contents
     stage "the blank screen service"
 fi
 
-if [[ $@ == *-rejoin* ]] ; then
+if [ "$REJOIN" = 1 ]; then
     systemctl stop rejoin.service
     systemctl disable rejoin.service
   cat << _contents > /etc/systemd/system/rejoin.service
@@ -621,7 +675,7 @@ _contents
     stage "the wifi repair service"
 fi
 
-if [[ $@ == *-uninstall* ]] ; then
+if [ "$UNINSTALL" = 1 ]; then
     systemctl stop blankscreen.service
     systemctl disable blankscreen.service
     rm /etc/systemd/system/blankscreen.service

@@ -7,7 +7,6 @@ import cherrypy
 
 from .. import playquality
 from ..locations import DATA_PATH
-from ..settings import load
 from . import ythelper
 from .backends import DEFAULT_BACKEND, get_backend
 from .dlsrvproc import DlsrvProcess

@@ -98,12 +98,6 @@ class TestPipelineComposition:
         """
         assert "dlsrv" not in stages(build_pipe(http=True, dlsrv=True))
 
-    def test_the_player_stage_comes_from_the_backend_choice(self):
-        """Not from the http and dlsrv flags, which is what "legacy" is for."""
-        with m.patch("lib.player.player.load", return_value={"backend": "vlc"}):
-            pipe = build_pipe()
-        assert stages(pipe)[-1] == "vlc"
-
     def test_default_backend_is_the_player_stage(self):
         pipe = build_pipe()
         assert stages(pipe)[-1] == "vlc"

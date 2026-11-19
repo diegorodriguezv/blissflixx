@@ -18,7 +18,6 @@ desktop during development: the hardware strings differ (an ALSA card name, a
 KMS plane id) and they are values rather than branches in code.
 
     data/settings/player-vlc   {"audio_device": "hdmi:CARD=vc4hdmi,DEV=0"}
-    data/settings/player-vlc   {"audio_device": "hdmi:CARD=vc4hdmi,DEV=0"}
 
 A config file may be absent or partial; anything it does not set keeps its
 default. Unrecognised keys are logged and ignored rather than raising, because a
