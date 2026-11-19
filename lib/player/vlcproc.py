@@ -2401,7 +2401,13 @@ class VlcProcess(PlayerBackend):
             return
         self._write_overlay(text)
         if hold:
-            _start_thread(self._expire_overlay, text, hold)
+            try:
+                _start_thread(self._expire_overlay, text, hold)
+            except RuntimeError:
+                # Out of threads. The line still goes away on marq's own
+                # timeout, and a confirmation is not worth failing a key press
+                # over: a burst of volume presses on a small box raised here.
+                pass
 
     def _subtitle_label(self):
         """
