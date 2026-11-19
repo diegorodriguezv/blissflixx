@@ -63,14 +63,19 @@ def _doc():
 
 def test_feedlist_names_the_listings():
     titles = [entry["title"] for entry in bfch_limetorrents.feedlist()]
-    assert titles == [
-        "Latest Movies",
-        "Popular Movies",
-        "Latest TV Shows",
-        "Popular TV Shows",
-        "Latest Music",
-        "Latest Anime",
-    ]
+    assert titles == ["Top Movies", "Top TV Shows", "Music", "Top Anime"]
+
+
+def test_the_video_feeds_ask_lime_for_its_seed_order():
+    # Sorting the latest page would only order those forty. The seeds URL is
+    # what makes a video feed the top of the category. Music is the exception:
+    # its all-time page is miscategorized, so it comes from the latest page
+    # and is sorted by seeds here.
+    for entry in bfch_limetorrents.feedlist():
+        if entry["category"] == "Music":
+            assert entry["url"].endswith("/browse-torrents/Music/"), entry
+        else:
+            assert entry["url"].endswith("/seeds/1/"), entry
 
 
 def test_feed_keeps_only_rows_with_a_torrent_link(monkeypatch):
@@ -121,9 +126,27 @@ def test_anime_without_an_episode_marker_gets_no_subtitle_search(monkeypatch):
         bfch_limetorrents, "get_doc", lambda url: lxml.html.fromstring(anime)
     )
 
-    item = bfch_limetorrents.feed(5).to_list()[0]
+    item = bfch_limetorrents.feed(3).to_list()[0]
 
     assert item.subs is None
+
+
+def test_a_corrupt_seed_count_does_not_top_the_feed(monkeypatch):
+    # Lime has a couple of TV rows with millions of seeds on old, small
+    # episodes. They are not real swarms and must not lead a seed-ordered
+    # feed; the row is skipped rather than ranked first.
+    corrupt = _LISTING.replace(
+        '<td class="tdseed">1,234</td>',
+        '<td class="tdseed">11,204,445</td>',
+    )
+    monkeypatch.setattr(
+        bfch_limetorrents, "get_doc", lambda url: lxml.html.fromstring(corrupt)
+    )
+
+    titles = [item.title for item in bfch_limetorrents.feed(0).to_list()]
+
+    assert "The Film 2020 1080p" not in titles
+    assert titles[0] == "Some Show S02E03 1080p"
 
 
 def test_search_quotes_the_query_and_sorts_by_seeds(monkeypatch):

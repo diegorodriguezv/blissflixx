@@ -20,36 +20,33 @@ _SEARCH_URL = _BASE + "/search/all/%s/seeds/1/"
 #: The category a feed belongs to. Browsing pages do not repeat it on every
 #: row -- only search results do, as "1 Year+ - in Movies" -- so the feed has
 #: to remember what it asked for.
+#:
+#: Every feed asks Lime for its own seed order. Sorting the page here as well
+#: only orders the latest forty; the seeds URL is what makes it the top of the
+#: category rather than the top of the day.
 _FEEDLIST = [
     {
-        "title": "Latest Movies",
-        "category": "Movies",
-        "url": _BASE + "/browse-torrents/Movies/",
-    },
-    {
-        "title": "Popular Movies",
+        "title": "Top Movies",
         "category": "Movies",
         "url": _BASE + "/browse-torrents/Movies/seeds/1/",
     },
     {
-        "title": "Latest TV Shows",
-        "category": "TV-shows",
-        "url": _BASE + "/browse-torrents/TV-shows/",
-    },
-    {
-        "title": "Popular TV Shows",
+        "title": "Top TV Shows",
         "category": "TV-shows",
         "url": _BASE + "/browse-torrents/TV-shows/seeds/1/",
     },
     {
-        "title": "Latest Music",
+        # Music's all-time seed page is not music: its top rows are a Windows
+        # activator and 2013 CAM films filed under Music. The latest page is
+        # actual music, so it is sorted here rather than taken from there.
+        "title": "Music",
         "category": "Music",
         "url": _BASE + "/browse-torrents/Music/",
     },
     {
-        "title": "Latest Anime",
+        "title": "Top Anime",
         "category": "Anime",
-        "url": _BASE + "/browse-torrents/Anime/",
+        "url": _BASE + "/browse-torrents/Anime/seeds/1/",
     },
 ]
 
@@ -59,6 +56,13 @@ _MUSIC_ICON = "/img/icons/music.svg"
 #: The listing writes the category into the "added" column on search pages:
 #: "1 Year+ - in Movies". Browse pages leave it out.
 _IN_CATEGORY = re.compile(r"- in ([A-Za-z -]+)$")
+
+#: Lime's TV seed column carries a corrupted count on a couple of old uploads
+#: -- 11 million seeds on a 2013 335MB episode, 5.6 million on another. A
+#: public swarm does not have that many, and a seed-ordered feed would put
+#: them first, so those rows are left out rather than allowed to define the
+#: list. The rest of the TV page is a normal 45-55k range.
+_MAX_SEEDS = 1_000_000
 
 
 def name():
@@ -124,6 +128,8 @@ def _extract(doc, category=None):
                 row_category = found.group(1).strip()
 
         seeds = _number(select_one(row, "td.tdseed"))
+        if seeds > _MAX_SEEDS:
+            continue
         peers = _number(select_one(row, "td.tdleech"))
         img, subs = _describe(row_category, title)
         results.append((seeds, title, img, url, subtitle(size, seeds, peers), subs))
