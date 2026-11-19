@@ -254,6 +254,87 @@ class TestBlockedWords:
         assert len(rows) == 2
 
 
+class TestTheBlockedReport:
+    """
+    What the block list hid from one listing, so the channel page can say it
+    above the results it belongs to.
+    """
+
+    def _rows(self, *titles):
+        from lib.playitem import PlayItem, PlayItemList
+
+        listing = PlayItemList()
+        for title in titles:
+            listing.add(PlayItem(title, None, "http://x/" + title))
+        return listing
+
+    def test_each_word_is_counted_and_the_rows_once(self):
+        report = api_channels.blocked_report(
+            ["Film Telugu", "Film x265", "Film Telugu x265", "Film 720p"],
+            ["telugu", "x265"],
+        )
+        assert report["rows"] == 4
+        assert report["hidden"] == 3
+        assert report["words"] == [
+            {"word": "telugu", "count": 2},
+            {"word": "x265", "count": 2},
+        ]
+
+    def test_words_that_match_nothing_are_still_listed(self):
+        report = api_channels.blocked_report(
+            ["Film Telugu"], ["telugu", "h265"]
+        )
+        assert report["hidden"] == 1
+        assert report["words"] == [
+            {"word": "telugu", "count": 1},
+            {"word": "h265", "count": 0},
+        ]
+
+    def test_duplicate_words_are_counted_once(self):
+        report = api_channels.blocked_report(
+            ["Film Telugu"], ["telugu", "TELUGU"]
+        )
+        assert report["words"] == [{"word": "telugu", "count": 1}]
+
+    def test_no_words_means_no_report(self):
+        assert api_channels.blocked_report(["Film Telugu"], []) is None
+
+    def test_a_listing_returns_its_rows_and_its_report(self):
+        channel = _channel()
+        listing = self._rows("Film Telugu", "Film 720p")
+        channel.module.feed = lambda idx: listing
+        items, report = channel.getFeed(0, {"block_words": "telugu"})
+        assert [row["title"] for row in items] == ["Film 720p"]
+        assert report["hidden"] == 1
+        assert report["words"] == [{"word": "telugu", "count": 1}]
+
+    def test_the_feed_api_carries_the_report(self, monkeypatch):
+        channel = _channel()
+        listing = self._rows("Film Telugu", "Film 720p")
+        channel.module.feed = lambda idx: listing
+        installed = _installed(channel)
+        installed.settings = {
+            "bfch_test": {"config": {"block_words": "telugu"}}
+        }
+        monkeypatch.setattr(api_channels, "_installed", installed)
+        answer = api_channels.feed(chid="bfch_test", idx=0)
+        assert [row["title"] for row in answer["items"]] == ["Film 720p"]
+        assert answer["blocked"]["hidden"] == 1
+
+    def test_the_search_api_carries_the_report(self, monkeypatch):
+        channel = _channel()
+        listing = self._rows("Film Telugu", "Film 720p")
+        channel.module.search = lambda q: listing
+        installed = _installed(channel)
+        installed.settings = {
+            "bfch_test": {"config": {"block_words": "telugu"}}
+        }
+        monkeypatch.setattr(api_channels, "_installed", installed)
+        answer = api_channels.search(chid="bfch_test", q="film")
+        assert [row["title"] for row in answer["items"]] == ["Film 720p"]
+        assert answer["blocked"]["words"] == [{"word": "telugu", "count": 1}]
+
+
 class TestConfigurable:
     def test_subtitles_alone_make_a_channel_configurable(self):
         assert _channel(feeds=[{"title": "Only"}])._is_configurable()

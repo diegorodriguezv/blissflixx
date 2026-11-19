@@ -694,8 +694,10 @@ class TestABusyArchiveReachesTheInterfaceAsAMessage:
         monkeypatch.setattr(reddit, "_query", lambda params, retries=None: [])
 
         # An empty PlayItemList, and no exception: the interface's own wording
-        # for "nothing here" still applies, and it is the right one.
-        assert len(api_channels.feed(chid="bfch_r_shortfilms", idx=0).to_list()) == 0
+        # for "nothing here" still applies, and it is the right one. The feed
+        # answer is the rows and the block-list report together.
+        answer = api_channels.feed(chid="bfch_r_shortfilms", idx=0)
+        assert len(answer["items"].to_list()) == 0
 
     def test_a_busy_archive_does_not_empty_a_search_of_every_channel(self):
         """

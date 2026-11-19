@@ -79,6 +79,38 @@ def is_blocked(title, words):
     return any(word in text for word in words)
 
 
+def blocked_report(titles, words):
+    """
+    What a block list hides from one listing, word by word.
+
+    A row can carry several words, so the per-word counts can add up to more
+    than the rows hidden: `hidden` counts each row once, `words` counts it
+    under every word it carries. Words keep the order they were typed in, and
+    duplicates are counted once.
+    """
+    if not words:
+        return None
+    unique = []
+    for word in words:
+        word = str(word).casefold()
+        if word not in unique:
+            unique.append(word)
+    counts = {word: 0 for word in unique}
+    hidden = 0
+    for title in titles:
+        matched = [word for word in unique if is_blocked(title, [word])]
+        if not matched:
+            continue
+        hidden += 1
+        for word in matched:
+            counts[word] += 1
+    return {
+        "rows": len(titles),
+        "hidden": hidden,
+        "words": [{"word": word, "count": counts[word]} for word in unique],
+    }
+
+
 class Channel:
     def __init__(self, cpath, plugin):
         chid = path.basename(cpath)
@@ -281,6 +313,16 @@ class Channel:
         return 0
 
     def getPlayItems(self, items, config=None):
+        return self._filtered(items, config)[0]
+
+    def _filtered(self, items, config=None):
+        """
+        The rows a channel shows, and the account of what the block list hid.
+
+        The account travels with the rows rather than being computed by a
+        second request: a feed that is cached on the page must bring the count
+        it was filtered with.
+        """
         items = items.to_dict()
         config = config if isinstance(config, dict) else {}
         lang = config.get("subtitles_lang") or ""
@@ -309,25 +351,37 @@ class Channel:
                     if action["type"] == "showmore":
                         action["chid"] = self.chid
 
+        report = None
         if blocked:
+            report = blocked_report(
+                [i.get("title") for i in items], blocked
+            )
             kept = [i for i in items if not is_blocked(i.get("title"), blocked)]
-            if len(kept) != len(items):
+            if report["hidden"]:
                 cherrypy.log(
-                    "%s: hid %d row(s) with blocked words"
-                    % (self.chid, len(items) - len(kept))
+                    "%s: blocked %d of %d rows (%s)"
+                    % (
+                        self.chid,
+                        report["hidden"],
+                        report["rows"],
+                        ", ".join(
+                            "%s %d" % (w["word"], w["count"])
+                            for w in report["words"]
+                        ),
+                    )
                 )
             items = kept
 
-        return items
+        return items, report
 
     def getFeed(self, idx, config=None):
-        return self.getPlayItems(self.module.feed(idx), config)
+        return self._filtered(self.module.feed(idx), config)
 
     def getFeedByName(self, idx, name, config=None):
-        return self.getPlayItems(self.module.feed_by_name(idx, name), config)
+        return self._filtered(self.module.feed_by_name(idx, name), config)
 
     def search(self, q, config=None):
-        return self.getPlayItems(self.module.search(q), config)
+        return self._filtered(self.module.search(q), config)
 
     def showmore(self, link, config=None):
         return self.getPlayItems(self.module.showmore(link), config)
@@ -662,14 +716,28 @@ def _reading_a_feed(call, *args):
         raise ApiError(str(exc), status=ApiError._SERVICE_UNAVAILABLE) from exc
 
 
+def _listing(call, *args):
+    """
+    One channel listing: the rows and what the block list hid from them.
+
+    A channel that knows no block list returns its rows alone; its report is
+    None rather than a made-up zero.
+    """
+    result = _reading_a_feed(call, *args)
+    if isinstance(result, tuple):
+        return result
+    return result, None
+
+
 def feed(chid=None, idx=None):
     if chid is None or idx is None:
         raise ApiError("Both Channel ID and feed index must be defined")
     installed = get_installed()
     channel = installed.getChannel(chid)
-    return _reading_a_feed(
+    items, blocked = _listing(
         channel.getFeed, idx, installed.getChannelConfig(chid)
     )
+    return {"items": items, "blocked": blocked}
 
 
 def feed_by_name(chid=None, idx=None, name=None):
@@ -677,9 +745,10 @@ def feed_by_name(chid=None, idx=None, name=None):
         raise ApiError("All of Channel ID, feed index and name must be defined")
     installed = get_installed()
     channel = installed.getChannel(chid)
-    return _reading_a_feed(
+    items, blocked = _listing(
         channel.getFeedByName, idx, name, installed.getChannelConfig(chid)
     )
+    return {"items": items, "blocked": blocked}
 
 
 def search(chid=None, q=None):
@@ -687,7 +756,10 @@ def search(chid=None, q=None):
         raise ApiError("Both Channel ID and search query must be defined")
     installed = get_installed()
     channel = installed.getChannel(chid)
-    return _reading_a_feed(channel.search, q, installed.getChannelConfig(chid))
+    items, blocked = _listing(
+        channel.search, q, installed.getChannelConfig(chid)
+    )
+    return {"items": items, "blocked": blocked}
 
 
 def showmore(chid=None, link=None):
@@ -731,7 +803,7 @@ def set_config(chid=None, values=None):
 def _search_thread(queue, chid, q):
     results = []
     try:
-        results = search(chid, q)
+        results = search(chid, q)["items"]
     except Exception:
         pass
     queue.put((info(chid)["title"], results))

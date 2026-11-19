@@ -17,6 +17,14 @@
     </div>
   </div>
   <feedlist feeds={ channel.feeds } active={ feed } page={ '#channel/' + channel.id}></feedlist>
+  <!-- What the channel's block list took out of this listing, beside the
+       results it belongs to. A row can carry several words, so the per-word
+       counts can add up to more than the rows hidden. -->
+  <div show={ blocked } class="blocked-report">
+    <span if={ blocked.hidden }>{ blocked.hidden } of { blocked.rows } rows blocked</span>
+    <span if={ !blocked.hidden }>No rows blocked of { blocked.rows }</span>
+    <span each={ w, i in blocked.words }> · { w.word } { w.count }</span>
+  </div>
   <itemlist items={ results } wait={ waitMsg } empty={ emptyMsg }></itemlist>
  
   <script>
@@ -62,6 +70,7 @@
 
     doUpdate() {
       self.results = null
+      self.blocked = null
       channelStore.getChannel(self.chid, function(err, channel) {
         if (err) return Utils.showError(err)
         // A page that throws while drawing leaves the spinner turning for
@@ -114,10 +123,12 @@
       self.f_query.value = self.query
       self.waitMsg = SEARCH_WAIT
       self.emptyMsg = SEARCH_EMPTY
+      self.blocked = null
       self.update()
-      channelStore.searchChannel(self.chid, self.query, function(err, items) {
+      channelStore.searchChannel(self.chid, self.query, function(err, items, blocked) {
         if (err) return Utils.showError(err)
         self.results = items;
+        self.blocked = blocked
         self.update()
       })
     }
@@ -125,10 +136,12 @@
     showFeed() {
       self.waitMsg = FEED_WAIT
       self.emptyMsg = FEED_EMPTY
+      self.blocked = null
       self.update()
-      channelStore.getFeed(self.chid, self.feed, function(err, items) {
+      channelStore.getFeed(self.chid, self.feed, function(err, items, blocked) {
         if (err) return Utils.showError(err)
         self.results = items;
+        self.blocked = blocked
         self.update()
       })
     }

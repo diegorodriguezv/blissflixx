@@ -66,6 +66,28 @@ function ChannelStore() {
     }
   }
 
+  //: A listing that carries what the block list hid. The report is cached
+  //: with the rows, so a cached category brings the count it was filtered
+  //: with rather than a count from a different listing.
+  self.getListing = function(key, module, fn, args, cb, ttl) {
+    var listing = ttl === 0 ? null : self.cache.getItem(key)
+    if (listing) {
+      return cb(null, listing.items, listing.blocked)
+    }
+    Utils.rpc(module, fn, args, function(err, data) {
+      if (err) return cb(err)
+      // A server that predates the report answers with the bare rows.
+      var answer = {
+        items: (data && data.items) || data || [],
+        blocked: (data && data.blocked) || null
+      }
+      if (ttl !== 0) {
+        self.cache.setItem(key, answer, {expirationSliding: ttl || 60})
+      }
+      cb(null, answer.items, answer.blocked)
+    })
+  }
+
   self.getParams = function(){
     // if the current URL contains a string like "?p1=v1&p2=v2&p3=v3"
     // return {"p1": v1, "p2": v2, "p3": v3}
@@ -90,10 +112,10 @@ function ChannelStore() {
     var ttl = chid === 'bfch_iptv_org' ? 0 : undefined
     const params = self.getParams()
     if (params && params['name']){
-      self.getResults(key, 'channels', 'feed_by_name', {chid:chid, idx:idx, name:params['name']}, cb, ttl)
+      self.getListing(key, 'channels', 'feed_by_name', {chid:chid, idx:idx, name:params['name']}, cb, ttl)
     }
     else {
-      self.getResults(key, 'channels', 'feed', {chid:chid, idx:idx}, cb, ttl)
+      self.getListing(key, 'channels', 'feed', {chid:chid, idx:idx}, cb, ttl)
     }
   }
 
@@ -111,7 +133,7 @@ function ChannelStore() {
   self.searchChannel = function(chid, q, cb) {
     var key = self.createKey(chid, q)
     var ttl = chid === 'bfch_iptv_org' ? 0 : undefined
-    self.getResults(key, 'channels', 'search', {chid:chid, q:q}, cb, ttl)
+    self.getListing(key, 'channels', 'search', {chid:chid, q:q}, cb, ttl)
   }
 
   self.searchAll = function(q, cb) {

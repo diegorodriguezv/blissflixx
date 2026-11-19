@@ -632,6 +632,16 @@ ul.navitems-left>li {
   margin-bottom: 5px;
 }
 
+/* What a channel's block list hid from the listing under it. Muted: it is an
+ * account of the rows, not another row. Long lists wrap rather than push the
+ * results sideways. */
+.blocked-report {
+  margin: 0 0 10px;
+  font-size: 16px;
+  line-height: 1.35;
+  color: #6d90b0;
+}
+
 /* A row that is listed because it is there, not because it can be played: a
  * torrent's subtitles. It is not a link and has no buttons; the grey says so
  * before the click does. */
