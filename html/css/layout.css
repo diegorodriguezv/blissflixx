@@ -718,6 +718,16 @@ a.item-action {
   color: #cfe0ee;
 }
 
+/* The title, the folder and the file a result can agree with, kept together
+ * just above the list. Slightly sunk into the page so it reads as a reference
+ * rather than another result. */
+.subs-target {
+  margin-top: 14px;
+  padding: 8px 12px;
+  border-radius: 4px;
+  background-color: #22384d;
+}
+
 .subs-result.exact,
 .subs-result.folder,
 .subs-result.title {

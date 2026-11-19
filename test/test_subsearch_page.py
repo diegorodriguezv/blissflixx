@@ -160,6 +160,17 @@ class TestTheTitleAndFolder:
         assert "{ searchTitle }" in page
         assert "{ folder }" in page
 
+    def test_they_are_in_the_order_that_narrows_the_match(self):
+        page = _page()
+        assert page.index(">Title: <") < page.index(">Folder: <")
+        assert page.index(">Folder: <") < page.index(">File: <")
+
+    def test_they_sit_just_above_the_results(self):
+        page = _page()
+        block = page.index("subs-target")
+        assert page.index("</form>") < block
+        assert block < page.index("Tick the ones you want")
+
     def test_the_answer_marks_title_and_folder_matches(self):
         page = _page()
         assert "!!r.matches_title" in page

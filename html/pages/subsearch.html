@@ -5,13 +5,6 @@
     </span>
   </div>
   <hr />
-  <div class="row" show={ name }>
-    <div class="col-xs-12 item-subtitle break-long-word">
-      <div>File: <span class="subs-file">{ name }</span></div>
-      <div show={ searchTitle }>Title: <span class="subs-file">{ searchTitle }</span></div>
-      <div show={ folder }>Folder: <span class="subs-file">{ folder }</span></div>
-    </div>
-  </div>
 
   <form onsubmit={ search }>
     <div class="row">
@@ -68,6 +61,18 @@
       </div>
     </div>
   </form>
+
+  <!-- The three names a result can agree with, in the order they narrow it:
+       the title says it is the show, the folder says it is the release, and
+       the file says it is this exact file. Above the list, so they are read
+       while comparing rather than scrolled away. -->
+  <div class="row break-long-word" show={ name && searched }>
+    <div class="col-xs-12 item-subtitle subs-target">
+      <div show={ searchTitle }>Title: <span class="subs-file">{ searchTitle }</span></div>
+      <div show={ folder }>Folder: <span class="subs-file">{ folder }</span></div>
+      <div>File: <span class="subs-file">{ name }</span></div>
+    </div>
+  </div>
 
   <div show={ results }>
     <hr />
