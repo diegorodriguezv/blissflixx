@@ -2,7 +2,7 @@ import os
 import re
 import urllib.parse
 
-from ..chanutils import byte_size
+from ..chanutils import byte_size, file_name_in_path
 
 # from chanutils.torrent import showmore
 from ..playitem import FileItem, PlayItem, PlayItemList
@@ -121,23 +121,6 @@ def _stem(name):
     return os.path.splitext(os.path.basename(name))[0].lower()
 
 
-def _file_for_parsing(path):
-    """
-    The file name, plus a season folder when it has one.
-
-    A torrent's paths start with the pack's own folder ("The Pacific (2010)
-    Mp4 1080p/..."), which is not part of the title. A season folder is,
-    because it is the only thing that says which season a file belongs to
-    when the file itself is just "Episode 09".
-    """
-    parts = path.replace("\\", "/").split("/")
-    if len(parts) >= 2 and re.match(
-        r"^(?:season|s)\s*0*\d{1,2}$", parts[-2], re.IGNORECASE
-    ):
-        return parts[-2] + "/" + parts[-1]
-    return parts[-1]
-
-
 def _pack_folder_info(file_name):
     """
     What the torrent's own folder says, when the row title does not.
@@ -178,7 +161,7 @@ def subtitle_context(pack_title, file_name):
     from ..chanutils.chanutils import movie_title_year, release_kind, without_year
 
     pack = release_kind(pack_title or "")
-    file_info = release_kind(_file_for_parsing(file_name or ""))
+    file_info = release_kind(file_name_in_path(file_name or ""))
     parsed = movie_title_year(pack_title or "")
     folder = _pack_folder_info(file_name or "")
     pack_kind = pack.get("kind")

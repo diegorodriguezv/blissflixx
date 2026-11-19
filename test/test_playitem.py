@@ -217,6 +217,22 @@ class TestImdbSearch:
             ("Some.Show.S01E02.1080p.WEB.H264-GROUP", "Some Show"),
             # With the year, because it tells an original from a remake.
             ("The.Bear.2022.S01E02.1080p.WEB.H264-GROUP", "The Bear (2022)"),
+            # A part names no season or episode marker of its own.
+            (
+                "Scorched.Earth.Infantry.Firepower.1of3.x264.AC3.MVGroup.org.mkv",
+                "Scorched Earth Infantry Firepower",
+            ),
+            # A file inside a pack: the path's folder has the year.
+            (
+                "The Pacific (2010) Mp4 1080p/The Pacific Episode 10.mp4",
+                "The Pacific (2010)",
+            ),
+            (
+                "The Pacific (2010) Mp4 1080p/Season 1/Episode 10.mp4",
+                "The Pacific (2010)",
+            ),
+            # A year that is the whole title is not repeated.
+            ("1917", "1917"),
         ],
     )
     def test_the_query_is_the_title_and_not_the_file_name(self, release, query):

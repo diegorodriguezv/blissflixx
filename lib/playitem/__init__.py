@@ -1,13 +1,8 @@
-import re
 import urllib.parse
 
-from ..chanutils.chanutils import movie_title_year, series_season_episode
+from ..chanutils.chanutils import title_query
 from ..chanutils.torrent import is_main, is_torrent
 from ..settings import load
-
-#: A title with the year at the end and nothing after it.
-_TRAILING_YEAR = re.compile(r"(.*\S)\s+([12][90]\d\d)$")
-
 
 class Action:
     # Subclasses implement to_dict(). This base class previously declared a
@@ -75,19 +70,6 @@ class TorrentFilesAction(Action):
         }
 
 
-def _with_year(name):
-    """A name and its year, in the form a search box understands."""
-    parsed = movie_title_year(name)
-    if "year" in parsed:
-        return "%s (%d)" % (parsed["title"], parsed["year"])
-    # A series name straight off a release has the year at the end, with no
-    # quality tag after it for movie_title_year's pattern to hold on to.
-    m = _TRAILING_YEAR.match(parsed["title"].strip())
-    if m:
-        return "%s (%s)" % (m.group(1), m.group(2))
-    return parsed["title"]
-
-
 def imdb_query(title):
     """
     What to look up on IMDb, from a release name.
@@ -102,10 +84,10 @@ def imdb_query(title):
     its own on IMDb -- and that series may carry a year, which is worth keeping
     because it tells an original from a remake.
     """
-    series = series_season_episode(title)
-    if "episode" in series:
-        return _with_year(series["series"])
-    return _with_year(title)
+    wanted = title_query(title)
+    if wanted.get("year"):
+        return "%s (%d)" % (wanted["title"], wanted["year"])
+    return wanted["title"]
 
 
 class AddSubtitlesAction(Action):

@@ -17,6 +17,7 @@ from lib.chanutils import (
 )
 from lib.chanutils.chanutils import (
     release_kind,
+    title_query,
     convert_date,
     convert_duration,
     get_attr,
@@ -289,3 +290,35 @@ class TestReleaseKindEpisodes:
         found = release_kind("Spider-Man.Brand.New.Day.2026.1080p")
         assert found["kind"] == "movie"
         assert found["year"] == 2026
+
+
+class TestTitleQuery:
+    """The title a release name is about, for a title search."""
+
+    def test_a_film_keeps_its_year(self):
+        assert title_query(
+            "Spider-Man.Brand.New.Day.2026.1080p.WEBRip.x265-NeoNoir"
+        ) == {"title": "Spider-Man Brand New Day", "year": 2026}
+
+    def test_an_episode_is_its_series(self):
+        assert title_query("Some.Show.S01E02.1080p.WEB.H264-GROUP") == {
+            "title": "Some Show"
+        }
+
+    def test_a_part_is_its_series(self):
+        assert title_query("Scorched.Earth.Infantry.Firepower.1of3.x264.mkv") == {
+            "title": "Scorched Earth Infantry Firepower"
+        }
+
+    def test_a_path_takes_the_year_from_its_folder(self):
+        assert title_query(
+            "The Pacific (2010) Mp4 1080p/The Pacific Episode 10.mp4"
+        ) == {"title": "The Pacific", "year": 2010}
+
+    def test_a_bare_episode_takes_its_series_from_the_pack_folder(self):
+        assert title_query(
+            "The Pacific (2010) Mp4 1080p/Season 1/Episode 10.mp4"
+        ) == {"title": "The Pacific", "year": 2010}
+
+    def test_a_year_that_is_the_title_is_not_repeated(self):
+        assert title_query("1917") == {"title": "1917"}

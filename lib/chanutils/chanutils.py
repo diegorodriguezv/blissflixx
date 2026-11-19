@@ -460,6 +460,78 @@ def release_kind(name):
     return {"kind": "unknown", "title": my.get("title", _clean_title(norm))}
 
 
+def file_name_in_path(path):
+    """
+    The file name in a torrent path, plus a season folder when it has one.
+
+    A torrent's paths start with the pack's own folder ("The Pacific (2010)
+    Mp4 1080p/..."), which is not part of the title. A season folder is,
+    because it is the only thing that says which season a file belongs to
+    when the file itself is just "Episode 09".
+    """
+    parts = (path or "").replace("\\", "/").split("/")
+    if len(parts) >= 2 and re.match(
+        r"^(?:season|s)\s*0*\d{1,2}$", parts[-2], re.IGNORECASE
+    ):
+        return parts[-2] + "/" + parts[-1]
+    return parts[-1]
+
+
+def title_query(name):
+    """
+    The title and year a release name is about, for a title-based search.
+
+    A release name is not a title: quality, source, codec and release group are
+    in it. An episode or a pack is searched by its series -- an episode has no
+    page of its own -- and a film by its title. The year is kept when the name
+    has one, because it tells an original from a remake.
+
+        Spider-Man.Brand.New.Day.2026.1080p... -> Spider-Man Brand New Day, 2026
+        The.Bear.2022.S01E02...                -> The Bear, 2022
+        Scorched...1of3.x264...mkv             -> Scorched Earth Infantry Firepower
+
+    A path also carries the torrent's folder. It supplies the year when the
+    row's title is generic ("The Pacific - Complete Mini Series - ..."), and
+    the series when the file is called only "Episode 09".
+    """
+    parts = (name or "").replace("\\", "/").split("/")
+    file_part = file_name_in_path(name)
+    info = release_kind(file_part)
+    kind = info.get("kind")
+    if kind in ("episode", "tv_pack"):
+        title = info.get("series") or ""
+    else:
+        title = info.get("title") or info.get("series") or ""
+    title = without_year(title).strip()
+
+    folder = parts[0] if len(parts) > 1 else ""
+    folder_title = ""
+    folder_year = None
+    if folder:
+        f_info = release_kind(folder)
+        f_title = without_year(f_info.get("series") or f_info.get("title") or "")
+        # "Season 2" is a folder a file lives in, not the name of a show.
+        if not re.match(r"^seasons?\s*\d+$", f_title.strip(), re.IGNORECASE):
+            folder_title = f_title.strip()
+        folder_year = movie_title_year(folder).get("year")
+
+    if not title and folder_title:
+        title = folder_title
+    parsed = movie_title_year(file_part)
+    if not title:
+        title = (parsed.get("title") or "").strip()
+    year = parsed.get("year") or folder_year
+    if not title:
+        # A film whose title is a year ("1917"): the year is the title, and
+        # appending it would search for " (1917)".
+        title = (_clean_title(file_part) or file_part).strip()
+        year = None
+    answer = {"title": title}
+    if year is not None:
+        answer["year"] = year
+    return answer
+
+
 class UrlInfo:
     #: How much of a reply is read. This is asked for a page title, and the same
     #: box takes a stream -- an .m3u8, an .mp4 -- where there is no title at the
