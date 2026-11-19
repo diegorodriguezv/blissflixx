@@ -64,6 +64,11 @@ class TestADirectoryWithNoModuleIsNotAChannel:
         (gone / "icon.png").write_bytes(b"x")
 
         monkeypatch.setattr(api_channels, "CHAN_PATH", str(tmp_path))
+        # Plugins are a second channel directory. On an installed box it has
+        # real channels in it; this test is about the empty one above.
+        monkeypatch.setattr(
+            api_channels, "PLUGIN_PATH", str(tmp_path / "plugins")
+        )
         monkeypatch.setattr(api_channels, "load", lambda name: {})
 
         reported = []

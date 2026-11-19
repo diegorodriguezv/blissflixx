@@ -121,7 +121,10 @@ class TestYoutubeDl:
         """
         cmd = YoutubeDlProcess(SHORT_URL)._get_cmd({})
         runtimes = [cmd[i + 1] for i, a in enumerate(cmd) if a == "--js-runtimes"]
-        assert runtimes == ["node", "quickjs"], cmd
+        # An installed box passes the bundled node as node:/path, so the
+        # runtime's name is what to compare, not the exact argument.
+        names = [runtime.split(":")[0] for runtime in runtimes]
+        assert names == ["node", "quickjs"], cmd
 
     def test_a_cookies_file_is_used_when_there_is_one(self, tmp_path, monkeypatch):
         """
