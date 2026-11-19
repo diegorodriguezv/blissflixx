@@ -5,6 +5,13 @@
     </span>
   </div>
   <hr />
+  <div class="row" show={ name }>
+    <div class="col-xs-12 item-subtitle break-long-word">
+      <div>File: <span class="subs-file">{ name }</span></div>
+      <div show={ searchTitle }>Title: <span class="subs-file">{ searchTitle }</span></div>
+      <div show={ folder }>Folder: <span class="subs-file">{ folder }</span></div>
+    </div>
+  </div>
 
   <form onsubmit={ search }>
     <div class="row">
@@ -71,10 +78,13 @@
     </div>
     <div class="row" each={ sub, i in results }>
       <div class="col-xs-12">
-        <label class="subs-result">
+        <label class="subs-result { sub.exact ? 'exact' : (sub.folder ? 'folder' : (sub.title ? 'title' : '')) }">
           <input type="checkbox" checked={ sub.checked } onclick={ parent.toggle } data-idx={ i }>
           <span class="item-title">{ sub.name }</span>
           <span class="item-subtitle"> { sub.lang } · { sub.downloads } downloads</span>
+          <span show={ sub.exact } class="subs-exact-tag">same name</span>
+          <span show={ sub.folder && !sub.exact } class="subs-exact-tag folder">in folder</span>
+          <span show={ sub.title && !sub.folder && !sub.exact } class="subs-exact-tag title">title</span>
         </label>
       </div>
     </div>
@@ -188,6 +198,12 @@
           }
         }
         self.imdb = self.context.imdb || null
+        // What the search is for: the file, the title the server reads out of
+        // it, and the torrent's own folder. A result that names these is
+        // marked, because it is the release it was made for.
+        var parts = (self.name || '').split('/')
+        self.folder = parts.length > 1 ? parts[0] : ''
+        self.searchTitle = self.context.series || self.context.title || ''
         // The release name is what the server reads; the context only fills
         // what it cannot say (a file called "Episode 09" has no series, and a
         // torrent's folder may hold the year). Filling these fields from the
@@ -249,9 +265,14 @@
         // that it understood.
         self.pack = !!data.pack
         self.results = (data.results || []).map(function(r) {
-          return {id: r.id, name: r.name, lang: r.lang, downloads: r.downloads, checked: false}
+          return {
+            id: r.id, name: r.name, lang: r.lang, downloads: r.downloads,
+            exact: !!r.exact, folder: !!r.matches_folder, title: !!r.matches_title,
+            checked: false
+          }
         })
         self.searched = true
+        if (data.title) self.searchTitle = data.title
         if (data.title && !self.f_title.value.trim()) self.f_title.value = data.title
         // What the server read out of the release name, so a second search is
         // the same search rather than a wider one.

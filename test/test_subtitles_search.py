@@ -176,3 +176,160 @@ class TestPackYears:
         found = _search_name("The.Pacific.2010.EP09.1080p.BluRay")
         assert found["kind"] == "episode"
         assert found["title"] == "The Pacific"
+
+
+class TestTheFileName:
+    """
+    A release's own subtitle often has exactly the release's name. That is a
+    stronger signal than a rating, and the page highlights it.
+    """
+
+    @staticmethod
+    def _mark(monkeypatch, subtitles, **kwargs):
+        import json
+
+        from lib.api import subtitles as api
+
+        def fake_check_output(cmd, **opts):
+            # The shape getsubs --list prints, which search only reads.
+            return json.dumps(
+                [
+                    {
+                        "id": str(i),
+                        "name": sub_name,
+                        "lang": "eng",
+                        "rating": "0.0",
+                        "downloads": "1",
+                    }
+                    for i, sub_name in enumerate(subtitles)
+                ]
+            ).encode()
+
+        monkeypatch.setattr(api.subprocess, "check_output", fake_check_output)
+        return api.search(**kwargs)["results"]
+
+    def test_a_subtitle_named_after_the_file_is_marked(self, monkeypatch):
+        found = self._mark(
+            monkeypatch,
+            [
+                "The.Pacific.S01E09.720p.HDTV.X264-DIMENSION.srt",
+                "The.Pacific.S01E09.WEB-DL.NF_HI.en.srt",
+            ],
+            name="The.Pacific.S01E09.720p.HDTV.X264-DIMENSION.mkv",
+            title="The Pacific",
+            season=1,
+            episode=9,
+            lang="eng",
+        )
+        assert found[0]["exact"] is True
+        assert found[1]["exact"] is False
+
+    def test_the_folder_does_not_get_in_the_way(self, monkeypatch):
+        found = self._mark(
+            monkeypatch,
+            ["The Pacific Episode 10.srt"],
+            name="The Pacific (2010) Mp4 1080p/The Pacific Episode 10.mp4",
+            title="The Pacific",
+            season=1,
+            episode=10,
+            lang="eng",
+        )
+        assert found[0]["exact"] is True
+
+    def test_case_is_not_worth_losing_a_match_over(self, monkeypatch):
+        found = self._mark(
+            monkeypatch,
+            ["the.pacific.s01e09.srt"],
+            name="The.Pacific.S01E09.mkv",
+            title="The Pacific",
+            season=1,
+            episode=9,
+            lang="eng",
+        )
+        assert found[0]["exact"] is True
+
+    def test_a_language_suffix_is_a_different_name(self, monkeypatch):
+        found = self._mark(
+            monkeypatch,
+            ["The.Pacific.S01E09.eng.srt"],
+            name="The.Pacific.S01E09.mkv",
+            title="The Pacific",
+            season=1,
+            episode=9,
+            lang="eng",
+        )
+        assert found[0]["exact"] is False
+
+
+class TestTheTitleAndTheFolder:
+    """
+    Beyond the exact file name: a result that names the title, or the title
+    and year of the torrent's folder, is probably for the same thing.
+    """
+
+    def _mark(self, monkeypatch, subtitles, **kwargs):
+        return TestTheFileName._mark(monkeypatch, subtitles, **kwargs)
+
+    def test_a_result_that_names_the_title_is_marked(self, monkeypatch):
+        found = self._mark(
+            monkeypatch,
+            ["The Pacific - E10 - Home.srt"],
+            name="The Pacific (2010) Mp4 1080p/The Pacific Episode 10.mp4",
+            title="The Pacific",
+            season=1,
+            episode=10,
+            lang="eng",
+        )
+        assert found[0]["matches_title"] is True
+        assert found[0]["matches_folder"] is False
+
+    def test_a_result_that_names_the_title_and_the_folder_year_is_marked(self, monkeypatch):
+        found = self._mark(
+            monkeypatch,
+            ["The.Pacific.2010.EP10.1080p.BluRay.x264.anoXmous_eng.srt"],
+            name="The Pacific (2010) Mp4 1080p/The Pacific Episode 10.mp4",
+            title="The Pacific",
+            season=1,
+            episode=10,
+            lang="eng",
+        )
+        assert found[0]["matches_title"] is True
+        assert found[0]["matches_folder"] is True
+
+    def test_another_show_is_not_marked_at_all(self, monkeypatch):
+        found = self._mark(
+            monkeypatch,
+            ["Band.Of.Brothers.Part.Ten.2001.srt"],
+            name="The Pacific (2010) Mp4 1080p/The Pacific Episode 10.mp4",
+            title="The Pacific",
+            season=1,
+            episode=10,
+            lang="eng",
+        )
+        assert found[0]["matches_title"] is False
+        assert found[0]["matches_folder"] is False
+
+    def test_a_word_is_not_part_of_a_longer_word(self, monkeypatch):
+        found = self._mark(
+            monkeypatch,
+            ["The.Pacific.S01E10.srt"],
+            name="The Pacific (2010) Mp4 1080p/The Pacific Episode 10.mp4",
+            title="The Pac",
+            season=1,
+            episode=10,
+            lang="eng",
+        )
+        assert found[0]["matches_title"] is False
+
+    def test_a_folder_without_a_year_is_only_a_title_match(self, monkeypatch):
+        found = self._mark(
+            monkeypatch,
+            ["The.Pacific.S01E10.1080p.srt"],
+            name="The Pacific Complete/The Pacific Episode 10.mp4",
+            title="The Pacific",
+            season=1,
+            episode=10,
+            lang="eng",
+        )
+        assert found[0]["matches_title"] is True
+        assert found[0]["matches_folder"] is False

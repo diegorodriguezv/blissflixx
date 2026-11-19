@@ -1,4 +1,6 @@
 import json
+import os
+import re
 import subprocess
 
 import cherrypy
@@ -15,6 +17,42 @@ from ..settings import load, save
 from .common import ApiError
 
 
+
+
+def _file_stem(name):
+    """A file name without its folder or extension, ready to compare."""
+    base = (name or "").replace("\\", "/").rsplit("/", 1)[-1]
+    return os.path.splitext(base)[0].strip().lower()
+
+
+def _folder_of(name):
+    """The torrent's own folder in a path, if the path has one."""
+    parts = (name or "").replace("\\", "/").split("/")
+    return parts[0].strip() if len(parts) > 1 else ""
+
+
+def _words(name):
+    return re.sub(r"[^a-z0-9]+", " ", (name or "").lower()).strip()
+
+
+def _mentions(name, needle):
+    """Whether a name mentions a phrase, as whole words."""
+    wanted = _words(needle)
+    return bool(wanted) and (" " + wanted + " ") in (" " + _words(name) + " ")
+
+
+def _folder_match(folder):
+    """
+    The title and year a torrent's folder names, for matching results.
+
+    The folder is the release name inside the torrent ("The Pacific (2010)
+    Mp4 1080p/..."), and a subtitle made for that release usually names the
+    show and the year even when its exact file name differs.
+    """
+    if not folder:
+        return "", None
+    parsed = movie_title_year(folder)
+    return parsed.get("title") or "", parsed.get("year")
 
 
 def _as_int(value):
@@ -255,6 +293,22 @@ def search(
     if isinstance(found, dict) and "error" in found:
         msg = str(found.get("error") or "Search failed").strip()
         raise ApiError("OpenSubtitles: " + msg)
+    # The strongest sign that a subtitle was made for this film is its name
+    # being the film's name: "Show.S01E09.720p-GRP.srt" for
+    # "Show.S01E09.720p-GRP.mkv". The extension differs by definition and case
+    # is not worth losing a match over. A subtitle that names the title, or
+    # the title and year of the torrent's folder, is a weaker but useful sign.
+    wanted_stem = _file_stem(name)
+    folder_title, folder_year = _folder_match(_folder_of(name))
+    for item in found:
+        sub_name = item.get("name")
+        item["exact"] = bool(wanted_stem) and _file_stem(sub_name) == wanted_stem
+        item["matches_title"] = _mentions(sub_name, title)
+        item["matches_folder"] = bool(
+            folder_year
+            and _mentions(sub_name, folder_title)
+            and _mentions(sub_name, str(folder_year))
+        )
     return {
         "title": title,
         "year": year,

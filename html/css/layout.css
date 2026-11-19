@@ -710,6 +710,60 @@ a.item-action {
   margin-right: 8px;
 }
 
+/* The file the search is for, and the result that carries the same name.
+ * On a television the name is how a release is told from another edition of
+ * the same episode, so the exact one is worth finding without reading the
+ * whole list. */
+.subs-file {
+  color: #cfe0ee;
+}
+
+.subs-result.exact,
+.subs-result.folder,
+.subs-result.title {
+  border-left: 6px solid;
+  border-radius: 4px;
+  padding-left: 10px;
+}
+
+/* The same release name, which is as certain as a match gets. */
+.subs-result.exact {
+  background-color: #3d6b4f;
+  border-color: #7fd18f;
+}
+
+/* Names the show and the year of the torrent's folder, but not its exact
+ * file name: made for another release of the same episode. */
+.subs-result.folder {
+  background-color: #35566d;
+  border-color: #6fa8cc;
+}
+
+/* Names the title only: probably the show, not necessarily this release. */
+.subs-result.title {
+  background-color: #4a5a68;
+  border-color: #9fb4c4;
+}
+
+.subs-exact-tag {
+  margin-left: 10px;
+  padding: 1px 8px;
+  border-radius: 10px;
+  font-size: 15px;
+  background-color: #cdebd4;
+  color: #1e3d2a;
+}
+
+.subs-exact-tag.folder {
+  background-color: #cfe3f2;
+  color: #1e3746;
+}
+
+.subs-exact-tag.title {
+  background-color: #dfe8ee;
+  color: #2A435A;
+}
+
 .search-note {
   margin-left: 12px;
   font-size: 16px;

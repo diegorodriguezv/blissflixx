@@ -75,8 +75,10 @@ class TestTheSearchTarget:
         body = _method(_page(), "search")
         assert "context: self.context" in body
         page = _page()
-        assert "self.context.series ||" not in page
+        # The context may be shown ("Title: ..."), but it must not become the
+        # search fields: those start empty so the server reads the name.
         assert "self.f_title.value = self.context" not in page
+        assert "self.f_year.value = self.context" not in page
         assert "self.f_season.value = self.context" not in page
         assert "self.f_episode.value = self.context" not in page
 
@@ -133,3 +135,40 @@ class TestWaitingForResults:
     def test_the_spinner_comes_before_the_words(self):
         page = _page()
         assert page.index("fa-spinner") < page.index("Searching OpenSubtitles...")
+
+
+class TestTheFileNameIsVisible:
+    def test_the_page_says_which_file_the_search_is_for(self):
+        page = _page()
+        assert 'class="subs-file"' in page
+        assert "File:" in page
+
+    def test_an_exactly_named_result_is_highlighted(self):
+        page = _page()
+        assert "sub.exact ? 'exact'" in page
+        assert "subs-exact-tag" in page
+
+    def test_the_answer_carries_the_mark(self):
+        assert "exact: !!r.exact" in _page()
+
+
+class TestTheTitleAndFolder:
+    def test_the_page_shows_the_file_the_title_and_the_folder(self):
+        page = _page()
+        for label in ("File:", "Title:", "Folder:"):
+            assert label in page
+        assert "{ searchTitle }" in page
+        assert "{ folder }" in page
+
+    def test_the_answer_marks_title_and_folder_matches(self):
+        page = _page()
+        assert "!!r.matches_title" in page
+        assert "!!r.matches_folder" in page
+        assert "sub.folder ? 'folder'" in page
+        assert "sub.title ? 'title'" in page
+
+    def test_each_kind_of_match_says_so(self):
+        page = _page()
+        assert "same name" in page
+        assert "in folder" in page
+        assert 'class="subs-exact-tag title"' in page
