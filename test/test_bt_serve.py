@@ -480,6 +480,16 @@ class TestSourceUrl:
         assert "Mozilla" in req.headers["User-agent"]
         assert "bittorrent" in req.headers["Accept"]
 
+    def test_a_non_ascii_filename_is_percent_encoded(self):
+        # DivxTotal names some episodes with a multiplication sign. http.client
+        # encodes the request line as ASCII, so this has to be a valid URI
+        # before it is sent.
+        req = bt.torrent_request(
+            "https://divxtotal.foo/Ted-Lasso-4×03.mp4.torrent?bf_torr_idx=-1"
+        )
+
+        assert req.full_url == "https://divxtotal.foo/Ted-Lasso-4%C3%9703.mp4.torrent"
+
 
 class TestReadSpans:
     """

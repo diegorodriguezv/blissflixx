@@ -377,9 +377,33 @@ _TORRENT_HEADERS = {
 }
 
 
+def _ascii_url(url):
+    """
+    The URL as an ASCII URI.
+
+    A .torrent can be named with a typographic character -- DivxTotal's
+    "Ted-Lasso-4×03.mp4.torrent" uses a multiplication sign -- and
+    http.client encodes the request line as ASCII. Without this the fetch dies
+    with UnicodeEncodeError before any request is sent. Percent escapes already
+    in the URL are kept, so this is safe to apply to an encoded URL too.
+    """
+    parts = urllib.parse.urlsplit(url)
+    netloc = parts.netloc
+    if any(ord(char) > 127 for char in netloc):
+        netloc = netloc.encode("idna").decode("ascii")
+    path = urllib.parse.quote(parts.path, safe="/%:@!$&'()*+,;=-._~")
+    query = urllib.parse.quote(parts.query, safe="=&%:@!$'()*+,;/?-._~")
+    fragment = urllib.parse.quote(parts.fragment, safe="")
+    return urllib.parse.urlunsplit(
+        (parts.scheme, netloc, path, query, fragment)
+    )
+
+
 def torrent_request(source):
     """The request used to fetch a .torrent, marker stripped and UA set."""
-    return urllib.request.Request(source_url(source), headers=_TORRENT_HEADERS)
+    return urllib.request.Request(
+        _ascii_url(source_url(source)), headers=_TORRENT_HEADERS
+    )
 
 
 def top_entry(path):

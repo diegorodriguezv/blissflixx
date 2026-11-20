@@ -440,6 +440,19 @@ def test_divx_search_uses_the_site_query(monkeypatch):
     assert seen[0] == "https://divxtotal.foo/?s=audio%20latino"
 
 
+def test_divx_non_ascii_torrent_url_is_percent_encoded():
+    data = base64.b64encode(
+        "https://divxtotal.foo/Ted-Lasso-4×03.mp4.torrent".encode("utf-8")
+    ).decode("ascii")
+    link = lxml.html.fromstring(
+        '<a class="linktorrent" data-src="%s"></a>' % data
+    )
+
+    url = bfch_divxtotal._torrent_url(link)
+
+    assert url == "https://divxtotal.foo/Ted-Lasso-4%C3%9703.mp4.torrent"
+
+
 _ELITE_TORRENT = (
     "https://www.elitetorrent.com/wp-content/uploads/2026/11/carrera.torrent"
 )

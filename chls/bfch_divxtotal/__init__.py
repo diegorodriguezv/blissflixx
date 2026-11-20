@@ -239,7 +239,9 @@ def _torrent_url(link):
         return None
     if not url.startswith("http") or ".torrent" not in url:
         return None
-    return url
+    # Some episode files use "×" in the name. Quote it here so the item's URL
+    # is a valid ASCII URI before it reaches the player or the fetcher.
+    return urllib.parse.quote(url, safe=":/?&=%#[]@!$'()*+,;~-._")
 
 
 def _info(doc):
