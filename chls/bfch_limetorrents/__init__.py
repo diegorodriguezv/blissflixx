@@ -21,32 +21,33 @@ _SEARCH_URL = _BASE + "/search/all/%s/seeds/1/"
 #: row -- only search results do, as "1 Year+ - in Movies" -- so the feed has
 #: to remember what it asked for.
 #:
-#: Every feed asks Lime for its own seed order. Sorting the page here as well
-#: only orders the latest forty; the seeds URL is what makes it the top of the
-#: category rather than the top of the day.
+#: Deliberately the latest pages, not Lime's /seeds/1/ pages. That page is not
+#: a health ranking: its top Movies are 2012 releases with six-figure seed
+#: counts, and a probe of the first three found no peers and no metadata at
+#: all. The latest pages are live swarms (Verity 2026: 15 peers; Kill Bill: 18;
+#: Eagles: 35), so they are fetched and then ordered by seeds here. That keeps
+#: "most seeded first" without letting a dead catalogue row with an invented
+#: count lead the feed.
 _FEEDLIST = [
     {
-        "title": "Top Movies",
+        "title": "Latest Movies",
         "category": "Movies",
-        "url": _BASE + "/browse-torrents/Movies/seeds/1/",
+        "url": _BASE + "/browse-torrents/Movies/",
     },
     {
-        "title": "Top TV Shows",
+        "title": "Latest TV Shows",
         "category": "TV-shows",
-        "url": _BASE + "/browse-torrents/TV-shows/seeds/1/",
+        "url": _BASE + "/browse-torrents/TV-shows/",
     },
     {
-        # Music's all-time seed page is not music: its top rows are a Windows
-        # activator and 2013 CAM films filed under Music. The latest page is
-        # actual music, so it is sorted here rather than taken from there.
         "title": "Music",
         "category": "Music",
         "url": _BASE + "/browse-torrents/Music/",
     },
     {
-        "title": "Top Anime",
+        "title": "Latest Anime",
         "category": "Anime",
-        "url": _BASE + "/browse-torrents/Anime/seeds/1/",
+        "url": _BASE + "/browse-torrents/Anime/",
     },
 ]
 

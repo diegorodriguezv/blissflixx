@@ -69,19 +69,21 @@ def _doc():
 
 def test_feedlist_names_the_listings():
     titles = [entry["title"] for entry in bfch_limetorrents.feedlist()]
-    assert titles == ["Top Movies", "Top TV Shows", "Music", "Top Anime"]
+    assert titles == [
+        "Latest Movies",
+        "Latest TV Shows",
+        "Music",
+        "Latest Anime",
+    ]
 
 
-def test_the_video_feeds_ask_lime_for_its_seed_order():
-    # Sorting the latest page would only order those forty. The seeds URL is
-    # what makes a video feed the top of the category. Music is the exception:
-    # its all-time page is miscategorized, so it comes from the latest page
-    # and is sorted by seeds here.
+def test_feeds_come_from_the_live_latest_page():
+    # Lime's /seeds/1/ page is not a health ranking: its top Movies are 2012
+    # releases with huge invented counts and no peers at all. The latest page
+    # has live swarms, and _extract sorts those rows by seeds.
     for entry in bfch_limetorrents.feedlist():
-        if entry["category"] == "Music":
-            assert entry["url"].endswith("/browse-torrents/Music/"), entry
-        else:
-            assert entry["url"].endswith("/seeds/1/"), entry
+        assert "/seeds/" not in entry["url"], entry
+        assert entry["url"].endswith("/"), entry
 
 
 def test_feed_keeps_only_rows_with_a_torrent_link(monkeypatch):
@@ -444,9 +446,7 @@ def test_divx_non_ascii_torrent_url_is_percent_encoded():
     data = base64.b64encode(
         "https://divxtotal.foo/Ted-Lasso-4×03.mp4.torrent".encode("utf-8")
     ).decode("ascii")
-    link = lxml.html.fromstring(
-        '<a class="linktorrent" data-src="%s"></a>' % data
-    )
+    link = lxml.html.fromstring('<a class="linktorrent" data-src="%s"></a>' % data)
 
     url = bfch_divxtotal._torrent_url(link)
 
