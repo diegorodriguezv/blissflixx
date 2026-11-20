@@ -64,10 +64,10 @@ _STALL_PICTURE_AFTER = 15
 #: before the bar says so. Earlier than the picture warning on purpose: this is
 #: the one that arrives while there is still something to watch.
 _STALL_SOURCE_AFTER = 30
-#: Torrent: if playback has not started (no picture) for this long while the
-#: torrent session is running, restart the session. Covers cases where data is
-#: being downloaded but VLC never begins decoding/playing.
-_TORRENT_NOPICTURE_RETRY_AFTER = 90
+#: Minimum gap between automatic torrent retries. The stall clock continues
+#: across a retry, so without this an inherited old clock would ask for another
+#: restart on the next poll. Same 90s as the no-activity reconnection timeout.
+_TORRENT_RETRY_MIN_INTERVAL = 90
 #: How long after a pause/resume command the interface's own idea of the state
 #: is trusted before the player's is. See _Player._sync_paused.
 _PAUSE_SETTLE = 2.0
@@ -152,6 +152,8 @@ class _Player:
         #: (e.g. stuck with no peers / no progress). Shown in info panel.
         self.reconnections = 0
         self._torrent_retry_sent = False
+        #: When the last automatic torrent retry started, for the minimum gap.
+        self._torrent_retried_at = None
         #: The play that has been asked for and not started yet: (pipe, when,
         #: came from a playlist). The loop may still be stopping the old pipe,
         #: which can take seconds; the bar shows this instead of going blank.
@@ -202,6 +204,7 @@ class _Player:
             # reconnect request from the old one cannot touch this one.
             self._play_seq += 1
             self.reconnections = 0
+            self._torrent_retried_at = None
             self._stop_check()
             self._tried = set()
             self._check = None
@@ -792,16 +795,18 @@ class _Player:
     def playTorrent(self, url, idx, title, subs, playlist=None, index=None):
         self.playPipe(self.buildTorrent(url, idx, title, subs), playlist, index)
 
-    def buildTorrent(self, url, idx, title, subs):
+    def buildTorrent(self, url, idx, title, subs, stall_since=None):
         # subs names the files inside this torrent when it carries any: the
         # torrent stage fetches them from the swarm while the film starts, and
         # the player adds them mid-play. Both shapes are accepted -- a list from
         # a row ("the subtitles it has") and a single index from an older play.
+        # stall_since carries the previous attempt's activity clock across an
+        # automatic retry; a fresh play leaves it None.
         wanted = (subs or {}).get("torrent") or {}
         files = wanted.get("files")
         if files is None and wanted.get("idx") is not None:
             files = [{"idx": wanted["idx"], "name": wanted.get("name")}]
-        source = LibtorrentProcess(url, idx, files or [])
+        source = LibtorrentProcess(url, idx, files or [], stall_since=stall_since)
         pipe = self.build(title, source, subs, True)
         # Remember how to restart this torrent (auto-retry on stall).
         pipe.torrent = {"url": url, "idx": idx, "title": title, "subs": subs}
@@ -1120,6 +1125,17 @@ class _Player:
             self._pos_last = position
             self._pos_changed_at = now
 
+    def _torrent_stall_started(self, pipe):
+        """The oldest activity clock among the stages, for a retry to inherit."""
+        started = None
+        for proc in getattr(pipe, "procs", []):
+            value = getattr(proc, "_moved_at", None) or getattr(
+                proc, "_started_at", None
+            )
+            if value is not None and (started is None or value < started):
+                started = value
+        return started
+
     def _torrent_retryable_stall(self, pipe):
         """Seconds a torrent source has been stuck (and worth retrying), else 0."""
         if pipe is None or not getattr(pipe, "torrent", None):
@@ -1128,8 +1144,14 @@ class _Player:
         # lose the user's position.
         if self._picture_after() is not None:
             return 0
+        # The clock continues across a retry, so enforce a gap before the next
+        # one. Otherwise an inherited old clock retries again on the next poll.
+        if (
+            self._torrent_retried_at is not None
+            and time.time() - self._torrent_retried_at < _TORRENT_RETRY_MIN_INTERVAL
+        ):
+            return 0
         worst = 0
-        active = False
         for proc in getattr(pipe, "procs", []):
             ask = getattr(proc, "retryable_stall", None)
             if callable(ask):
@@ -1137,29 +1159,7 @@ class _Player:
                     worst = max(worst, int(ask() or 0))
                 except Exception:
                     pass
-            is_active = getattr(proc, "download_active", None)
-            if callable(is_active):
-                try:
-                    active = active or bool(is_active())
-                except Exception:
-                    pass
-        if worst > 0:
-            return worst
-        # No explicit peer/progress stall, but the source has been serving for a
-        # long time with no picture. Only counted from "serving": before that
-        # the source is still preparing -- checking a torrent, or fetching an
-        # opening piece -- and restarting it would undo that work rather than
-        # rescue the play. This is the "downloading, player attached, picture
-        # never starts" case.
-        if active:
-            served = None
-            for proc in getattr(pipe, "procs", []):
-                served = getattr(proc, "_served_at", None) or served
-            if served is not None:
-                waited = int(time.time() - served)
-                if waited >= _TORRENT_NOPICTURE_RETRY_AFTER:
-                    return waited
-        return 0
+        return worst
 
     def _maybe_retry_torrent(self, status, pipe):
         """Request an automatic torrent retry when stalled with no progress."""
@@ -1188,6 +1188,7 @@ class _Player:
             return None
         title = info.get("title") or getattr(pipe, "title", "") or ""
         self.reconnections += 1
+        stall_since = self._torrent_stall_started(pipe)
         cherrypy.log(
             "TORRENT RETRY #%d: restarting stalled source for %s"
             % (self.reconnections, title)
@@ -1197,7 +1198,9 @@ class _Player:
             info.get("idx"),
             title,
             info.get("subs"),
+            stall_since=stall_since,
         )
+        self._torrent_retried_at = time.time()
         # Keep play_seq/reconnection count; this is the same user request.
         return _Play(newpipe, self.playlist, self.index, "reconnecting...", True)
 

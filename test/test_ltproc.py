@@ -39,6 +39,7 @@ STATUS = {
     "seeds": 3,
     "speed": 1500000,
     "payload": 220000000,
+    "downloaded": 220000000,
     "pieces": [120, 1025],
     "files": [
         {
@@ -256,7 +257,7 @@ class TestDetail:
         assert proc.detail() == "1 peer"
 
     def test_a_silent_swarm_says_how_long_it_has_been_silent(self):
-        proc = with_status(LibtorrentProcess(MAGNET, 0), peers=0)
+        proc = with_status(LibtorrentProcess(MAGNET, 0), peers=0, speed=0)
         proc._started_at = time.time() - 40
         assert "nothing arriving for 40s" in proc.detail()
 
@@ -315,14 +316,62 @@ class TestDetail:
         proc._moved_at = time.time()
         assert proc.stalled_for() == 0
 
-    def test_peers_present_but_nothing_arriving_is_a_stall(self):
+    def test_a_connected_peer_is_activity(self):
         """
-        Peers that send nothing are the unproductive swarm a fresh session
-        often fixes. Progress is what says otherwise, not the peer count.
+        A peer that has not sent anything yet may still do so. The retry is for
+        a silent swarm, so the peer itself resets the clock.
         """
-        proc = with_status(LibtorrentProcess(MAGNET, 0), peers=1)
+        proc = with_status(LibtorrentProcess(MAGNET, 0), peers=1, speed=0)
         proc._started_at = time.time() - 400
-        assert proc.stalled_for() >= 45
+        assert proc.stalled_for() == 0
+        assert time.time() - proc._moved_at < 5
+
+    def test_one_byte_a_second_is_activity(self):
+        proc = LibtorrentProcess(MAGNET, 0)
+        proc._started_at = time.time() - 400
+        with_status(proc, peers=0, speed=1)
+        assert proc.stalled_for() == 0
+        assert time.time() - proc._moved_at < 5
+
+    def test_a_downloaded_byte_is_activity(self):
+        proc = LibtorrentProcess(MAGNET, 0)
+        proc._started_at = time.time() - 400
+        with_status(proc, peers=0, speed=0, downloaded=0)
+        with_status(proc, peers=0, speed=0, downloaded=1)
+        assert proc.stalled_for() == 0
+        assert time.time() - proc._moved_at < 5
+
+    def test_no_peers_and_no_progress_is_a_stall(self):
+        proc = with_status(LibtorrentProcess(MAGNET, 0), peers=0, speed=0)
+        proc._started_at = time.time() - 30
+        assert proc.stalled_for() >= 30
+
+    def test_a_retry_can_inherit_the_stall_clock(self):
+        """
+        The clock is the time since the last activity, not since this process
+        started, so a reconnection does not buy the next one a fresh wait.
+        """
+        since = time.time() - 60
+        proc = LibtorrentProcess(MAGNET, 0, stall_since=since)
+        with_status(proc, peers=0, speed=0, downloaded=0)
+        assert proc.stalled_for() >= 60
+
+    def test_the_bar_warns_before_the_session_is_retried(self):
+        proc = with_status(LibtorrentProcess(MAGNET, 0), peers=0, speed=0)
+        proc._started_at = time.time() - 31
+        assert proc.stalled_for() >= 30
+        assert proc.retryable_stall() == 0
+
+    def test_a_silent_swarm_is_retried_after_90s(self):
+        proc = with_status(LibtorrentProcess(MAGNET, 0), peers=0, speed=0)
+        proc._started_at = time.time() - 91
+        assert proc.retryable_stall() >= 90
+
+    def test_an_inherited_clock_can_reach_the_retry_threshold(self):
+        since = time.time() - 100
+        proc = LibtorrentProcess(MAGNET, 0, stall_since=since)
+        with_status(proc, peers=0, speed=0, downloaded=0)
+        assert proc.retryable_stall() >= 90
 
     def test_a_finished_torrent_is_not_a_stall(self):
         """

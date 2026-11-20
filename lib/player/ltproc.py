@@ -72,12 +72,23 @@ _SETTLE = 1.0
 #: short enough that a dead one is not left looking busy.
 _STALLED_AFTER = 20
 
-#: No peers at all for this long is treated as stuck and worth retrying.
+#: No peer, no speed and no downloaded byte for this long is treated as stuck
+#: and worth retrying. Any of those three is activity: a connected peer that
+#: has not sent anything yet may still do so, and 1 B/s is progress. This is
+#: the reconnection timeout -- the old 90s no-picture retry, now conditional on
+#: real silence rather than merely "the player has not started".
+_NO_ACTIVITY_RETRY_AFTER = 90
+
+#: When the bar starts saying nothing is arriving. Earlier than the retry on
+#: purpose: the warning is information, and the retry is the last resort.
 _NO_PEERS_AFTER = 20
 
-#: Peers connected but no download progress for this long: likely unproductive
-#: and worth retrying (fresh session often finds better peers).
-_NO_PROGRESS_AFTER = 45
+
+def _int(value):
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return 0
 
 
 def _size(value):
@@ -140,12 +151,15 @@ def list_files(link, timeout=90):
 class LibtorrentProcess(ExternalProcess):
     is_source = True
 
-    def __init__(self, torrent, idx, subs=None):
+    def __init__(self, torrent, idx, subs=None, stall_since=None):
         super().__init__()
         #: The last status line from bt_serve, already parsed.
         self._status = None
-        #: When the payload last changed, for the stalled line.
-        self._moved_at = None
+        #: When the torrent last showed any activity -- a downloaded byte, a
+        #: byte per second, or a connected peer. A retry inherits the previous
+        #: value, so the stall clock keeps running across the restart instead
+        #: of starting over and buying the next reconnect another full wait.
+        self._moved_at = stall_since
         self._started_at = None
         #: When the source first said "serving". See _read_until_serving.
         self._served_at = None
@@ -281,14 +295,26 @@ class LibtorrentProcess(ExternalProcess):
             return
         if not isinstance(stats, dict):
             return
-        if self._status is not None and stats.get("downloaded") != self._status.get("downloaded"):
-            self._moved_at = time.time()
+        previous = self._status
+        moved = False
+        if previous is not None and stats.get("downloaded") != previous.get(
+            "downloaded"
+        ):
+            # A single byte is progress. The counter is this run's payload, so
+            # a rewatch of a file already on the card does not look like one.
+            moved = True
+        if _int(stats.get("speed")) > 0 or _int(stats.get("peers")) > 0:
+            # 1 B/s is progress, and a connected peer is someone to wait for
+            # even before it has sent anything.
+            moved = True
         if stats.get("checking") is not None:
             # A hash check is work, and the card being read is not a swarm with
             # nothing to send. Without this the whole check counted as "nothing
             # arriving", and the moment it ended the play was already past the
             # stall threshold and was restarted -- which threw the check away
             # and began it again.
+            moved = True
+        if moved:
             self._moved_at = time.time()
         self._status = stats
         if not self._space_checked:
@@ -406,12 +432,15 @@ class LibtorrentProcess(ExternalProcess):
 
     def stalled_for(self):
         """
-        How long this torrent has been unable to make useful progress, in seconds.
+        How long this torrent has had no activity at all, in seconds.
 
-        Used for UI warnings and for automatic retry/reconnect decisions:
-        - no peers while incomplete (including metadata/peer discovery), or
-        - peers connected but no download progress for a long time.
-        Zero when complete/almost complete or actively checking.
+        Activity is any downloaded byte, any download rate, or any connected
+        peer; all three reset the clock. So this is non-zero only while the
+        swarm is completely silent -- no peers, no bytes, 1 B/s would count as
+        progress -- and only after _NO_PEERS_AFTER seconds of it.
+
+        Zero when complete/almost complete or actively checking, where silence
+        is the correct state rather than a fault.
         """
         if not self._status:
             return 0
@@ -434,35 +463,23 @@ class LibtorrentProcess(ExternalProcess):
         if since is None:
             return 0
         idle = max(0, int(time.time() - since))
-        peers = int(self._status.get("peers") or 0)
-        if peers <= 0:
-            return idle if idle >= _NO_PEERS_AFTER else 0
-        # Peers present but no bytes/progress arriving: likely unproductive.
-        if idle >= _NO_PROGRESS_AFTER:
-            return idle
-        return 0
+        if _int(self._status.get("peers")) > 0:
+            # Connected to someone: wait. This is the whole policy -- an idle
+            # peer is still better evidence than a fresh session's no peer.
+            return 0
+        return idle if idle >= _NO_PEERS_AFTER else 0
 
     def retryable_stall(self):
         """
         Seconds stalled when this source should be auto-retried, else 0.
 
         A retry restarts the torrent session (fresh bt_serve/libtorrent), which
-        often recovers from stuck peer discovery or unproductive swarms.
+        can recover from peer discovery that found nobody. It is only offered
+        after _NO_ACTIVITY_RETRY_AFTER seconds with no activity at all; a
+        peer, a byte or 1 B/s keeps the current session.
         """
-        return self.stalled_for()
-
-    def download_active(self):
-        """True while the torrent is incomplete and actively downloading."""
-        if not self._status:
-            return False
-        if self._status.get("checking") is not None:
-            return False
-        info = self.served_file()
-        if info and info["percent"] >= 99:
-            return False
-        state = self._status.get("state")
-        # Any post-metadata transfer state counts as active/running.
-        return state not in (None, "", "metadata")
+        idle = self.stalled_for()
+        return idle if idle >= _NO_ACTIVITY_RETRY_AFTER else 0
 
     def debug(self):
         """

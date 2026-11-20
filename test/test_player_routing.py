@@ -1022,3 +1022,45 @@ class TestPlaylistContext:
 
         video = _item_builder({"title": "c", "url": "https://example.com/v"})()
         assert stages(video) == ["yt-dlp", "vlc"]
+
+
+class TestTorrentRetryPolicy:
+    def _pipe(self, stalled):
+        proc = m.Mock()
+        proc.retryable_stall = lambda: stalled
+        pipe = m.Mock()
+        pipe.torrent = {"url": "http://x/y.torrent", "idx": -1, "title": "T", "subs": None}
+        pipe.procs = [proc]
+        return pipe
+
+    def test_the_next_retry_waits_for_the_minimum_gap(self):
+        pl = player_module._Player()
+        pl._picture_after = lambda: None
+        pipe = self._pipe(90)
+        pl._torrent_retried_at = time.time()
+        assert pl._torrent_retryable_stall(pipe) == 0
+        pl._torrent_retried_at = (
+            time.time() - player_module._TORRENT_RETRY_MIN_INTERVAL - 1
+        )
+        assert pl._torrent_retryable_stall(pipe) == 90
+
+    def test_a_retry_inherits_the_activity_clock(self):
+        pl = player_module._Player()
+        proc = m.Mock()
+        proc._moved_at = 123.0
+        proc._started_at = 100.0
+        pipe = m.Mock()
+        pipe.torrent = {"url": "http://x/y.torrent", "idx": -1, "title": "T", "subs": None}
+        pipe.procs = [proc]
+        pl.play_pipe = pipe
+        pl.playlist = None
+        pl.index = None
+        newpipe = m.Mock()
+
+        with m.patch.object(pl, "buildTorrent", return_value=newpipe) as build:
+            pl._retry_torrent_play()
+
+        build.assert_called_once_with(
+            "http://x/y.torrent", -1, "T", None, stall_since=123.0
+        )
+        assert pl._torrent_retried_at is not None
