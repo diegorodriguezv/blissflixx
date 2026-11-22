@@ -22,8 +22,8 @@ So the channel is built the way EZTV is used: a show, then its episodes.
   baking show, and guessing between them is how a search finds nothing.
 
 Show rows carry showmore:// links; the show page lists the episodes most
-seeded first. Episode rows carry the IMDb id, so Add Subtitles asks
-OpenSubtitles by id instead of by the release name.
+seeded first, every row wearing the show's poster. Episode rows carry the IMDb
+id, so Add Subtitles asks OpenSubtitles by id instead of by the release name.
 """
 
 import math
@@ -589,8 +589,16 @@ def _episodes(imdb):
     return torrents
 
 
-def _episode_rows(imdb, show_name):
-    """One show's episodes, or a useful refusal."""
+def _episode_rows(imdb, show_name, show=None):
+    """
+    One show's episodes, or a useful refusal.
+
+    Every row carries the show's poster, so the page reads like the rest of
+    the channel. The caller passes the show when it already has it; otherwise
+    it is looked up, cached for a day like every other poster.
+    """
+    if show is None:
+        show = _tvmaze_show(imdb)
     try:
         torrents = _episodes(imdb)
     except ApiError:
@@ -607,7 +615,7 @@ def _episode_rows(imdb, show_name):
             "may be wrong." % show_name,
             404,
         )
-    return _rows(torrents, imdb=imdb)
+    return _rows(torrents, imdb=imdb, shows={imdb: show} if show else None)
 
 
 def _search_matches(q):
@@ -676,13 +684,18 @@ def search(q):
         )
     if len(matches) == 1:
         match = matches[0]
-        return _episode_rows(match["imdb"], match["show"].get("name") or q)
+        return _episode_rows(
+            match["imdb"], match["show"].get("name") or q, show=match["show"]
+        )
 
     results = PlayItemList()
     for match in matches[:20]:
         show = match["show"]
         poster = (show.get("image") or {}).get("medium")
         show_name = show.get("name") or q
+        # Kept for the show page, which the row opens: the poster is then
+        # already to hand and the page costs no lookup.
+        _cache(("show", match["imdb"]), show)
         results.add(
             ShowMoreItem(
                 show_name,
@@ -703,6 +716,7 @@ def showmore(link):
     """
     link = (link or "").strip()
     show_name = "this show"
+    show = None
     if link.startswith("tvmaze:"):
         tvmaze_id = link.split(":", 1)[1].strip()
         try:
@@ -730,4 +744,6 @@ def showmore(link):
         digits = match.group(1)
     else:
         raise ApiError("That show link is not understood.", 400)
-    return _episode_rows(digits, show_name)
+    # A browse row's TVMaze entry is already in hand; a trending or picker row
+    # leaves the poster to the day cache, which is where it got its own.
+    return _episode_rows(digits, show_name, show=show)

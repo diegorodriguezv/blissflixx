@@ -397,6 +397,8 @@ class TestSearch:
         )
         rows = eztv.search("the boys").to_list()
         assert [row.title for row in rows] == ["The Boys S01E01"]
+        # The page the search opens carries the poster it already had.
+        assert rows[0].img == "https://img/The Boys.jpg"
 
     def test_several_matches_are_a_picker(self, monkeypatch):
         matches = [
@@ -419,19 +421,21 @@ class TestSearch:
         assert "HBO" in rows[0].subtitle
         assert rows[1].url == "showmore://imdb:32374361|Harry Potter: Wizards of Baking"
 
-    def test_a_pasted_id_skips_the_lookup(self, monkeypatch):
+    def test_a_pasted_id_skips_the_search(self, monkeypatch):
         calls = []
 
-        def lookup(url, **kwargs):
+        def fake(url, **kwargs):
             calls.append(url)
-            return []
+            return {"name": "The Boys", "image": {"medium": "https://img/x.jpg"}}
 
-        monkeypatch.setattr(eztv, "get_json", lookup)
+        monkeypatch.setattr(eztv, "get_json", fake)
         monkeypatch.setattr(
             eztv, "_episodes", lambda imdb: [torrent("An episode", imdb=imdb)]
         )
         rows = eztv.search("tt1190634").to_list()
-        assert calls == []
+        # No TVMaze search: the id is the whole query. The poster is still
+        # looked up, as on every show page.
+        assert calls == [eztv._TVMAZE_LOOKUP]
         assert rows[0].subs["imdb"] == "tt1190634"
 
     def test_no_match_is_an_error(self, monkeypatch):
@@ -469,7 +473,11 @@ class TestShowmore:
         def fake(url, **kwargs):
             calls.append((url, kwargs.get("params") or {}))
             if url.startswith("https://api.tvmaze.com/shows/"):
-                return {"name": "The Boys", "externals": {"imdb": "tt1190634"}}
+                return {
+                    "name": "The Boys",
+                    "externals": {"imdb": "tt1190634"},
+                    "image": {"medium": "https://img/boys.jpg"},
+                }
             return {"torrents_count": 0, "torrents": []}
 
         monkeypatch.setattr(eztv, "get_json", fake)
@@ -479,8 +487,15 @@ class TestShowmore:
         rows = eztv.showmore("tvmaze:1").to_list()
         assert calls[0][0].endswith("/shows/1")
         assert rows[0].subs["imdb"] == "tt1190634"
+        assert rows[0].img == "https://img/boys.jpg"
 
-    def test_an_imdb_link_skips_tvmaze(self, monkeypatch):
+    def test_an_imdb_link_uses_the_cached_poster(self, monkeypatch):
+        # A trending or picker row has already looked the show up; the page
+        # reuses that and costs no request.
+        eztv._cache(
+            ("show", "1190634"),
+            {"name": "The Boys", "image": {"medium": "https://img/boys.jpg"}},
+        )
         calls = []
 
         def fake(url, **kwargs):
@@ -489,8 +504,25 @@ class TestShowmore:
 
         monkeypatch.setattr(eztv, "get_json", fake)
         monkeypatch.setattr(eztv, "_episodes", lambda imdb: [torrent("An episode")])
-        eztv.showmore("imdb:1190634")
+        rows = eztv.showmore("imdb:1190634|The Boys").to_list()
         assert calls == []
+        assert rows[0].img == "https://img/boys.jpg"
+
+    def test_an_imdb_link_without_a_cache_looks_the_show_up(self, monkeypatch):
+        calls = []
+
+        def fake(url, **kwargs):
+            calls.append(url)
+            return {
+                "name": "The Boys",
+                "image": {"medium": "https://img/boys.jpg"},
+            }
+
+        monkeypatch.setattr(eztv, "get_json", fake)
+        monkeypatch.setattr(eztv, "_episodes", lambda imdb: [torrent("An episode")])
+        rows = eztv.showmore("imdb:1190634|The Boys").to_list()
+        assert calls == [eztv._TVMAZE_LOOKUP]
+        assert rows[0].img == "https://img/boys.jpg"
 
     def test_a_show_without_an_imdb_id_says_so(self, monkeypatch):
         monkeypatch.setattr(
