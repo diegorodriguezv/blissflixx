@@ -74,6 +74,11 @@ def tv_show(
     }
 
 
+def _no_tvmaze(url, **kwargs):
+    """TVMaze cannot be reached from a test; the rows fall back to the old look."""
+    raise RuntimeError("no TVMaze in this test")
+
+
 @pytest.fixture(autouse=True)
 def clear_cache():
     eztv._CACHE.clear()
@@ -226,6 +231,9 @@ class TestTrending:
                 },
             },
         )
+        # TVMaze is asked for each show's poster; when it cannot answer, the
+        # row keeps the release name and an icon, which is the old look.
+        monkeypatch.setattr(eztv, "get_json", _no_tvmaze)
         rows = eztv._trending_shows().to_list()
         assert [row.title for row in rows] == ["High Show", "Low Show"]
         assert rows[0].url == "showmore://imdb:1|High Show"
@@ -246,8 +254,59 @@ class TestTrending:
                 }
             },
         )
+        monkeypatch.setattr(eztv, "get_json", _no_tvmaze)
         rows = eztv._trending_shows().to_list()
         assert [row.title for row in rows] == ["Kept"]
+
+    def test_rows_carry_the_shows_poster_and_own_name(self, monkeypatch):
+        self._pages(
+            monkeypatch,
+            {
+                1: {
+                    "torrents": [
+                        torrent("Georgie and Mandys S01E01", imdb="1", seeds=90)
+                    ]
+                }
+            },
+        )
+        show = {
+            "name": "Georgie & Mandy's First Marriage",
+            "premiered": "2024-10-17",
+            "network": {"name": "CBS"},
+            "webChannel": None,
+            "genres": ["Comedy"],
+            "rating": {"average": 8.3},
+            "image": {"medium": "https://img/poster.jpg"},
+        }
+        monkeypatch.setattr(eztv, "get_json", lambda url, **kwargs: show)
+        row = eztv._trending_shows().to_list()[0]
+        assert row.title == "Georgie & Mandy's First Marriage"
+        assert row.img == "https://img/poster.jpg"
+        assert row.subtitle == "2024 · CBS · Comedy · 8.3"
+        assert "90 seeds" in row.synopsis
+        assert row.url == "showmore://imdb:1|Georgie & Mandy's First Marriage"
+
+    def test_the_show_lookup_is_kept_for_a_day(self, monkeypatch):
+        self._pages(
+            monkeypatch,
+            {1: {"torrents": [torrent("High Show S01E02", imdb="1", seeds=50)]}},
+        )
+        calls = []
+
+        def fake(url, **kwargs):
+            calls.append(url)
+            return {
+                "name": "High Show",
+                "premiered": "2024-01-01",
+                "network": {"name": "HBO"},
+                "genres": [],
+                "image": {"medium": "https://img/x.jpg"},
+            }
+
+        monkeypatch.setattr(eztv, "get_json", fake)
+        eztv._trending_shows()
+        eztv._trending_shows()
+        assert len(calls) == 1
 
     def test_a_first_page_failure_is_a_service_error(self, monkeypatch):
         def boom(page):

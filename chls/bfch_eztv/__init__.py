@@ -12,7 +12,9 @@ So the channel is built the way EZTV is used: a show, then its episodes.
 - Latest is EZTV's own feed.
 - Trending is built from the latest few pages: the shows whose recent releases
   are being seeded most, which is EZTV's own audience rather than a borrowed
-  popularity list.
+  popularity list. Their posters and their own names come from TVMaze, looked
+  up by IMDb id and kept for a day; a show TVMaze does not know keeps the
+  release name and an icon.
 - Genres, types and countries come from TVMaze's show browser, which can be
   read without a key. Picking one opens that show's EZTV episodes by IMDb id.
 - A title search resolves with TVMaze. One match opens its episodes; several
@@ -27,6 +29,7 @@ OpenSubtitles by id instead of by the release name.
 import math
 import re
 import time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 
 from lib.api.common import ApiError
@@ -55,6 +58,10 @@ _TVMAZE_SHOW = "https://api.tvmaze.com/shows/%s"
 #: the filter values its form posts (ids, not labels), read from the form.
 _TVMAZE_BROWSE = "https://www.tvmaze.com/shows"
 
+#: TVMaze's lookup by IMDb id, for a show's poster and proper name. EZTV
+#: carries neither: every screenshot field in its API is empty.
+_TVMAZE_LOOKUP = "https://api.tvmaze.com/lookup/shows"
+
 #: A pasted id, with or without the tt. EZTV wants the digits.
 _IMDB_RE = re.compile(r"^(?:tt)?(\d{3,})$", re.IGNORECASE)
 
@@ -71,9 +78,17 @@ _TRENDING_SHOWS = 30
 #: How many pages of 25 shows a browse feed reads.
 _SHOW_PAGES = 2
 
-#: A browse page changes slowly; recent seed counts move faster.
+#: How many requests are open at once while a feed is being built. Trending
+#: reads five EZTV pages and up to thirty TVMaze lookups; one at a time, the
+#: lookups alone took twenty-five seconds on a first build, which is not a
+#: wait to put in front of a television.
+_WORKERS = 8
+
+#: A browse page changes slowly; recent seed counts move faster. A show's
+#: poster and name barely change at all.
 _CACHE_TTL = 60 * 60
 _TRENDING_TTL = 10 * 60
+_SHOW_TTL = 24 * 60 * 60
 _CACHE = {}
 
 #: The feeds, in the order the page shows them. A name is stable and goes in
@@ -252,16 +267,8 @@ def _trending_shows():
         return cached
 
     shows = {}
-    for page in range(1, _TRENDING_PAGES + 1):
-        try:
-            data = _latest_page(page)
-        except Exception as exc:
-            if page == 1:
-                raise ApiError(
-                    "EZTV did not answer. Try again. (%s)" % exc,
-                    ApiError._SERVICE_UNAVAILABLE,
-                )
-            break
+    pages = _latest_pages(_TRENDING_PAGES)
+    for data in pages:
         for torrent in data.get("torrents") or []:
             imdb = str(torrent.get("imdb_id") or "").strip()
             if not imdb or imdb == "0" or not torrent.get("magnet_url"):
@@ -284,29 +291,105 @@ def _trending_shows():
         shows.items(),
         key=lambda pair: (pair[1]["seeds"], pair[1]["releases"]),
         reverse=True,
-    )
+    )[:_TRENDING_SHOWS]
+    posters = _shows_for([imdb for imdb, _ in ordered])
     results = PlayItemList()
-    for imdb, entry in ordered[:_TRENDING_SHOWS]:
+    for (imdb, entry), show in zip(ordered, posters):
         if entry["names"]:
-            show_name = max(entry["names"].items(), key=lambda pair: pair[1])[0]
+            parsed_name = max(entry["names"].items(), key=lambda pair: pair[1])[0]
         else:
-            show_name = "IMDb " + imdb
+            parsed_name = "IMDb " + imdb
         season, episode = entry["latest"]
         bits = []
         if season and episode:
             bits.append("S%02dE%02d" % (season, episode))
         bits.append("%d releases" % entry["releases"])
         bits.append("%s seeds" % number_commas(entry["seeds"]))
-        results.add(
-            ShowMoreItem(
-                show_name,
-                icon_for_title(show_name, "/img/icons/tv.svg"),
-                _show_link(imdb, show_name),
-                " · ".join(bits),
+        stats = " · ".join(bits)
+
+        # The same look as the browse and search rows: the show's poster and
+        # its own spelling of its name. A release name drops its punctuation
+        # ("Georgie and Mandys First Marriage"), and EZTV has no artwork.
+        if show:
+            show_name = show.get("name") or parsed_name
+            poster = (show.get("image") or {}).get("medium")
+            subtitle = _show_subtitle(show)
+            results.add(
+                ShowMoreItem(
+                    show_name,
+                    poster or "/img/icons/tv.svg",
+                    _show_link(imdb, show_name),
+                    subtitle or stats,
+                    stats if subtitle else None,
+                )
             )
-        )
+        else:
+            results.add(
+                ShowMoreItem(
+                    parsed_name,
+                    icon_for_title(parsed_name, "/img/icons/tv.svg"),
+                    _show_link(imdb, parsed_name),
+                    stats,
+                )
+            )
     _cache(("trending",), results)
     return results
+
+
+def _latest_pages(count):
+    """
+    The latest pages together. They are one sample, not a queue: no page is
+    newer than the time this feed takes to build, and reading them one after
+    the other doubled the wait for nothing.
+
+    The first page failing is the feed failing; a later one can be dropped,
+    since the sample is only slightly smaller.
+    """
+    with ThreadPoolExecutor(max_workers=_WORKERS) as pool:
+        futures = {
+            page: pool.submit(_latest_page, page)
+            for page in range(1, count + 1)
+        }
+    pages = []
+    for page in range(1, count + 1):
+        try:
+            pages.append(futures[page].result())
+        except Exception as exc:
+            if page == 1:
+                raise ApiError(
+                    "EZTV did not answer. Try again. (%s)" % exc,
+                    ApiError._SERVICE_UNAVAILABLE,
+                )
+    return pages
+
+
+def _shows_for(imdbs):
+    """TVMaze entries for several shows, read together."""
+    if not imdbs:
+        return []
+    with ThreadPoolExecutor(max_workers=_WORKERS) as pool:
+        return list(pool.map(_tvmaze_show, imdbs))
+
+
+def _tvmaze_show(imdb):
+    """
+    A show's TVMaze entry, for its poster and its own name.
+
+    Cached for a day, found or not: a poster does not change, and the trending
+    feed asks about much the same shows each time it is built. A show EZTV has
+    that TVMaze does not is fine -- the row falls back to the release name and
+    an icon, which is how the feed looked before it had posters at all.
+    """
+    key = ("show", imdb)
+    cached = _cached(key, _SHOW_TTL)
+    if cached is not None:
+        return cached or None
+    try:
+        show = get_json(_TVMAZE_LOOKUP, params={"imdb": "tt" + imdb})
+    except Exception:
+        show = None
+    _cache(key, show or {})
+    return show
 
 
 def _card_rating(card):
