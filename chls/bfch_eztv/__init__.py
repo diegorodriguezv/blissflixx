@@ -84,6 +84,12 @@ _SHOW_PAGES = 2
 #: wait to put in front of a television.
 _WORKERS = 8
 
+#: How many shows one latest build may look up for the first time. A page of
+#: releases names about thirty shows, most already known from an earlier
+#: build; the cap is for a page that names many more, so the feed is never a
+#: long wait and the rest get their poster from the cache next time.
+_LATEST_FRESH = 24
+
 #: A browse page changes slowly; recent seed counts move faster. A show's
 #: poster and name barely change at all.
 _CACHE_TTL = 60 * 60
@@ -243,7 +249,19 @@ def _latest_page(page):
 
 
 def _latest():
-    return _rows(_latest_page(1).get("torrents") or [])
+    """
+    The new releases, with each row carrying its show's poster.
+
+    A page of releases names a few dozen shows, and several rows are the same
+    show's episode in other qualities; the poster is looked up once per show
+    and shared by its rows, which is what makes this page read like the
+    trending and browse pages rather than a wall of identical icons.
+    """
+    torrents = _latest_page(1).get("torrents") or []
+    shows = _shows_for(
+        [t.get("imdb_id") for t in torrents], fresh_cap=_LATEST_FRESH
+    )
+    return _rows(torrents, shows=shows)
 
 
 def _int(value):
@@ -294,7 +312,8 @@ def _trending_shows():
     )[:_TRENDING_SHOWS]
     posters = _shows_for([imdb for imdb, _ in ordered])
     results = PlayItemList()
-    for (imdb, entry), show in zip(ordered, posters):
+    for imdb, entry in ordered:
+        show = posters.get(imdb)
         if entry["names"]:
             parsed_name = max(entry["names"].items(), key=lambda pair: pair[1])[0]
         else:
@@ -363,12 +382,30 @@ def _latest_pages(count):
     return pages
 
 
-def _shows_for(imdbs):
-    """TVMaze entries for several shows, read together."""
+def _shows_for(imdbs, fresh_cap=None):
+    """
+    TVMaze entries for several shows, read together, as {imdb: show}.
+
+    A show already cached costs nothing, so `fresh_cap` only bounds how many
+    first-time lookups one build makes. A row whose show is not looked up yet
+    keeps its icon, and has its poster from the cache on a later build.
+    """
+    imdbs = list(
+        dict.fromkeys(str(i or "").strip() for i in imdbs if str(i or "").strip())
+    )
+    imdbs = [i for i in imdbs if i != "0"]
     if not imdbs:
-        return []
+        return {}
+    if fresh_cap is not None:
+        fresh = [i for i in imdbs if _cached(("show", i), _SHOW_TTL) is None]
+        if len(fresh) > fresh_cap:
+            keep = set(fresh[:fresh_cap])
+            imdbs = [
+                i for i in imdbs if i in keep or _cached(("show", i), _SHOW_TTL)
+            ]
     with ThreadPoolExecutor(max_workers=_WORKERS) as pool:
-        return list(pool.map(_tvmaze_show, imdbs))
+        found = pool.map(_tvmaze_show, imdbs)
+    return dict(zip(imdbs, found))
 
 
 def _tvmaze_show(imdb):
@@ -464,12 +501,13 @@ def _show_link(imdb, show_name):
     return "imdb:%s|%s" % (imdb, show_name)
 
 
-def _item(t, imdb=None):
+def _item(t, imdb=None, show=None):
     """One torrent as a row, or None when it has no magnet to play."""
     magnet = t.get("magnet_url")
     if not magnet:
         return None
     title = (t.get("title") or t.get("filename") or "").strip()
+    poster = (show.get("image") or {}).get("medium") if show else None
     size_bytes = t.get("size_bytes") or 0
     try:
         size = "%.1f MB" % (int(size_bytes) / (1024 * 1024))
@@ -493,11 +531,15 @@ def _item(t, imdb=None):
     # ask OpenSubtitles by id instead of by the release name.
     subs = {"imdb": "tt" + str(imdb)} if imdb else None
     return TorrentPlayItem(
-        title, icon_for_title(title, "/img/icons/tv.svg"), magnet, subtitle, subs=subs
+        title,
+        poster or icon_for_title(title, "/img/icons/tv.svg"),
+        magnet,
+        subtitle,
+        subs=subs,
     )
 
 
-def _rows(torrents, imdb=None):
+def _rows(torrents, imdb=None, shows=None):
     """
     Torrents as rows, most seeded first.
 
@@ -517,7 +559,8 @@ def _rows(torrents, imdb=None):
     )
     results = PlayItemList()
     for t in torrents:
-        item = _item(t, imdb=imdb)
+        show = (shows or {}).get(str(t.get("imdb_id") or "").strip())
+        item = _item(t, imdb=imdb, show=show)
         if item is not None:
             results.add(item)
     return results

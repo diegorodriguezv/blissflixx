@@ -188,6 +188,63 @@ class TestTheBrowseRows:
         assert caught.value.status == ApiError._SERVICE_UNAVAILABLE
 
 
+class TestLatest:
+    """The new releases, carrying each show's poster like the other pages."""
+
+    def test_rows_carry_their_shows_posters(self, monkeypatch):
+        monkeypatch.setattr(
+            eztv,
+            "_latest_page",
+            lambda page: {
+                "torrents": [
+                    torrent("Show A S01E01", imdb="1"),
+                    torrent("Show A S01E01 720p", imdb="1"),
+                    torrent("Show B S01E01", imdb="2"),
+                ]
+            },
+        )
+
+        def fake(url, **kwargs):
+            if kwargs["params"]["imdb"] == "tt1":
+                return {
+                    "name": "Show A",
+                    "image": {"medium": "https://img/a.jpg"},
+                }
+            raise RuntimeError("not found")
+
+        monkeypatch.setattr(eztv, "get_json", fake)
+        rows = eztv.feed(0).to_list()
+        # One lookup serves both of the show's releases.
+        assert rows[0].img == "https://img/a.jpg"
+        assert rows[1].img == "https://img/a.jpg"
+        # A show TVMaze does not know keeps the icon.
+        assert rows[2].img == "/img/icons/tv.svg"
+
+    def test_a_build_looks_up_only_so_many_new_shows(self, monkeypatch):
+        monkeypatch.setattr(
+            eztv,
+            "_latest_page",
+            lambda page: {
+                "torrents": [
+                    torrent("Show S01E0%d" % n, imdb=str(n)) for n in range(1, 7)
+                ]
+            },
+        )
+        monkeypatch.setattr(eztv, "_LATEST_FRESH", 3)
+        calls = []
+
+        def fake(url, **kwargs):
+            calls.append(kwargs["params"]["imdb"])
+            return {"name": "A show", "image": {"medium": "https://img/x.jpg"}}
+
+        monkeypatch.setattr(eztv, "get_json", fake)
+        eztv.feed(0)
+        assert len(calls) == 3
+        # The next build finds those in the cache and finishes the page.
+        eztv.feed(0)
+        assert len(calls) == 6
+
+
 class TestTrending:
     def _pages(self, monkeypatch, pages):
         monkeypatch.setattr(
