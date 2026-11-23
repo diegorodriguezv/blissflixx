@@ -37,11 +37,13 @@ _MAX_ITEMS = 12
 _MAX_RESULTS = 20
 _WORKERS = 4
 
+#: The HD, Series and Audio Latino pages were removed after a full-feed
+#: check, not the ten-percent sample: 3/10, 3/12 and 1/11 opening pieces
+#: respectively. Almost every row was a dead swarm. The three that remain are
+#: the ones that actually start; Latino content is still reachable through the
+#: search box, which asks the site's own audio-latino query.
 _FEEDLIST = [
     {"title": "Películas", "url": _BASE + "/peliculas/"},
-    {"title": "Películas HD", "url": _BASE + "/peliculas-hd/"},
-    {"title": "Series", "url": _BASE + "/series/"},
-    {"title": "Audio Latino", "url": _BASE + "/?s=audio+latino"},
     {"title": "Películas 4K", "url": _BASE + "/peliculas-4k/"},
     {"title": "Películas DVDR", "url": _BASE + "/peliculas-dvdr/"},
 ]

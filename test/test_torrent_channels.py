@@ -371,9 +371,6 @@ def _fake_divx(monkeypatch, seen=None):
 def test_divx_feedlist_names_the_categories():
     assert [entry["title"] for entry in bfch_divxtotal.feedlist()] == [
         "Películas",
-        "Películas HD",
-        "Series",
-        "Audio Latino",
         "Películas 4K",
         "Películas DVDR",
     ]
