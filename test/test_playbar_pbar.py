@@ -56,3 +56,25 @@ def test_the_marker_is_written_to_the_element_not_the_template():
 def test_a_click_is_an_absolute_seek():
     tag = _tag()
     assert "playerStore.control('seek:' + Math.round(fraction * length)" in tag
+
+
+def _css():
+    root = Path(__file__).resolve().parents[1]
+    return (root / "html" / "css" / "layout.css").read_text()
+
+
+def test_the_top_fifth_is_margin_not_a_click_target():
+    """
+    A click that misses high is swallowed by the strip rather than landing on
+    the page behind it, where it would open whatever it landed on. The
+    marker's top edge is the clickable zone's, so where the red stands is
+    where to aim.
+    """
+    tag = _tag()
+    assert '<div show={ pbar } class="pbar">' in tag
+    assert '<div class="pbar-hit" onclick={ seekTo }>' in tag
+    css = _css()
+    hit = css[css.index(".pbar-hit"): css.index("}", css.index(".pbar-hit")) + 1]
+    assert "top: 20%" in hit
+    # The marker lives inside the hit, aligned with it top and bottom.
+    assert tag.index('class="pbar-hit"') < tag.index('class="pbar-marker"')

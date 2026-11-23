@@ -200,8 +200,11 @@ ul.navitems-left>li {
  * screen is for and anything shorter would have to be explained.
  *
  * The strip is the line, all of it, white: a six-pixel sliver at the bottom
- * read as a bar that had not drawn. The marker is the film's place, three
- * pixels wide and the strip's full height. Nothing is painted but the strip
+ * read as a bar that had not drawn. The top fifth is margin -- part of the
+ * picture, not of the click target: a click that misses high is swallowed
+ * by the strip instead of landing on the page behind it, where it would open
+ * whatever it landed on. The marker's top edge is the clickable zone's, so
+ * where the red stands is where to aim. Nothing is painted but the strip
  * and the marker, so what is hidden is exactly what was there before.
  */
 .pbar {
@@ -212,6 +215,14 @@ ul.navitems-left>li {
   height: 30px;
   background: #ffffff;
   z-index: 1000;
+}
+
+.pbar-hit {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 20%;
+  bottom: 0;
   cursor: pointer;
 }
 
