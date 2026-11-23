@@ -17,9 +17,15 @@
   where to click can be judged rather than guessed. Majors and minors share
   one centre line in the middle of the zone, and sit under the hit layer --
   a tick never takes a click -- with only the red marker drawn over them.
+
+  The ticks are built as elements rather than as a template loop, the same
+  way the marker moves: riot 2's template engine mangles a string built
+  inside a style expression -- the quotes survive into its own generated
+  code as an invalid token, and the first poll after a length arrived took
+  the whole bar down with them. Nothing dynamic about this bar goes through
+  the template any more.
   -->
   <div show={ pbar } class="pbar">
-    <div each={ t in ticks } class={ t.major ? 'pbar-tick pbar-tick-major' : 'pbar-tick' } style={ 'left: ' + t.pct + '%' }></div>
     <div class="pbar-hit" onclick={ seekTo }>
       <div class="pbar-marker"></div>
     </div>
@@ -181,6 +187,34 @@
         if (length / NICE_STEPS[i] <= MAX_MAJOR_TICKS) return NICE_STEPS[i]
       }
       return NICE_STEPS[NICE_STEPS.length - 1]
+    }
+
+    //: One ruler tick as an element: setAttribute rather than property
+    //: writes, so the same code runs against a stub in the harness.
+    function _tickElement(pct, major) {
+      var el = document.createElement('div')
+      el.setAttribute('class', major ? 'pbar-tick pbar-tick-major' : 'pbar-tick')
+      el.setAttribute('style', 'left: ' + pct + '%')
+      return el
+    }
+
+    function _clearTicks(root) {
+      var holder = root && root.querySelector('.pbar')
+      if (!holder) return
+      var ticks = holder.querySelectorAll('.pbar-tick')
+      for (var i = 0; i < ticks.length; i++) holder.removeChild(ticks[i])
+    }
+
+    function _drawTicks(root, ticks) {
+      var holder = root && root.querySelector('.pbar')
+      if (!holder) return
+      _clearTicks(root)
+      // Under the hit layer, so a click on a tick seeks exactly as a click
+      // on white does, and the red marker stays the topmost thing drawn.
+      var hit = holder.querySelector('.pbar-hit')
+      for (var i = 0; i < ticks.length; i++) {
+        holder.insertBefore(_tickElement(ticks[i].pct, ticks[i].major), hit)
+      }
     }
 
     this.on('mount', function() {
@@ -362,11 +396,17 @@
     }
 
     //: The ruler along the zone. A film's length does not change while it
-    //: plays, so the ticks are computed once per film rather than per poll.
+    //: plays, so the ticks are computed once per film rather than per poll,
+    //: and drawn as elements rather than through the template; see the markup
+    //: above for why.
     refreshTicks() {
       var length = self.status && self.status.Length
       if (!length || length <= 0) {
-        self.ticks = []
+        if (self.ticksLength !== null) {
+          self.ticksLength = null
+          self.ticks = []
+          _clearTicks(self.root)
+        }
         return
       }
       if (self.ticksLength === length) return
@@ -379,6 +419,7 @@
         if (half < length) ticks.push({ pct: (half / length) * 100, major: false })
       }
       self.ticks = ticks
+      _drawTicks(self.root, ticks)
     }
 
     //: The name's click: the only way the bar is shown or hidden.

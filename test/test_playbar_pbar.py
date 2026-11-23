@@ -68,10 +68,13 @@ def test_the_ruler_is_round_steps():
     tag = _tag()
     assert "NICE_STEPS" in tag
     assert "MAX_MAJOR_TICKS" in tag
-    assert "each={ t in ticks }" in tag
-    # Under the hit layer, so a click on a tick seeks exactly as a click on
-    # white does.
-    assert tag.index("pbar-tick") < tag.index('class="pbar-hit"')
+    # Drawn as elements, not as a template loop: riot 2's template engine
+    # mangles a string built inside a style expression, and the first poll
+    # after a length arrived took the whole bar down with it. The marker
+    # already worked this way.
+    assert "each={ t in ticks }" not in tag
+    assert "document.createElement" in tag
+    assert "insertBefore" in tag
     css = _css()
     assert ".pbar-tick" in css
     assert ".pbar-tick-major" in css
