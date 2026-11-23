@@ -412,11 +412,15 @@
       if (self.ticksLength === length) return
       self.ticksLength = length
       var step = _niceStep(length)
+      var half = step / 2
       var ticks = []
-      for (var at = step; at < length; at += step) {
-        ticks.push({ pct: (at / length) * 100, major: true })
-        var half = at + step / 2
-        if (half < length) ticks.push({ pct: (half / length) * 100, major: false })
+      // Counted in half-steps from the start, every second one a major: the
+      // first minor sits half a step in -- 7.5 minutes when the majors are
+      // 15 -- rather than the ruler beginning at the first major.
+      var n = 0
+      for (var at = half; at < length; at += half) {
+        n++
+        ticks.push({ pct: (at / length) * 100, major: n % 2 === 0 })
       }
       self.ticks = ticks
       _drawTicks(self.root, ticks)

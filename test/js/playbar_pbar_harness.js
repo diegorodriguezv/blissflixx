@@ -273,7 +273,8 @@ now = 0;
   tag.updateStatus();
   const at = (ts) => ts.map(t => Math.round((t.pct * 45) / 100));
   check('45s: majors every ten seconds', at(tag.ticks.filter(t => t.major)), [10, 20, 30, 40]);
-  check('45s: minors between them', tag.ticks.filter(t => !t.major).length, 3);
+  check('45s: the first minor half a step in', at(tag.ticks.filter(t => !t.major)).slice(0, 1), [5]);
+  check('45s: minors between them', tag.ticks.filter(t => !t.major).length, 4);
   tag.updateStatus();
   check('45s: the same on the next poll', at(tag.ticks.filter(t => t.major)), [10, 20, 30, 40]);
 }
