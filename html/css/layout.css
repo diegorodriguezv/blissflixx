@@ -256,6 +256,23 @@ ul.navitems-left>li {
   height: 14px;
 }
 
+/* A major's time, written in the margin band above the ruler: empty space
+ * that earns its keep, since a label there cannot take a click away from
+ * the zone below it. Centred on its tick; the first major is always at
+ * least an eighth of the film in, so a centred label cannot reach past the
+ * left edge. Navy like its tick, and small: a label names a place, the
+ * bar's own clock names the time.
+ */
+.pbar-label {
+  position: absolute;
+  top: 0;
+  transform: translateX(-50%);
+  font-size: 11px;
+  line-height: 12px;
+  color: #2a435a;
+  white-space: nowrap;
+}
+
 .playnav {
   bottom: 0;
   /*

@@ -24,6 +24,12 @@
   code as an invalid token, and the first poll after a length arrived took
   the whole bar down with them. Nothing dynamic about this bar goes through
   the template any more.
+
+  Each major carries its time in the film's own scale ("15m", "1h15m"),
+  written into the margin band above the ruler -- empty space that earns
+  its keep, since a label there cannot take a click away from the zone. The
+  minors are unlabelled: they are visibly half of the major beside them,
+  which is all a smaller tick ever means.
   -->
   <div show={ pbar } class="pbar">
     <div class="pbar-hit" onclick={ seekTo }>
@@ -198,6 +204,25 @@
       return el
     }
 
+    //: A major's time in the film's own scale. Round numbers only, because
+    //: the step is a round number: "10s", "15m", "1h15m".
+    function _tickLabel(seconds) {
+      if (seconds >= 3600 && seconds % 3600 === 0) return (seconds / 3600) + 'h'
+      var h = Math.floor(seconds / 3600)
+      var m = Math.round((seconds % 3600) / 60)
+      if (h) return h + 'h' + (m ? m + 'm' : '')
+      if (seconds >= 60) return m + 'm'
+      return seconds + 's'
+    }
+
+    function _labelElement(pct, text) {
+      var el = document.createElement('div')
+      el.setAttribute('class', 'pbar-label')
+      el.setAttribute('style', 'left: ' + pct + '%')
+      el.textContent = text
+      return el
+    }
+
     function _clearTicks(root) {
       var holder = root && root.querySelector('.pbar')
       if (!holder) return
@@ -214,6 +239,9 @@
       var hit = holder.querySelector('.pbar-hit')
       for (var i = 0; i < ticks.length; i++) {
         holder.insertBefore(_tickElement(ticks[i].pct, ticks[i].major), hit)
+        if (ticks[i].label) {
+          holder.insertBefore(_labelElement(ticks[i].pct, ticks[i].label), hit)
+        }
       }
     }
 
@@ -420,7 +448,10 @@
       var n = 0
       for (var at = half; at < length; at += half) {
         n++
-        ticks.push({ pct: (at / length) * 100, major: n % 2 === 0 })
+        var major = n % 2 === 0
+        var tick = { pct: (at / length) * 100, major: major }
+        if (major) tick.label = _tickLabel(at)
+        ticks.push(tick)
       }
       self.ticks = ticks
       _drawTicks(self.root, ticks)

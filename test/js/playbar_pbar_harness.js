@@ -275,6 +275,8 @@ now = 0;
   check('45s: majors every ten seconds', at(tag.ticks.filter(t => t.major)), [10, 20, 30, 40]);
   check('45s: the first minor half a step in', at(tag.ticks.filter(t => !t.major)).slice(0, 1), [5]);
   check('45s: minors between them', tag.ticks.filter(t => !t.major).length, 4);
+  check('45s: majors say their seconds',
+    tag.ticks.filter(t => t.major).map(t => t.label), ['10s', '20s', '30s', '40s']);
   tag.updateStatus();
   check('45s: the same on the next poll', at(tag.ticks.filter(t => t.major)), [10, 20, 30, 40]);
 }
@@ -286,16 +288,21 @@ now = 0;
   const majors = tag.ticks.filter(t => t.major);
   check('90 minutes: majors at quarter hours', Math.round((majors[0].pct * 5400) / 100), 900);
   check('90 minutes: five of them along the film', majors.length, 5);
+  check('90 minutes: labelled in the film scale',
+    majors.map(t => t.label), ['15m', '30m', '45m', '1h', '1h15m']);
 }
 
 {
   const tag = newTag();
   store.status = status({ Position: 1, Length: 28800 });
   tag.updateStatus();
-  const hours = tag.ticks
-    .filter(t => t.major)
-    .map(t => Math.round((t.pct * 28800) / 100) / 3600);
+  const majors = tag.ticks.filter(t => t.major);
+  const hours = majors.map(t => Math.round((t.pct * 28800) / 100) / 3600);
   check('eight hours: majors on the hour', hours, [1, 2, 3, 4, 5, 6, 7]);
+  check('eight hours: labelled on the hour',
+    majors.map(t => t.label), ['1h', '2h', '3h', '4h', '5h', '6h', '7h']);
+  check('eight hours: minors carry no label',
+    tag.ticks.filter(t => !t.major).every(t => t.label === undefined), true);
 }
 
 {

@@ -75,9 +75,13 @@ def test_the_ruler_is_round_steps():
     assert "each={ t in ticks }" not in tag
     assert "document.createElement" in tag
     assert "insertBefore" in tag
+    # Majors carry their time in the film's own scale, in the margin band.
+    assert "_tickLabel" in tag
+    assert "pbar-label" in tag
     css = _css()
     assert ".pbar-tick" in css
     assert ".pbar-tick-major" in css
+    assert ".pbar-label" in css
 
 
 def test_no_class_expression_contains_a_comma():
