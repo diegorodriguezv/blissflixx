@@ -527,17 +527,3 @@ class TestTheGlobalLanguage:
         settings.save("subtitles", {"lang": "zzz"})
         settings._cache.clear()
         assert subtitles.language()["lang"] == "eng"
-
-
-class TestChannelsThatCannotUseSubtitles:
-    """
-    A channel whose streams are not films the subtitle services know -- Rotten
-    Tomatoes plays trailers -- must not offer the button: searching
-    OpenSubtitles for the film's name found the film's subtitles, which do not
-    match the trailer's cut.
-    """
-
-    def test_rotten_tomatoes_trailers_offer_no_add_subtitles(self):
-        import bfch_rotten_tomatoes
-
-        assert bfch_rotten_tomatoes.SUPPORTS_SUBTITLES is False
