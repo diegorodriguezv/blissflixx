@@ -12,8 +12,14 @@
   than landing on the page behind, where it would open something. The
   marker's top edge is the clickable zone's, which is what says where to
   aim.
+
+  Along the clickable zone, a ruler: ticks at round numbers of seconds, so
+  where to click can be judged rather than guessed. Majors and minors share
+  one centre line in the middle of the zone, and sit under the hit layer --
+  a tick never takes a click -- with only the red marker drawn over them.
   -->
   <div show={ pbar } class="pbar">
+    <div each={ t in ticks } class={ t.major ? 'pbar-tick pbar-tick-major' : 'pbar-tick' } style={ 'left: ' + t.pct + '%' }></div>
     <div class="pbar-hit" onclick={ seekTo }>
       <div class="pbar-marker"></div>
     </div>
@@ -157,6 +163,25 @@
     //: name that shows it.
     self.pbarOn = false
     self.pbar = false
+    self.ticks = []
+    self.ticksLength = null
+
+    //: The ruler's steps, in seconds: 1-2-5 ladders read as round numbers at
+    //: every size, which is why oscilloscopes and maps use them. The step is
+    //: the first on the ladder that fits at most eight majors into the film,
+    //: so a 45-second clip and an eight-hour documentary both get a bar with
+    //: a handful of evenly spaced ticks on it -- and because each step is at
+    //: most two and a half times the one before, there are always at least
+    //: three.
+    var NICE_STEPS = [1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 900, 1800, 3600, 7200, 10800, 14400, 21600, 28800]
+    var MAX_MAJOR_TICKS = 8
+
+    function _niceStep(length) {
+      for (var i = 0; i < NICE_STEPS.length; i++) {
+        if (length / NICE_STEPS[i] <= MAX_MAJOR_TICKS) return NICE_STEPS[i]
+      }
+      return NICE_STEPS[NICE_STEPS.length - 1]
+    }
 
     this.on('mount', function() {
       self.powerMsg = powerStore.getMsg()
@@ -332,7 +357,28 @@
     //: The shown-or-not of the bar, from the toggle and the film above.
     refreshPbar() {
       self.pbar = self.pbarOn && self.pbarPossible()
+      self.refreshTicks()
       self.moveMarker()
+    }
+
+    //: The ruler along the zone. A film's length does not change while it
+    //: plays, so the ticks are computed once per film rather than per poll.
+    refreshTicks() {
+      var length = self.status && self.status.Length
+      if (!length || length <= 0) {
+        self.ticks = []
+        return
+      }
+      if (self.ticksLength === length) return
+      self.ticksLength = length
+      var step = _niceStep(length)
+      var ticks = []
+      for (var at = step; at < length; at += step) {
+        ticks.push({ pct: (at / length) * 100, major: true })
+        var half = at + step / 2
+        if (half < length) ticks.push({ pct: (half / length) * 100, major: false })
+      }
+      self.ticks = ticks
     }
 
     //: The name's click: the only way the bar is shown or hidden.

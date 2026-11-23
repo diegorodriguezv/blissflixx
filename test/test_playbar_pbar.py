@@ -58,6 +58,38 @@ def test_a_click_is_an_absolute_seek():
     assert "playerStore.control('seek:' + Math.round(fraction * length)" in tag
 
 
+def test_the_ruler_is_round_steps():
+    """
+    A film can be 45 seconds or eight hours, so the ticks are round numbers of
+    seconds from a 1-2-5 ladder, chosen to fit a handful of majors into
+    whatever the film is. Both a clip and a documentary then read the same
+    way: evenly spaced ticks, each gap a round amount.
+    """
+    tag = _tag()
+    assert "NICE_STEPS" in tag
+    assert "MAX_MAJOR_TICKS" in tag
+    assert "each={ t in ticks }" in tag
+    # Under the hit layer, so a click on a tick seeks exactly as a click on
+    # white does.
+    assert tag.index("pbar-tick") < tag.index('class="pbar-hit"')
+    css = _css()
+    assert ".pbar-tick" in css
+    assert ".pbar-tick-major" in css
+
+
+def test_no_class_expression_contains_a_comma():
+    """Riot 2 splits a class expression on commas; a ternary is fine, a comma is not."""
+    tag = _tag()
+    classes = [
+        line.split("class={", 1)[1].split("}", 1)[0]
+        for line in tag.splitlines()
+        if "class={" in line
+    ]
+    assert classes
+    for expr in classes:
+        assert "," not in expr, expr
+
+
 def _css():
     root = Path(__file__).resolve().parents[1]
     return (root / "html" / "css" / "layout.css").read_text()

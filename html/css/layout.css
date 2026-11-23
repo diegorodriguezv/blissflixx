@@ -235,6 +235,27 @@ ul.navitems-left>li {
   background: #d32f2f;
 }
 
+/*
+ * The ruler along the clickable zone, for judging where to click. The ticks
+ * share one centre line -- the middle of the zone, 21px from the strip's top
+ * (the zone starts at 40% of 30px, so its middle is 12 + 9) -- and they sit
+ * under the transparent hit layer, so a click on a tick seeks exactly as a
+ * click on white does. Navy, one pixel: subordinate in every way to the red
+ * marker, which is the only thing drawn over them.
+ */
+.pbar-tick {
+  position: absolute;
+  top: 18px;
+  height: 6px;
+  width: 1px;
+  background: #2a435a;
+}
+
+.pbar-tick-major {
+  top: 14px;
+  height: 14px;
+}
+
 .playnav {
   bottom: 0;
   /*

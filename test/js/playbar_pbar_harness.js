@@ -266,6 +266,44 @@ now = 0;
   check('and does not remember the last one', tag.pbarOn, false);
 }
 
+// The ruler: round steps, so a short clip and a long one read the same.
+{
+  const tag = newTag();
+  store.status = status({ Position: 1, Length: 45 });
+  tag.updateStatus();
+  const at = (ts) => ts.map(t => Math.round((t.pct * 45) / 100));
+  check('45s: majors every ten seconds', at(tag.ticks.filter(t => t.major)), [10, 20, 30, 40]);
+  check('45s: minors between them', tag.ticks.filter(t => !t.major).length, 3);
+  tag.updateStatus();
+  check('45s: the same on the next poll', at(tag.ticks.filter(t => t.major)), [10, 20, 30, 40]);
+}
+
+{
+  const tag = newTag();
+  store.status = status({ Position: 1, Length: 5400 });
+  tag.updateStatus();
+  const majors = tag.ticks.filter(t => t.major);
+  check('90 minutes: majors at quarter hours', Math.round((majors[0].pct * 5400) / 100), 900);
+  check('90 minutes: five of them along the film', majors.length, 5);
+}
+
+{
+  const tag = newTag();
+  store.status = status({ Position: 1, Length: 28800 });
+  tag.updateStatus();
+  const hours = tag.ticks
+    .filter(t => t.major)
+    .map(t => Math.round((t.pct * 28800) / 100) / 3600);
+  check('eight hours: majors on the hour', hours, [1, 2, 3, 4, 5, 6, 7]);
+}
+
+{
+  const tag = newTag();
+  store.status = status({ Title: 'No Length', Position: 100, Length: 0 });
+  tag.updateStatus();
+  check('no length, no ruler', tag.ticks, []);
+}
+
 if (failed) {
   console.log(`${failed} failed`);
   process.exit(1);
