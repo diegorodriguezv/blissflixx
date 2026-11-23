@@ -5,6 +5,13 @@ import lxml.html
 from lib.chanutils import get
 from lib.playitem import PlayItem, PlayItemList
 
+#: Everything this channel plays is a trailer, and no subtitle service has
+#: trailers. Offering Add Subtitles on a trailer searched OpenSubtitles for
+#: the film's name and found the film's subtitles -- subtitles that do not
+#: match the trailer's cut, if the film has any at all. The platform reads
+#: this and does not draw the button.
+SUPPORTS_SUBTITLES = False
+
 _FEEDLIST = [
     {
         "title": "Top Rentals",
