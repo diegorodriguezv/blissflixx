@@ -267,7 +267,11 @@ ul.navitems-left>li {
   position: absolute;
   top: 0;
   transform: translateX(-50%);
-  font-size: 11px;
+  /* The band is 12px and the glyphs are not: 14px digits have no descenders
+     (10s, 15m, 1h15m), so they stay inside the band while reading on a phone,
+     where 11px was a squint. The tight line-height is what keeps the baseline
+     above the ruler below it. */
+  font-size: 14px;
   line-height: 12px;
   color: #2a435a;
   white-space: nowrap;
