@@ -199,10 +199,10 @@ ul.navitems-left>li {
  * First visible pixel to last, because the film is what the width of the
  * screen is for and anything shorter would have to be explained.
  *
- * The strip is taller than the line it shows. The line is what the eye is
- * meant to find from across the room; the strip is what a click lands on,
- * because a six-pixel target is not one. Nothing of the strip is painted but
- * the line and the marker, so what is hidden is exactly what was there before.
+ * The strip is the line, all of it, white: a six-pixel sliver at the bottom
+ * read as a bar that had not drawn. The marker is the film's place, three
+ * pixels wide and the strip's full height. Nothing is painted but the strip
+ * and the marker, so what is hidden is exactly what was there before.
  */
 .pbar {
   position: fixed;
@@ -210,24 +210,16 @@ ul.navitems-left>li {
   right: 0;
   bottom: 84px;
   height: 30px;
+  background: #ffffff;
   z-index: 1000;
   cursor: pointer;
 }
 
-.pbar-line {
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  height: 6px;
-  background: #ffffff;
-}
-
 .pbar-marker {
   position: absolute;
+  top: 0;
   bottom: 0;
   width: 3px;
-  height: 14px;
   margin-left: -1px;
   background: #d32f2f;
 }
