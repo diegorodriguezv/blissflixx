@@ -33,7 +33,12 @@ testpaths = ["test"]
 pythonpath = [".", "chls"]
 # Fail fast if a test tries to reach the network. The old scripts in test/ were
 # exactly that: they hit live sites and printed whatever came back.
-addopts = "-ra --strict-markers"
+#
+# The marker is opt-in rather than opt-out: a live web site answers a test
+# differently on a bad afternoon, and the suite had always been offline and
+# deterministic until the first marked test existed. Run the live ones with
+# pytest -m network.
+addopts = "-ra --strict-markers -m \"not network\""
 markers = [
-    "network: test needs live network access (deselect with '-m \"not network\"')",
+    "network: test needs live network access (opt in with '-m network')",
 ]
