@@ -200,8 +200,8 @@ ul.navitems-left>li {
  * screen is for and anything shorter would have to be explained.
  *
  * The strip is the line, all of it, white: a six-pixel sliver at the bottom
- * read as a bar that had not drawn. The top fifth is margin -- part of the
- * picture, not of the click target: a click that misses high is swallowed
+ * read as a bar that had not drawn. The top two fifths are margin -- part of
+ * the picture, not of the click target: a click that misses high is swallowed
  * by the strip instead of landing on the page behind it, where it would open
  * whatever it landed on. The marker's top edge is the clickable zone's, so
  * where the red stands is where to aim. Nothing is painted but the strip
@@ -221,7 +221,7 @@ ul.navitems-left>li {
   position: absolute;
   left: 0;
   right: 0;
-  top: 20%;
+  top: 40%;
   bottom: 0;
   cursor: pointer;
 }

@@ -63,7 +63,7 @@ def _css():
     return (root / "html" / "css" / "layout.css").read_text()
 
 
-def test_the_top_fifth_is_margin_not_a_click_target():
+def test_the_top_two_fifths_are_margin_not_a_click_target():
     """
     A click that misses high is swallowed by the strip rather than landing on
     the page behind it, where it would open whatever it landed on. The
@@ -75,6 +75,6 @@ def test_the_top_fifth_is_margin_not_a_click_target():
     assert '<div class="pbar-hit" onclick={ seekTo }>' in tag
     css = _css()
     hit = css[css.index(".pbar-hit"): css.index("}", css.index(".pbar-hit")) + 1]
-    assert "top: 20%" in hit
+    assert "top: 40%" in hit
     # The marker lives inside the hit, aligned with it top and bottom.
     assert tag.index('class="pbar-hit"') < tag.index('class="pbar-marker"')
