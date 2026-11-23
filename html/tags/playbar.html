@@ -223,17 +223,20 @@
       return el
     }
 
-    function _clearTicks(root) {
+    //: Both halves of the ruler: forgetting the labels left each film's
+    //: drawn over the last one's, letters over letters at almost the same
+    //: places.
+    function _clearRuler(root) {
       var holder = root && root.querySelector('.pbar')
       if (!holder) return
-      var ticks = holder.querySelectorAll('.pbar-tick')
-      for (var i = 0; i < ticks.length; i++) holder.removeChild(ticks[i])
+      var drawn = holder.querySelectorAll('.pbar-tick, .pbar-label')
+      for (var i = 0; i < drawn.length; i++) holder.removeChild(drawn[i])
     }
 
     function _drawTicks(root, ticks) {
       var holder = root && root.querySelector('.pbar')
       if (!holder) return
-      _clearTicks(root)
+      _clearRuler(root)
       // Under the hit layer, so a click on a tick seeks exactly as a click
       // on white does, and the red marker stays the topmost thing drawn.
       var hit = holder.querySelector('.pbar-hit')
@@ -433,7 +436,7 @@
         if (self.ticksLength !== null) {
           self.ticksLength = null
           self.ticks = []
-          _clearTicks(self.root)
+          _clearRuler(self.root)
         }
         return
       }

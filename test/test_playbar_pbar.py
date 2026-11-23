@@ -78,6 +78,9 @@ def test_the_ruler_is_round_steps():
     # Majors carry their time in the film's own scale, in the margin band.
     assert "_tickLabel" in tag
     assert "pbar-label" in tag
+    # The redraw clears both halves: forgetting the labels stacked each
+    # film's over the last one's, letters over letters.
+    assert ".pbar-tick, .pbar-label" in tag
     css = _css()
     assert ".pbar-tick" in css
     assert ".pbar-tick-major" in css
