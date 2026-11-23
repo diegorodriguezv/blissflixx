@@ -10,7 +10,7 @@
   -->
   <div show={ channel }>
     <channelheader channel={ channel }></channelheader>
-    <feedlist feeds={ channel.feeds } active={ -1 } page={ '#channel/' + chid }></feedlist>
+    <feedlist feeds={ channel.feeds } active={ lastFeed } page={ '#channel/' + chid }></feedlist>
   </div>
   <div class="row break-long-word">
     <span class="col-xs-12 item-list-title">
@@ -25,6 +25,10 @@
 
     this.on('mount', function() {
       self.results = null
+      // The feed this show was reached from, when the box remembers it;
+      // without a record the tabs stay unlit and the dropdown shows its
+      // prompt.
+      self.lastFeed = -1
       self.update()
       riot.route.exec(function(page, chid, title, link) {
         self.chid = decodeURIComponent(chid)
@@ -36,6 +40,8 @@
           if (err) return
           self.channel = channel
           if (!self.channel.feeds) self.channel.feeds = []
+          var last = channelStore.lastFeed[self.chid]
+          if (last != null) self.lastFeed = last
           self.update()
         })
         channelStore.showMore(self.chid, self.link, function(err, items) {

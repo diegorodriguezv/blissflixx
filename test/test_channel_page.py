@@ -52,13 +52,32 @@ class TestTheHeaderIsShared:
     def test_the_more_page_points_its_tabs_at_the_channel(self):
         page = _showmore()
         assert "page={ '#channel/' + chid }" in page
-        assert "active={ -1 }" in page
+        # The feed it came from when there is one, unlit otherwise.
+        assert "active={ lastFeed }" in page
 
-    def test_no_tab_is_lit_on_a_more_page(self):
-        # Nothing is active there, and the dropdown still has to show an
-        # option rather than a blank.
+    def test_the_dropdown_prompts_when_no_feed_is_chosen(self):
+        """
+        The dropdown used to display its first option when nothing was
+        active, so on a "more" page it said Latest while the page was not on
+        Latest -- and picking Latest then did nothing, because the value the
+        dropdown already had was the one being picked. A prompt option cannot
+        be mistaken for a feed, and picking any feed works.
+        """
         tag = (ROOT / "html" / "tags" / "feedlist.html").read_text()
-        assert "self.chosen >= 0 ? self.chosen : 0" in tag
+        assert 'value="-1" disabled' in tag
+        assert "noneChosen" in tag
+
+    def test_the_channel_remembers_the_feed_it_showed(self):
+        page = _page()
+        store = _store()
+        assert "channelStore.rememberFeed(self.chid, self.feed)" in page
+        assert "self.rememberFeed" in store
+        assert "self.lastFeed" in store
+
+    def test_the_more_page_offers_the_feed_it_came_from(self):
+        page = _showmore()
+        assert "active={ lastFeed }" in page
+        assert "channelStore.lastFeed[self.chid]" in page
 
     def test_the_tag_is_registered(self):
         index = (ROOT / "html" / "index.html").read_text()

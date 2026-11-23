@@ -130,6 +130,16 @@ function ChannelStore() {
     Utils.rpc('channels', 'feedlist', {chid: chid}, cb)
   }
 
+  //: The feed a channel last showed, so a page opened from one of its rows
+  //: can offer that feed as the one lit rather than pretending nothing is
+  //: chosen. Kept here rather than in the route because the row's link knows
+  //: nothing about the list it was clicked in.
+  self.lastFeed = {}
+
+  self.rememberFeed = function(chid, idx) {
+    self.lastFeed[chid] = idx
+  }
+
   self.searchChannel = function(chid, q, cb) {
     var key = self.createKey(chid, q)
     var ttl = chid === 'bfch_iptv_org' ? 0 : undefined

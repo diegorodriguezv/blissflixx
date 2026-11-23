@@ -7,6 +7,14 @@
       with a handful keep the tabs they have always had.
       -->
       <select show={ many } class="form-control feed-select" onchange={ change }>
+        <!--
+        The prompt a page shows when no feed is active -- a "more" page, which
+        is one show rather than a feed. Without it the dropdown fell back to
+        displaying its first option, which said "Latest" on a page that was
+        not on Latest; picking Latest then changed nothing, because the value
+        the dropdown already had was the one being picked.
+        -->
+        <option if={ noneChosen } value="-1" disabled>Choose a feed...</option>
         <option each={ f in flat } value={ f.index } __selected={ f.index == chosen } __disabled={ f.disabled }>{ f.title }</option>
       </select>
       <span show={ !many }>
@@ -81,18 +89,17 @@
       self.many = opts.feeds.length > MANY
       groupFeeds()
       self.chosen = chosenIndex()
+      self.noneChosen = self.chosen < 0
       if (self.root) {
         var picker = self.root.querySelector('select.feed-select')
-        // Nothing active (a "more" page): the dropdown still has to show an
-        // option, and the first one is the honest one to sit there unlit.
-        if (picker) picker.value = String(self.chosen >= 0 ? self.chosen : 0)
+        if (picker) picker.value = String(self.chosen)
       }
     })
 
     this.on('updated', function() {
       if (!opts.feeds || !self.many) return
       var picker = self.root && self.root.querySelector('select.feed-select')
-      if (picker) picker.value = String(self.chosen >= 0 ? self.chosen : 0)
+      if (picker) picker.value = String(self.chosen)
     })
 
     change(e) {

@@ -110,6 +110,9 @@
     }
 
     showFeed() {
+      // Remembered for the pages this feed's rows open, so their feed tabs
+      // can say where the person came from.
+      channelStore.rememberFeed(self.chid, self.feed)
       self.waitMsg = FEED_WAIT
       self.emptyMsg = FEED_EMPTY
       self.blocked = null
