@@ -194,6 +194,44 @@ ul.navitems-left>li {
 /*
  * Player navigation bar
  */
+/*
+ * The position bar: a film's full width, sitting on top of the player's bar.
+ * First visible pixel to last, because the film is what the width of the
+ * screen is for and anything shorter would have to be explained.
+ *
+ * The strip is taller than the line it shows. The line is what the eye is
+ * meant to find from across the room; the strip is what a click lands on,
+ * because a six-pixel target is not one. Nothing of the strip is painted but
+ * the line and the marker, so what is hidden is exactly what was there before.
+ */
+.pbar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 84px;
+  height: 30px;
+  z-index: 1000;
+  cursor: pointer;
+}
+
+.pbar-line {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 6px;
+  background: #ffffff;
+}
+
+.pbar-marker {
+  position: absolute;
+  bottom: 0;
+  width: 3px;
+  height: 14px;
+  margin-left: -1px;
+  background: #d32f2f;
+}
+
 .playnav {
   bottom: 0;
   /*

@@ -524,6 +524,36 @@ class TestVlcControl:
         """
         assert self._sent_from("plus30", 100.0, None) == "seek 130"
 
+    def test_the_position_bar_seeks_to_a_place(self):
+        assert self._sent_from("seek:600", 100.0, 1297.0) == "seek 600"
+
+    def test_a_place_past_the_end_stops_short_of_it(self):
+        """The same rule a step gets: on the length is an immediate end."""
+        assert self._sent_from("seek:1297", 100.0, 1297.0) == "seek 1296"
+
+    def test_a_place_before_the_start_stops_at_it(self):
+        assert self._sent_from("seek:-5", 100.0, 1297.0) == "seek 0"
+
+    def test_a_place_in_a_film_with_no_length_goes_there(self):
+        assert self._sent_from("seek:600", 100.0, None) == "seek 600"
+
+    def test_a_place_is_refused_when_the_player_will_not_say(self):
+        """
+        A step falls back blind in this case, on the grounds that a press is
+        better served approximately than refused. An absolute jump has no
+        approximately about it -- and the bar that sent it knew a length the
+        player is no longer confirming.
+        """
+        proc = VlcProcess()
+        sent = []
+        proc._send_command = lambda command: sent.append(command) or True
+        proc._read_position = lambda: None
+        proc.control("seek:600")
+        assert sent == []
+
+    def test_a_mangled_place_is_ignored(self):
+        assert self._sent("seek:not-a-place") is None
+
     @staticmethod
     def _seeking(counts, paused=False):
         """

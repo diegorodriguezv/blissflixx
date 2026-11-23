@@ -2157,6 +2157,16 @@ class VlcProcess(PlayerBackend):
 
     def _stalled(self, seconds):
         """
+        Move the film by a step, then check whether anything came back.
+
+        The looking is _confirm_seek's; this is the step that asks for it.
+        """
+        return self._confirm_seek(
+            lambda: self._seek(seconds), "%+d seconds" % seconds
+        )
+
+    def _confirm_seek(self, move, what):
+        """
         Move the film, then check whether anything came back.
 
         Returns True when the seek went somewhere and the picture never
@@ -2181,7 +2191,12 @@ class VlcProcess(PlayerBackend):
         would cry wolf over a film that was playing.
         """
         before = self._decoded_frames()
-        self._seek(seconds)
+        moved = move()
+        if moved is False:
+            # The player would not say where it is: there is no seek to
+            # confirm, and saying "Seek" over a film that never moved would be
+            # the lie this whole mechanism exists to rule out.
+            return None
         self._report_progress(label="Seek")
         if before is None:
             # Nothing to compare against, so there is nothing to wait for.
@@ -2196,8 +2211,8 @@ class VlcProcess(PlayerBackend):
         if self._paused:
             return None
         cherrypy.log(
-            "VLC SEEK STALLED: %+d seconds, no frames decoded in %s seconds"
-            % (seconds, _format_seconds(_SEEK_SETTLE))
+            "VLC SEEK STALLED: %s, no frames decoded in %s seconds"
+            % (what, _format_seconds(_SEEK_SETTLE))
         )
         self._show_overlay(self._where("Stalled"), hold=_CONFIRM_HOLD)
         return True
@@ -2250,9 +2265,37 @@ class VlcProcess(PlayerBackend):
         if reported is None:
             return None
         position, length = reported
+        return self._clamped(position + seconds, length)
+
+    def _clamped(self, target, length):
+        """
+        A place in the film, held inside it. See _seek_target for why one
+        second short of the end rather than on it.
+        """
         if length is None or length <= 0:
-            return max(0.0, position + seconds)
-        return max(0.0, min(position + seconds, length - 1))
+            return max(0.0, target)
+        return max(0.0, min(target, length - 1))
+
+    def _seek_to(self, target):
+        """
+        Move the film to a place, rather than by a step.
+
+        The position bar's click: the target is where in the film the click
+        means, already absolute, so the only arithmetic here is the clamping a
+        step gets.
+
+        False when the player will not say where it is. A step falls back blind
+        in that case, on the grounds that a press is better served
+        approximately than refused; an absolute jump has no approximately
+        about it, and the bar that sent it knew a length the player is no
+        longer confirming.
+        """
+        reported = self._read_position()
+        if reported is None:
+            return False
+        _position, length = reported
+        self._send_command("seek %d" % self._clamped(target, length))
+        return True
 
     def control(self, action):
         """
@@ -2322,6 +2365,18 @@ class VlcProcess(PlayerBackend):
             self._force_quit()
         elif action in ("plus30", "minus30", "plus600", "minus600"):
             self._stalled(_SEEK_SECONDS[action])
+        elif isinstance(action, str) and action.startswith("seek:"):
+            # The position bar's click: a place in the film, not a step. The
+            # interface knows the length and sends the place; the clamping is a
+            # step's, and so is the stall check below, because a long jump is
+            # exactly when a weak source may not come back.
+            try:
+                wanted = float(action.split(":", 1)[1])
+            except (IndexError, ValueError):
+                return
+            self._confirm_seek(
+                lambda: self._seek_to(wanted), "to %s" % _format_seconds(wanted)
+            )
         elif action in ("volup", "voldown"):
             # Stepped in percent, not in VLC's units, and that is the whole fix.
             # A tenth of 256 is 25.6, so a unit step had to be rounded to 26 --

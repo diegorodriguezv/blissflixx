@@ -1,9 +1,23 @@
 <playbar>
   <playerr show={ powerMsg || ((status.Error || status.Notice) && !errorClosed) } status={ status } msg={ powerMsg } ></playerr>
 
+  <!--
+  The position bar, for films only. It is hidden until the film's name is
+  clicked, and while it is hidden the interface is exactly what it was.
+
+  Full width, first pixel to last: the film is what the width of the screen is
+  for. The white line is what the eye is meant to find; the strip it sits in is
+  taller than that, because a click aimed at a six-pixel line from across the
+  room has to still land somewhere, and the red marker is the film's place.
+  -->
+  <div show={ pbar } class="pbar" onclick={ seekTo }>
+    <div class="pbar-line"></div>
+    <div class="pbar-marker"></div>
+  </div>
+
   <div show={ status.State } class="navibar playnav player-bar">
     <div class="container">
-      <span class="now-playing-title">
+      <span class="now-playing-title" onclick={ togglePbar }>
         <i show={ starting } class="fa fa-circle-o-notch fa-spin"></i>
         <i show={ !starting } class="fa fa-play"></i>
         <span class="truncate">{ status.Title }</span>
@@ -135,6 +149,11 @@
     //: is not producing. One and a half seconds covers a poll and a half.
     var CLOCK_LEAD = 1.5
 
+    //: The position bar starts hidden, on every play. It is the film's own
+    //: name that shows it.
+    self.pbarOn = false
+    self.pbar = false
+
     this.on('mount', function() {
       self.powerMsg = powerStore.getMsg()
       self.silentPolls = 0
@@ -154,6 +173,9 @@
       self.clockTimer = setInterval(function() {
         if (!self.status || self.status.State != 3) return
         if (self.starting || self.lingering) return
+        // The marker moves with the clock: the poll samples once a second,
+        // and a marker that stepped once a second reads as broken.
+        self.moveMarker()
         var text = self.clockText()
         if (!text || text === self.pill) return
         self.pill = text
@@ -208,6 +230,7 @@
         self.posBase = null
         self.pictureAt = null
         self.pausedAt = null
+        self.pbarOn = false
       }
       // When the picture started, for a live stream's clock. A live stream has
       // no position to show: the player's number is the rolling HLS window,
@@ -281,12 +304,71 @@
       if (!self.status.Error && !self.status.Notice) self.errorClosed = false
       self.silentPolls = self.status.State ? 0 : self.silentPolls + 1
       if (self.showing && self.silentPolls > SILENT_POLLS) self.hideRemote()
+      self.refreshPbar()
       self.update()
     }
 
     updatePower() {
       self.powerMsg = powerStore.getMsg()
       self.update()
+    }
+
+    //: Whether there is a position bar to show at all. A live stream has no
+    //: length to place a click in, and a film still loading is not anywhere
+    //: yet -- the name of a live stream is clickable, it just does nothing.
+    pbarPossible() {
+      return !!(self.status &&
+                self.status.State == 3 &&
+                !self.starting &&
+                !self.status.Live &&
+                typeof self.status.Length === 'number' &&
+                self.status.Length > 0)
+    }
+
+    //: The shown-or-not of the bar, from the toggle and the film above.
+    refreshPbar() {
+      self.pbar = self.pbarOn && self.pbarPossible()
+      self.moveMarker()
+    }
+
+    //: The name's click: the only way the bar is shown or hidden.
+    togglePbar(e) {
+      if (!self.pbarPossible()) return true
+      self.pbarOn = !self.pbarOn
+      self.refreshPbar()
+      self.update()
+      return true
+    }
+
+    //: The red marker's place, as a percentage of the film.
+    moveMarker() {
+      if (!self.pbar) return
+      var length = self.status && self.status.Length
+      var position = self.filmPosition()
+      if (!length || position === null) return
+      var pct = (position / length) * 100
+      if (pct < 0) pct = 0
+      if (pct > 100) pct = 100
+      self.markerPct = pct
+      // Written straight to the element rather than through an expression:
+      // the marker moves four times a second, and a full riot update for each
+      // of those is not a price worth paying for a style attribute.
+      var marker = self.root && self.root.querySelector('.pbar-marker')
+      if (marker) marker.style.left = pct + '%'
+    }
+
+    //: A click on the bar is where to play from.
+    seekTo(e) {
+      var length = self.status && self.status.Length
+      if (!length || length <= 0) return true
+      var bounds = e.currentTarget.getBoundingClientRect()
+      if (!bounds || bounds.width <= 0) return true
+      var fraction = (e.clientX - bounds.left) / bounds.width
+      fraction = Math.max(0, Math.min(1, fraction))
+      playerStore.control('seek:' + Math.round(fraction * length), function(err) {
+        if (err) return Utils.showError(err)
+      })
+      return true
     }
 
     //: Where the film is, as a clock. See CLOCK_LEAD.
@@ -304,20 +386,31 @@
         }
         return self.duration((until - self.pictureAt) / 1000)
       }
+      var position = self.filmPosition()
+      if (position !== null && position !== undefined) {
+        return self.clockPair(position)
+      }
+      return ''
+    }
+
+    //: Where the film is, from the last sample plus the time since it. The
+    //: pill prints it and the position bar's marker moves on it, so it is one
+    //: number rather than two readings that could disagree.
+    filmPosition() {
       if (self.posBase !== null && self.posBase !== undefined) {
         var lead = self.status && self.status.Paused
           ? 0
           : Math.min((Date.now() - self.posAt) / 1000, CLOCK_LEAD)
-        return self.clockPair(self.posBase + lead)
+        return self.posBase + lead
       }
       // The player has not said where the film is. The pill is also the only
       // way into the diagnostics panel, so it does not go blank while
       // something is playing: count from the play request instead.
       if (self.status && self.status.State == 3 &&
           typeof self.status.Elapsed === 'number') {
-        return self.duration(self.status.Elapsed)
+        return self.status.Elapsed
       }
-      return ''
+      return null
     }
 
     //: "where it is / how long it is", both as h:m:s. The length is left off
