@@ -19,6 +19,52 @@ def _store():
     return (ROOT / "html" / "js" / "ChannelStore.js").read_text()
 
 
+def _showmore():
+    return (ROOT / "html" / "pages" / "showmore.html").read_text()
+
+
+class TestTheHeaderIsShared:
+    """
+    A channel's "more" page wears the same header as its channel page.
+
+    It used to be a back button and a title, which read as a page belonging to
+    no channel at all; the header is one tag now so both pages say the same
+    thing.
+    """
+
+    def test_both_pages_use_the_header_tag(self):
+        for page in (_page(), _showmore()):
+            assert "<channelheader" in page
+
+    def test_the_header_carries_the_search_box(self):
+        tag = (ROOT / "html" / "tags" / "channelheader.html").read_text()
+        assert 'name="f_query"' in tag
+        assert "Utils.goRoute('channel', opts.channel.id, 's'" in tag
+
+    def test_the_channel_page_no_longer_doubles_the_header(self):
+        page = _page()
+        assert "search-box" not in page
+        assert "channel-logo" not in page
+
+    def test_the_channel_page_passes_its_query_to_the_header(self):
+        assert "<channelheader channel={ channel } query={ query }>" in _page()
+
+    def test_the_more_page_points_its_tabs_at_the_channel(self):
+        page = _showmore()
+        assert "page={ '#channel/' + chid }" in page
+        assert "active={ -1 }" in page
+
+    def test_no_tab_is_lit_on_a_more_page(self):
+        # Nothing is active there, and the dropdown still has to show an
+        # option rather than a blank.
+        tag = (ROOT / "html" / "tags" / "feedlist.html").read_text()
+        assert "self.chosen >= 0 ? self.chosen : 0" in tag
+
+    def test_the_tag_is_registered(self):
+        index = (ROOT / "html" / "index.html").read_text()
+        assert "tags/channelheader.html" in index
+
+
 class TestTheBlockedLine:
     def test_it_sits_between_the_feeds_and_the_results(self):
         page = _page()

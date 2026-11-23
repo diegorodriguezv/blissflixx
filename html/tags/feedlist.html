@@ -83,14 +83,16 @@
       self.chosen = chosenIndex()
       if (self.root) {
         var picker = self.root.querySelector('select.feed-select')
-        if (picker) picker.value = String(self.chosen)
+        // Nothing active (a "more" page): the dropdown still has to show an
+        // option, and the first one is the honest one to sit there unlit.
+        if (picker) picker.value = String(self.chosen >= 0 ? self.chosen : 0)
       }
     })
 
     this.on('updated', function() {
       if (!opts.feeds || !self.many) return
       var picker = self.root && self.root.querySelector('select.feed-select')
-      if (picker) picker.value = String(self.chosen)
+      if (picker) picker.value = String(self.chosen >= 0 ? self.chosen : 0)
     })
 
     change(e) {

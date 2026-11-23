@@ -1,4 +1,17 @@
 <showmore>
+  <!--
+  A channel's second page: the larger list one of its rows opened. It wears
+  the same header the channel page does -- logo, name, search, and the feed
+  tabs, which are how you leave -- so it reads as the same channel rather
+  than as a page that belongs to nothing.
+
+  No tab is marked active: this is one show, not a feed, and a highlighted
+  tab would say otherwise.
+  -->
+  <div show={ channel }>
+    <channelheader channel={ channel }></channelheader>
+    <feedlist feeds={ channel.feeds } active={ -1 } page={ '#channel/' + chid }></feedlist>
+  </div>
   <div class="row break-long-word">
     <span class="col-xs-12 item-list-title">
     <backbtn></backbtn> <span>{ title }</span>
@@ -17,7 +30,14 @@
         self.chid = decodeURIComponent(chid)
         self.title = decodeURIComponent(title)
         self.link = decodeURIComponent(link)
-        self.update()
+        // The channel this page belongs to, for its header. The list it came
+        // from is already in the store, so this is usually free.
+        channelStore.getChannel(self.chid, function(err, channel) {
+          if (err) return
+          self.channel = channel
+          if (!self.channel.feeds) self.channel.feeds = []
+          self.update()
+        })
         channelStore.showMore(self.chid, self.link, function(err, items) {
           if (err) return Utils.showError(err)
           self.results = items;

@@ -1,21 +1,5 @@
 <channel>
-  <div class="row">
-    <div class="col-md-2 col-sm-4 col-xs-3">
-      <img class="channel-logo" src={ channel.img }>
-    </div>
-    <div class="col-md-10 col-sm-8 col-xs-9">
-      <h1 class="channel-title">{ channel.title }</h1>
-    </div>
-    <div show={ channel.search } class="col-md-10 col-sm-8 col-xs-12">
-      <form onsubmit={ submitSearch } name='channel_search'>
-        <div class="search-box">
-          <input oninput={enable_clear_form} onclick={paste_clipboard} class="form-control" type="search" name="f_query" placeholder="Search channel" required="" />
-          <button onclick={clear_form} class="clearbtn invisible"><i class="fa fa-close"></i></button>
-          <button type="submit" class="searchbtn"><i class="fa fa-search"></i></button>
-        </div>
-      </form>
-    </div>
-  </div>
+  <channelheader channel={ channel } query={ query }></channelheader>
   <feedlist feeds={ channel.feeds } active={ feed } page={ '#channel/' + channel.id}></feedlist>
   <!-- What the channel's block list took out of this listing, beside the
        results it belongs to. A row can carry several words, so the per-word
@@ -35,12 +19,6 @@
     var SEARCH_EMPTY = "There are no results for this query."
 
     this.on('mount', function() {
-      $('.search-box input').on('keypress', function(e){
-        if (e.keyCode == 13){
-          e.preventDefault()
-          self.submitSearch(e)
-        };
-      });
       riot.route.exec(function(page, chid, feed, q) {
         self.chid = chid
         // A search from the last channel must not follow the person into
@@ -55,9 +33,6 @@
           // channel's own default feed applies, if it has one.
           self.explicitFeed = feed !== undefined && feed !== null && feed !== ''
           self.feed = self.explicitFeed ? parseInt(feed) : 0
-        }
-        if (self.query) {
-          self.enable_clear_form()
         }
         RiotControl.on('se_channels_changed', self.doUpdate)
         self.doUpdate()
@@ -120,7 +95,8 @@
     }
 
     showSearch() {
-      self.f_query.value = self.query
+      // The query itself is shown by the header, which fills its own box from
+      // the `query` the page passes it.
       self.waitMsg = SEARCH_WAIT
       self.emptyMsg = SEARCH_EMPTY
       self.blocked = null
@@ -146,31 +122,6 @@
       })
     }
 
-    submitSearch(e) {
-      var q = self.f_query.value
-      if (!q) return;
-      Utils.goRoute('channel', self.channel.id, 's', q)
-    }
-
-    enable_clear_form(){
-      $(".search-box .clearbtn").removeClass("invisible")
-    }
-
-    clear_form(){
-      self.f_query.value = ''
-      $(".search-box .clearbtn").addClass("invisible")
-      $('.search-box input').focus()
-    }
-    
-    paste_clipboard(){
-      navigator.clipboard.readText().then(function(text) {
-        if( text && !$('.search-box input').val() ) {
-          $('.search-box input').val(text)
-          console.log($('.search-box input').val())
-          self.enable_clear_form()
-        }
-      })
-    }
   </script>
 </channel>
 

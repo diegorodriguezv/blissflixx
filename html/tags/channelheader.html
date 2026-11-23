@@ -1,0 +1,86 @@
+<channelheader>
+  <!--
+  The header every one of a channel's pages wears: its logo, its name, the
+  search box, and (the page that includes this tag adds it) its feed tabs.
+
+  It is a tag rather than a page, because two pages need the same thing: the
+  channel page itself, and a "more" page opened from one of its rows. Without
+  it, the second looked like it belonged to no channel at all.
+
+  `query`, when given, is what the box shows -- the channel page passes the
+  query its route names so a reloaded search still reads in the box.
+  -->
+  <div class="row">
+    <div class="col-md-2 col-sm-4 col-xs-3">
+      <img class="channel-logo" src={ opts.channel.img }>
+    </div>
+    <div class="col-md-10 col-sm-8 col-xs-9">
+      <h1 class="channel-title">{ opts.channel.title }</h1>
+    </div>
+    <div show={ opts.channel.search } class="col-md-10 col-sm-8 col-xs-12">
+      <form onsubmit={ submitSearch } name='channel_search'>
+        <div class="search-box">
+          <input oninput={enable_clear_form} onclick={paste_clipboard} class="form-control" type="search" name="f_query" placeholder="Search channel" required="" />
+          <button onclick={clear_form} class="clearbtn invisible"><i class="fa fa-close"></i></button>
+          <button type="submit" class="searchbtn"><i class="fa fa-search"></i></button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script>
+    var self = this
+
+    // Enter in the box submits. This is here rather than left to the form
+    // because the TV's browser does not reliably submit a form on Enter for
+    // a box with no plain submit button in reach.
+    this.on('mount', function() {
+      $('.search-box input', self.root).on('keypress', function(e){
+        if (e.keyCode == 13){
+          e.preventDefault()
+          self.submitSearch(e)
+        };
+      });
+    })
+
+    // The query the page named, put in the box. Only written when it changes,
+    // so an update for some other reason never erases what was typed.
+    this.on('update', function() {
+      if (opts.query === self.lastQuery) return
+      self.lastQuery = opts.query
+      if (!self.f_query) return
+      self.f_query.value = opts.query || ''
+      $('.search-box .clearbtn', self.root).toggleClass(
+        'invisible', !self.f_query.value
+      )
+    })
+
+    submitSearch(e) {
+      var q = self.f_query.value
+      if (!q) return;
+      // From the channel page this searches it; from a "more" page it
+      // leaves for the channel's search results, which is the same thing to
+      // ask for -- a show page is one show, not a place to search from.
+      Utils.goRoute('channel', opts.channel.id, 's', q)
+    }
+
+    enable_clear_form(){
+      $(".search-box .clearbtn", self.root).removeClass("invisible")
+    }
+
+    clear_form(){
+      self.f_query.value = ''
+      $(".search-box .clearbtn", self.root).addClass("invisible")
+      $('.search-box input', self.root).focus()
+    }
+
+    paste_clipboard(){
+      navigator.clipboard.readText().then(function(text) {
+        if( text && !$('.search-box input', self.root).val() ) {
+          $('.search-box input', self.root).val(text)
+          self.enable_clear_form()
+        }
+      })
+    }
+  </script>
+</channelheader>
