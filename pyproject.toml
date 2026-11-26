@@ -2,6 +2,32 @@
 # other. Dependencies are in requirements.txt / requirements-dev.txt, which
 # configure_py.sh installs into ./virtualenv.
 
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "blissflixx"
+# The application reports the checkout's git identity at runtime; this number
+# exists for the packaging metadata and is set for real when the release is
+# tagged.
+version = "0.0.0"
+description = "A television interface for a Raspberry Pi"
+requires-python = ">=3.11"
+# Runtime dependencies are listed in requirements.txt, which configure_py.sh
+# installs into ./virtualenv. They are not repeated here: one list, one place
+# to audit.
+dependencies = []
+
+[project.scripts]
+blissflixx = "blissflixx.server:main"
+
+[tool.setuptools.packages.find]
+# Only the application is ours to install. `lib` is the one-release
+# compatibility alias, and `chls`/`plugins` are separate projects loaded by
+# name at runtime, not distributions of this one.
+include = ["blissflixx*"]
+
 [tool.black]
 # Vendored trees are not ours to format.
 extend-exclude = '''
