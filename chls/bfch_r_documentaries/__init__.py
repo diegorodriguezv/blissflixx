@@ -1,4 +1,4 @@
-import lib.chanutils.reddit
+import blissflixx.chanutils.reddit
 
 _SUBREDDIT = "Documentaries"
 
@@ -13,7 +13,7 @@ _FEEDLIST = [
     # archive computes one. Under those names a feed would be time order
     # wearing a label that promises a ranking, which is exactly what "Hot"
     # already was on every channel: the same first item as the feed beside it.
-    # See lib.chanutils.reddit._ranked_by_score for what Top does instead.
+    # See blissflixx.chanutils.reddit._ranked_by_score for what Top does instead.
     {"title": "New", "url": "http://www.reddit.com/r/Documentaries/new.json"},
     {"title": "Top", "url": "http://www.reddit.com/r/Documentaries/top.json"},
     {
@@ -164,8 +164,8 @@ def feedlist():
 
 
 def feed(idx):
-    return lib.chanutils.reddit.get_feed(_FEEDLIST[idx])
+    return blissflixx.chanutils.reddit.get_feed(_FEEDLIST[idx])
 
 
 def search(q):
-    return lib.chanutils.reddit.search(_SUBREDDIT, q)
+    return blissflixx.chanutils.reddit.search(_SUBREDDIT, q)

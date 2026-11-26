@@ -1,8 +1,8 @@
 import re
 import urllib.parse
 
-from lib.api.torrent import TorrentPlayItem
-from lib.chanutils import (
+from blissflixx.api.torrent import TorrentPlayItem
+from blissflixx.chanutils import (
     get_attr,
     get_doc,
     get_text,
@@ -11,8 +11,8 @@ from lib.chanutils import (
     select_one,
     series_season_episode,
 )
-from lib.chanutils.torrent import subtitle
-from lib.playitem import PlayItemList
+from blissflixx.chanutils.torrent import subtitle
+from blissflixx.playitem import PlayItemList
 
 _BASE = "https://www.limetorrents.fun"
 _SEARCH_URL = _BASE + "/search/all/%s/seeds/1/"

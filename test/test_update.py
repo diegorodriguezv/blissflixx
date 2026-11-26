@@ -17,15 +17,15 @@ import sys
 
 import pytest
 
-import lib.updater as updater
-from lib import gitutils
+import blissflixx.updater as updater
+from blissflixx import gitutils
 
 
 @pytest.fixture
 def api():
     """The handler, with the venv check already satisfied -- the suite is run
     with the right interpreter, so require_virtualenv() has nothing to say."""
-    import blissflixx
+    import blissflixx.server as blissflixx
 
     return blissflixx.Api()
 
@@ -86,7 +86,7 @@ class TestNothingIsAnnouncedUntilItIsTrue:
     """
 
     def test_nothing_changed_means_nothing_restarts(self, api, monkeypatch):
-        import blissflixx
+        import blissflixx.server as blissflixx
 
         stub_git(monkeypatch, [gitutils.GitResult("bfch_xnxx", True, False)])
         monkeypatch.setattr(
@@ -109,7 +109,7 @@ class TestNothingIsAnnouncedUntilItIsTrue:
         assert "already current" in answer["message"]
 
     def test_and_the_server_is_not_left_saying_it_is_updating(self, api, monkeypatch):
-        import blissflixx
+        import blissflixx.server as blissflixx
 
         stub_git(monkeypatch, [gitutils.GitResult("bfch_xnxx", True, False)])
         monkeypatch.setattr(
@@ -133,7 +133,7 @@ class TestNothingIsAnnouncedUntilItIsTrue:
             blissflixx.RESTARTING = False
 
     def test_something_changed_means_it_restarts(self, api, monkeypatch):
-        import blissflixx
+        import blissflixx.server as blissflixx
 
         stub_git(monkeypatch, [gitutils.GitResult("bfch_xnxx", True, True, "c1c1c1c")])
         monkeypatch.setattr(
@@ -158,7 +158,7 @@ class TestNothingIsAnnouncedUntilItIsTrue:
         The state that was impossible to get out of. A pull that fails used to
         leave RESTARTING true, because nothing ever cleared it.
         """
-        import blissflixx
+        import blissflixx.server as blissflixx
 
         monkeypatch.setattr(
             updater.gitutils,
@@ -440,7 +440,7 @@ class TestTheOtherDependenciesDoNotMove:
     """
 
     def test_a_changed_requirements_is_reported_not_installed(self, api, monkeypatch):
-        import blissflixx
+        import blissflixx.server as blissflixx
 
         stub_git(
             monkeypatch,
@@ -463,7 +463,7 @@ class TestTheOtherDependenciesDoNotMove:
             blissflixx.RESTARTING = False
 
     def test_and_an_unchanged_one_is_silent_about_it(self, api, monkeypatch):
-        import blissflixx
+        import blissflixx.server as blissflixx
 
         stub_git(
             monkeypatch,
@@ -487,7 +487,7 @@ class TestTheOtherDependenciesDoNotMove:
 
 class TestTheOutcomeOutlivesTheRestart:
     def test_it_is_written_down(self, api, monkeypatch):
-        import blissflixx
+        import blissflixx.server as blissflixx
 
         stub_git(monkeypatch, [gitutils.GitResult("bfch_xnxx", True, False)])
         monkeypatch.setattr(
@@ -511,7 +511,7 @@ class TestTheOutcomeOutlivesTheRestart:
         ]
 
     def test_and_the_server_can_be_asked_for_it_afterwards(self, api, monkeypatch):
-        import blissflixx
+        import blissflixx.server as blissflixx
 
         stub_git(
             monkeypatch,

@@ -17,10 +17,10 @@ import types
 
 import pytest
 
-from lib.player.dlsrvproc import DlsrvProcess
-from lib.player.processpipe import ProcessException
-from lib.player.subsproc import SubtitlesProcess
-from lib.player.ytdlproc import YoutubeDlProcess
+from blissflixx.player.dlsrvproc import DlsrvProcess
+from blissflixx.player.processpipe import ProcessException
+from blissflixx.player.subsproc import SubtitlesProcess
+from blissflixx.player.ytdlproc import YoutubeDlProcess
 
 YTDL_PORT = "9696"
 
@@ -181,7 +181,7 @@ class TestYoutubeDlReady:
 
     def test_download_destination_line_yields_the_output_path(self):
         """When yt-dlp writes a file rather than streaming, the path is used."""
-        from lib.player.processpipe import OUT_FILE
+        from blissflixx.player.processpipe import OUT_FILE
 
         out = self._ready("[download] Destination: " + OUT_FILE)
         assert out["outfile"] == OUT_FILE

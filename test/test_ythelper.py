@@ -1,5 +1,5 @@
 """
-URL classification in lib/player/ythelper.
+URL classification in blissflixx/player/ythelper.
 
 These regexes decide whether a stream is downloaded to disk first or piped
 straight to the player, so a false negative means a video silently buffers to a
@@ -8,7 +8,7 @@ file instead of playing immediately.
 
 import pytest
 
-from lib.player.ythelper import get_format, skip_download
+from blissflixx.player.ythelper import get_format, skip_download
 
 
 class TestSkipDownload:

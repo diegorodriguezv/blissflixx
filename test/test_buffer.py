@@ -7,7 +7,7 @@ tests set those explicitly rather than pretending there is a database.
 
 import os
 
-import lib.player.buffer as space
+import blissflixx.player.buffer as space
 
 
 def _touch(path, when):

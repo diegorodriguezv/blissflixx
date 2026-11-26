@@ -11,9 +11,9 @@ import types
 
 import pytest
 
-from lib.api import channels as api_channels
-from lib.api.channels import Channel, InstalledChannels
-from lib.api.common import ApiError
+from blissflixx.api import channels as api_channels
+from blissflixx.api.channels import Channel, InstalledChannels
+from blissflixx.api.common import ApiError
 
 
 FEEDS = [
@@ -125,7 +125,7 @@ class TestTheValues:
 
 class TestTheRows:
     def test_the_channel_language_overrides_the_global_one(self):
-        from lib.playitem import PlayItem, PlayItemList
+        from blissflixx.playitem import PlayItem, PlayItemList
 
         channel = _channel()
         listing = PlayItemList()
@@ -134,7 +134,7 @@ class TestTheRows:
         assert rows[0]["subs"]["lang"] == "spa"
 
     def test_without_a_channel_language_the_row_keeps_its_own(self):
-        from lib.playitem import PlayItem, PlayItemList
+        from blissflixx.playitem import PlayItem, PlayItemList
 
         channel = _channel()
         listing = PlayItemList()
@@ -143,7 +143,7 @@ class TestTheRows:
         assert rows[0]["subs"]["lang"] == "eng"
 
     def test_add_subtitles_is_dropped_when_the_channel_does_not_support_them(self):
-        from lib.playitem import PlayItem, PlayItemList
+        from blissflixx.playitem import PlayItem, PlayItemList
 
         listing = PlayItemList()
         listing.add(PlayItem("A film", None, "http://x/film.mp4"))
@@ -153,7 +153,7 @@ class TestTheRows:
         assert "addplaylist" in types_offered
 
     def test_add_subtitles_stays_when_the_channel_supports_them(self):
-        from lib.playitem import PlayItem, PlayItemList
+        from blissflixx.playitem import PlayItem, PlayItemList
 
         listing = PlayItemList()
         listing.add(PlayItem("A film", None, "http://x/film.mp4"))
@@ -166,7 +166,7 @@ class TestTheRows:
         them -- adult material, for one. The switch is local, so one install can
         differ from another without changing the channel.
         """
-        from lib.playitem import PlayItem, PlayItemList
+        from blissflixx.playitem import PlayItem, PlayItemList
 
         listing = PlayItemList()
         listing.add(PlayItem("A film", None, "http://x/film.mp4"))
@@ -184,7 +184,7 @@ class TestBlockedWords:
     """
 
     def _rows(self, *titles):
-        from lib.playitem import PlayItem, PlayItemList
+        from blissflixx.playitem import PlayItem, PlayItemList
 
         listing = PlayItemList()
         for title in titles:
@@ -261,7 +261,7 @@ class TestTheBlockedReport:
     """
 
     def _rows(self, *titles):
-        from lib.playitem import PlayItem, PlayItemList
+        from blissflixx.playitem import PlayItem, PlayItemList
 
         listing = PlayItemList()
         for title in titles:
@@ -501,13 +501,13 @@ class TestTheGlobalLanguage:
     """The language a channel uses when it has not chosen one of its own."""
 
     def test_it_cannot_be_set_to_something_unknown(self, settings):
-        from lib.api import subtitles
+        from blissflixx.api import subtitles
 
         with pytest.raises(ApiError):
             subtitles.set_language("nope")
 
     def test_it_round_trips(self, settings):
-        from lib.api import subtitles
+        from blissflixx.api import subtitles
 
         subtitles.set_language("spa")
         settings._cache.clear()
@@ -515,14 +515,14 @@ class TestTheGlobalLanguage:
         assert subtitles.language()["lang"] == "spa"
 
     def test_it_exposes_the_choices_the_form_needs(self, settings):
-        from lib.api import subtitles
+        from blissflixx.api import subtitles
 
         answer = subtitles.language()
         codes = [choice["code"] for choice in answer["languages"]]
         assert "eng" in codes and "spa" in codes
 
     def test_a_stored_value_that_is_gone_falls_back_to_english(self, settings):
-        from lib.api import subtitles
+        from blissflixx.api import subtitles
 
         settings.save("subtitles", {"lang": "zzz"})
         settings._cache.clear()

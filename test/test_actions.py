@@ -22,8 +22,8 @@ PLAYBAR = REPO_ROOT / "html" / "tags" / "playbar.html"
 
 # Action names VLC's control() compares against. Parsed rather than grepped so
 # mpv property names cannot be mistaken for actions.
-from lib.player.player import _Player
-from lib.player.vlcproc import VlcProcess
+from blissflixx.player.player import _Player
+from blissflixx.player.vlcproc import VlcProcess
 
 _control_source = textwrap.dedent(inspect.getsource(VlcProcess.control))
 _control_tree = ast.parse(_control_source)
@@ -154,7 +154,7 @@ class TestBackendCapabilityReporting:
         quietly dropped for a good reason has to be named here rather than
         passing unnoticed.
         """
-        from lib.player.backend import ALL_CAPABILITIES
+        from blissflixx.player.backend import ALL_CAPABILITIES
 
         missing = {c for c in ALL_CAPABILITIES if not VlcProcess().supports(c)}
         assert missing == set(), missing
@@ -165,7 +165,7 @@ class TestBackendCapabilityReporting:
         four seek actions. This records that the two vocabularies are not
         interchangeable, so nobody tries to compare them directly later.
         """
-        from lib.player.backend import ALL_CAPABILITIES
+        from blissflixx.player.backend import ALL_CAPABILITIES
 
         assert len(SERVER_ACTIONS) > len(ALL_CAPABILITIES)
         # Not a constant: this is a floor to catch actions losing their

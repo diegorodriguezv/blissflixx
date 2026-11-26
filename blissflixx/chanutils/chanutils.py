@@ -556,7 +556,7 @@ class UrlInfo:
         # html.unescape is still the right call for an "&amp;" in a title, but
         # it was tried and did not fix the reported problem, so returning the
         # decoded form is left as a deliberate decision rather than an
-        # accident. Only caller is lib/api/playlink.py, which shows the title
+        # accident. Only caller is blissflixx/api/playlink.py, which shows the title
         # in the player.
         #
         # That caller also takes a stream, and a stream has no <title> in it at

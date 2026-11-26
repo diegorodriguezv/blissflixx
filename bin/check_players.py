@@ -20,7 +20,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from lib.player.backends import backend_names, resolve_config  # noqa: E402
+from blissflixx.player.backends import backend_names, resolve_config  # noqa: E402
 
 class Check:
     """One thing that has to be present for a backend to run."""
@@ -179,7 +179,7 @@ def missing_for(results, backend):
 
 def main(argv=None):
     argv = argv if argv is not None else sys.argv[1:]
-    from lib.player.backends import DEFAULT_BACKEND
+    from blissflixx.player.backends import DEFAULT_BACKEND
 
     active = DEFAULT_BACKEND
     wanted = [a for a in argv if not a.startswith("-")] or None

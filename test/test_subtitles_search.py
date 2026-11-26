@@ -8,7 +8,7 @@ is classified as an episode without a season, and the search read
 
 import pytest
 
-from lib.api.subtitles import _search_name
+from blissflixx.api.subtitles import _search_name
 
 
 class TestEpisodesWithASeason:
@@ -85,7 +85,7 @@ class TestWhatIsSentToOpenSubtitles:
     """
 
     def _command(self, monkeypatch, **kwargs):
-        from lib.api import subtitles as api
+        from blissflixx.api import subtitles as api
 
         calls = []
 
@@ -153,7 +153,7 @@ class TestWhatIsSentToOpenSubtitles:
         assert cmd[cmd.index("-e") + 1] == "1"
 
     def test_a_whole_series_pack_is_not_one_search(self, monkeypatch):
-        from lib.api import subtitles as api
+        from blissflixx.api import subtitles as api
 
         def fail(cmd, **opts):
             raise AssertionError("a series pack must not reach OpenSubtitles")
@@ -188,7 +188,7 @@ class TestTheFileName:
     def _mark(monkeypatch, subtitles, **kwargs):
         import json
 
-        from lib.api import subtitles as api
+        from blissflixx.api import subtitles as api
 
         def fake_check_output(cmd, **opts):
             # The shape getsubs --list prints, which search only reads.

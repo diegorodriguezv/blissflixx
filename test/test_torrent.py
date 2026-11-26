@@ -10,14 +10,14 @@ import pathlib
 
 import pytest
 
-from lib.api.torrent import (
+from blissflixx.api.torrent import (
     is_torrent_url,
     set_torridx,
     subtitle_context,
     torrent2magnet,
     torrent_files,
 )
-from lib.chanutils.torrent import is_main, is_torrent, torrent_idx
+from blissflixx.chanutils.torrent import is_main, is_torrent, torrent_idx
 
 HASH = "A" * 40
 
@@ -116,7 +116,7 @@ class TestFileList:
 
     @pytest.fixture
     def items(self, monkeypatch):
-        from lib.api import torrent as torrent_api
+        from blissflixx.api import torrent as torrent_api
 
         monkeypatch.setattr(torrent_api, "torrent_files", lambda link: self.FILES)
         return torrent_api.showmore("magnet:?xt=urn:btih:" + HASH).to_dict()
@@ -189,7 +189,7 @@ class TestFileList:
         Matching on the name alone offered one of four, which is how a film with
         four subtitle files appeared to have one.
         """
-        from lib.api import torrent as torrent_api
+        from blissflixx.api import torrent as torrent_api
 
         monkeypatch.setattr(
             torrent_api,
@@ -211,7 +211,7 @@ class TestFileList:
         """
         The same generosity must not turn a season pack into sixty choices.
         """
-        from lib.api import torrent as torrent_api
+        from blissflixx.api import torrent as torrent_api
 
         monkeypatch.setattr(
             torrent_api,
@@ -233,7 +233,7 @@ class TestFileList:
         assert "addsubtitles" in types
 
     def test_a_torrent_without_subtitles_offers_no_action(self, monkeypatch):
-        from lib.api import torrent as torrent_api
+        from blissflixx.api import torrent as torrent_api
 
         monkeypatch.setattr(
             torrent_api, "torrent_files", lambda link: [("Film.mkv", "1.2GB")]
@@ -248,7 +248,7 @@ class TestFileList:
         nothing pairs with the episode. Offering all of them beats offering
         none: the names say which is which.
         """
-        from lib.api import torrent as torrent_api
+        from blissflixx.api import torrent as torrent_api
 
         monkeypatch.setattr(
             torrent_api,
@@ -272,7 +272,7 @@ class TestTorrent2Magnet:
         """
         from urllib.parse import quote
 
-        from lib.api.torrent import TRACKERS
+        from blissflixx.api.torrent import TRACKERS
 
         own = "udp://old.example:1/announce"
         magnet = "magnet:?xt=urn:btih:" + HASH + "&tr=" + quote(own, safe="")
@@ -319,7 +319,7 @@ class TestTorrentFiles:
                 returncode=returncode, stdout=text.encode("utf-8")
             )
 
-        monkeypatch.setattr("lib.player.ltproc.subprocess.run", fake_run)
+        monkeypatch.setattr("blissflixx.player.ltproc.subprocess.run", fake_run)
         return seen
 
     def test_paths_and_sizes_come_back_in_the_torrents_order(self, monkeypatch):
@@ -355,7 +355,7 @@ class TestTorrentFiles:
         def fake_run(cmd, **kwargs):
             raise subprocess.TimeoutExpired(cmd, 90)
 
-        monkeypatch.setattr("lib.player.ltproc.subprocess.run", fake_run)
+        monkeypatch.setattr("blissflixx.player.ltproc.subprocess.run", fake_run)
         with pytest.raises(RuntimeError, match="No answer listing this torrent"):
             torrent_files(HASH)
 

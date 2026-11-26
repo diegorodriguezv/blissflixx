@@ -72,7 +72,7 @@ def _search_name(name, context=None):
     the UI can guide per-file/per-episode subtitle selection instead of guessing.
 
     `context` is what the row already knows: a channel's title/year/imdb, or a
-    pack's series and the file's season/episode (see lib/api/torrent.py). It
+    pack's series and the file's season/episode (see blissflixx/api/torrent.py). It
     fills what the name does not say, and wins when it says this is an episode
     of a series -- a file called "Episode 09.mp4" carries no series name, and a
     pack title with no season marker is read as a film by the heuristics.

@@ -10,7 +10,7 @@ or unreadable journal costs the mark and never the play.
 import json
 import time
 
-import lib.playquality as playquality
+import blissflixx.playquality as playquality
 
 
 def _journal(tmp_path):

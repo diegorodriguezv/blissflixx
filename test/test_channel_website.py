@@ -11,8 +11,8 @@ import re
 
 import pytest
 
-from lib import locations
-from lib.api.channels import Channel, InstalledChannels
+from blissflixx import locations
+from blissflixx.api.channels import Channel, InstalledChannels
 
 
 def _describe(text):
@@ -47,7 +47,7 @@ def _toggle_action(info):
 
 def api_info(chid):
     """What the server says about one channel."""
-    from lib.api import channels as api_channels
+    from blissflixx.api import channels as api_channels
 
     return api_channels.info(chid=chid)
 
@@ -169,7 +169,7 @@ class TestTheSourceButton:
     """
 
     def _info(self, chid):
-        from lib.api import channels as api_channels
+        from blissflixx.api import channels as api_channels
 
         return api_channels.info(chid=chid)
 
@@ -222,7 +222,7 @@ class TestTheSourceButton:
         Turned off and on again within the test, which writes to the temporary
         settings the whole suite is redirected to.
         """
-        from lib.api import channels as api_channels
+        from blissflixx.api import channels as api_channels
 
         chid = InstalledChannels().getAll()[0].getId()
         try:
@@ -252,7 +252,7 @@ class TestTheSourceButton:
         checkout is enabled, so a test that only looked at what is installed
         would never see the Enable button at all.
         """
-        from lib.api import channels as api_channels
+        from blissflixx.api import channels as api_channels
 
         chid = InstalledChannels().getAll()[0].getId()
         try:
@@ -306,7 +306,7 @@ class TestTheSourceButton:
         reads -- so asking for one channel's details gave every other listing a
         Disable button and a settings block nobody asked for.
         """
-        from lib.api import channels as api_channels
+        from blissflixx.api import channels as api_channels
 
         chid = InstalledChannels().getAll()[0].getId()
         api_channels.info(chid=chid)

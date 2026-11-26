@@ -1,5 +1,5 @@
-from lib.chanutils.reddit import get_feed
-from lib.chanutils.reddit import search as reddit_search
+from blissflixx.chanutils.reddit import get_feed
+from blissflixx.chanutils.reddit import search as reddit_search
 
 _SUBREDDIT = "videos"
 
@@ -14,7 +14,7 @@ _FEEDLIST = [
     # archive computes one. Under those names a feed would be time order
     # wearing a label that promises a ranking, which is exactly what "Hot"
     # already was on every channel: the same first item as the feed beside it.
-    # See lib.chanutils.reddit._ranked_by_score for what Top does instead.
+    # See blissflixx.chanutils.reddit._ranked_by_score for what Top does instead.
     {"title": "New", "url": "http://www.reddit.com/r/videos/new.json"},
     {"title": "Top", "url": "http://www.reddit.com/r/videos/top.json"},
 ]

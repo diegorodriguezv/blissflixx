@@ -32,9 +32,9 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 
-from lib.api.common import ApiError
-from lib.api.torrent import TorrentPlayItem, icon_for_title
-from lib.chanutils import (
+from blissflixx.api.common import ApiError
+from blissflixx.api.torrent import TorrentPlayItem, icon_for_title
+from blissflixx.chanutils import (
     get_attr,
     get_doc,
     get_json,
@@ -45,7 +45,7 @@ from lib.chanutils import (
     select_one,
     title_query,
 )
-from lib.playitem import PlayItemList, ShowMoreItem
+from blissflixx.playitem import PlayItemList, ShowMoreItem
 
 _BASE_API = "https://eztvx.to/api/get-torrents"
 

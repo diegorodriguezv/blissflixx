@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Serve one file out of a torrent over HTTP, fetching only what is read.
 
-lib/player/ltproc.py runs this with the system python, because libtorrent comes
+blissflixx/player/ltproc.py runs this with the system python, because libtorrent comes
 from the python3-libtorrent package rather than from the application's
 virtualenv. It is the torrent source for the pipeline: one line when it can
 serve, a status line every couple of seconds, and the file itself over HTTP.
@@ -186,7 +186,7 @@ def window_within(piece, first_piece, last_piece, width=WINDOW):
 
 
 #: What looks like the film when the play did not name a file. The same list as
-#: lib/api/torrent.py, which cannot be imported here: this runs under the system
+#: blissflixx/api/torrent.py, which cannot be imported here: this runs under the system
 #: interpreter and reads only the standard library and libtorrent.
 VIDEO_EXTS = (".mkv", ".mp4", ".avi", ".m4v", ".mov", ".webm", ".ts", ".m2ts")
 

@@ -3,7 +3,7 @@ import pathlib
 
 import pytest
 
-from lib.api import playlists
+from blissflixx.api import playlists
 
 #: The first three lines of iptv-org's news list, which is what the parser was
 #: written against: 1017 channels, 61 #EXTVLCOPT lines, and 7 empty logos.

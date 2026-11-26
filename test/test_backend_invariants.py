@@ -19,15 +19,15 @@ import unittest.mock as m
 
 import pytest
 
-from lib.player.backend import ALL_CAPABILITIES, CAP_PAUSE, PlayerBackend
-from lib.player.backends import (
+from blissflixx.player.backend import ALL_CAPABILITIES, CAP_PAUSE, PlayerBackend
+from blissflixx.player.backends import (
     BACKENDS,
     backend_class,
     backend_names,
     get_backend,
     resolve_config,
 )
-from lib.player.player import _Player
+from blissflixx.player.player import _Player
 
 HTTP_OUT = "http://127.0.0.1:9696/movie.mkv"
 FILE_OUT = "/tmp/blissflixx/bf.out"
@@ -58,13 +58,13 @@ class TestRegistryShape:
             assert isinstance(get_backend(name), PlayerBackend)
 
     def test_every_name_has_its_own_settings_namespace(self):
-        from lib.player.backends import settings_name
+        from blissflixx.player.backends import settings_name
 
         names = [settings_name(n) for n in ALL_NAMES]
         assert len(set(names)) == len(names)
 
     def test_config_cannot_collide_with_the_active_choice_file(self):
-        from lib.player.backends import settings_name
+        from blissflixx.player.backends import settings_name
 
         for name in ALL_NAMES:
             assert settings_name(name) != "player"
@@ -185,7 +185,7 @@ class TestCapabilitiesMatchImplementation:
         wrong: "atrack" lists the tracks and marks the active one, the same way
         "strack" does for subtitles.
         """
-        from lib.player.vlcproc import VlcProcess
+        from blissflixx.player.vlcproc import VlcProcess
 
         assert VlcProcess().declares("audio_track") is True
 
@@ -223,17 +223,17 @@ class TestDefaultBackend:
     """
 
     def test_vlc_is_the_default(self):
-        from lib.player.backends import DEFAULT_BACKEND
+        from blissflixx.player.backends import DEFAULT_BACKEND
 
         assert DEFAULT_BACKEND == "vlc"
 
     def test_default_is_a_real_backend(self):
-        from lib.player.backends import DEFAULT_BACKEND
+        from blissflixx.player.backends import DEFAULT_BACKEND
 
         assert get_backend(DEFAULT_BACKEND) is not None
 
     def test_every_play_uses_the_default(self):
-        from lib.player.vlcproc import VlcProcess
+        from blissflixx.player.vlcproc import VlcProcess
 
         pl = _Player()
         assert isinstance(pl._player_stage(True, True), VlcProcess)
@@ -246,7 +246,7 @@ class TestConfigResolutionIsIndependent:
         assert resolve_config(name) == backend_class(name).defaults
 
     def test_each_backend_can_be_configured_independently(self, settings):
-        from lib.settings import save
+        from blissflixx.settings import save
 
         for name in ALL_NAMES:
             save("player-" + name, {"binary": "/opt/" + name})
@@ -332,6 +332,6 @@ class TestReadmeMatchesTheCode:
         The UI does not hide buttons a backend lacks, so the one backend must
         have them all.
         """
-        from lib.player.backends import backend_class
+        from blissflixx.player.backends import backend_class
 
         assert all(backend_class(n).capabilities for n in DOCUMENTED_NAMES)

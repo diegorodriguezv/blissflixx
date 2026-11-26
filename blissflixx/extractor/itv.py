@@ -1,8 +1,8 @@
 # Unused module, commented out rather than deleted.
 #
-# lib/api/playr.py used to import this via `import extractor` to resolve ITV
-# streams. That import was removed when lib/ became a package, leaving this
-# module with zero importers. See lib/extractor/__init__.py.
+# blissflixx/api/playr.py used to import this via `import extractor` to resolve ITV
+# streams. That import was removed when blissflixx/ became a package, leaving this
+# module with zero importers. See blissflixx/extractor/__init__.py.
 #
 # It targets mercury.itv.com and a Flash player, so it is stale anyway.
 

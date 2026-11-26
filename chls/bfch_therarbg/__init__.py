@@ -16,9 +16,9 @@ import xml.etree.ElementTree as ET
 from datetime import timezone
 from email.utils import parsedate_to_datetime
 
-from lib.api.torrent import TorrentPlayItem
-from lib.chanutils import get, movie_title_year, series_season_episode
-from lib.playitem import PlayItemList
+from blissflixx.api.torrent import TorrentPlayItem
+from blissflixx.chanutils import get, movie_title_year, series_season_episode
+from blissflixx.playitem import PlayItemList
 
 _BASE = "https://therarbg.com"
 _RSS = _BASE + "/api/rss/search/"

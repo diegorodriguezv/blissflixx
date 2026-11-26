@@ -1,7 +1,7 @@
 """
 The Reddit-backed channels.
 
-lib.chanutils.reddit talks to Arctic Shift rather than Reddit's own API, so a
+blissflixx.chanutils.reddit talks to Arctic Shift rather than Reddit's own API, so a
 lot of what these channels do is translating a Reddit-style listing into
 archive query parameters and then turning the archive's rows back into play
 items. That translation is pure and worth pinning down; a change to it silently
@@ -13,7 +13,7 @@ import unittest.mock as m
 
 import pytest
 
-import lib.chanutils.reddit as reddit
+import blissflixx.chanutils.reddit as reddit
 
 
 def _post(title, score, url="http://example/x"):
@@ -609,7 +609,7 @@ class TestABusyArchiveReachesTheInterfaceAsAMessage:
         Install one channel whose every read goes to the archive, so a busy
         archive is reached through the same path a real one would be.
         """
-        import lib.api.channels as api_channels
+        import blissflixx.api.channels as api_channels
 
         class Channel:
             def getFeed(self, idx, config=None):
@@ -630,7 +630,7 @@ class TestABusyArchiveReachesTheInterfaceAsAMessage:
         return api_channels
 
     def test_a_busy_feed_becomes_a_service_unavailable_api_error(self, monkeypatch):
-        from lib.api.common import ApiError
+        from blissflixx.api.common import ApiError
 
         api_channels = self._install_channel(
             monkeypatch,
@@ -656,7 +656,7 @@ class TestABusyArchiveReachesTheInterfaceAsAMessage:
         Search within the channel too, not just the feed list -- it is the same
         request and the same failure.
         """
-        from lib.api.common import ApiError
+        from blissflixx.api.common import ApiError
 
         api_channels = self._install_channel(
             monkeypatch,
@@ -682,7 +682,7 @@ class TestABusyArchiveReachesTheInterfaceAsAMessage:
         with genuinely nothing in it must still say so in its own words rather
         than through the error page.
         """
-        import lib.api.channels as api_channels
+        import blissflixx.api.channels as api_channels
 
         api_channels = self._install_channel(
             monkeypatch,
@@ -708,7 +708,7 @@ class TestABusyArchiveReachesTheInterfaceAsAMessage:
         """
         import inspect
 
-        import lib.api.channels as api_channels
+        import blissflixx.api.channels as api_channels
 
         source = inspect.getsource(api_channels._search_thread)
         assert (

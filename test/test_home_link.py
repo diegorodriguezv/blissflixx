@@ -14,7 +14,7 @@ import re
 
 import pytest
 
-from lib import locations
+from blissflixx import locations
 
 TOPNAV = "tags/topnav.html"
 ERROR = "pages/error.html"

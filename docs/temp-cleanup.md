@@ -2,7 +2,7 @@
 
 Design note for the parts that are still open.
 
-The torrent buffer is no longer "kept forever": `lib/player/buffer.py:reclaim()`
+The torrent buffer is no longer "kept forever": `blissflixx/player/buffer.py:reclaim()`
 deletes the least recently used entries — incomplete ones included — when a new
 film needs room, and the entry being played is never a candidate. That is a
 consequence of asking for a film, not of stopping one. What remains open is the
@@ -17,8 +17,8 @@ Five places used to delete on stop, and one deleted on every startup:
 | the old torrent source's `-r` flag | its own `--remove`: "remove files on exit" (both gone) |
 | the old torrent stage | `/tmp/torrent-stream` (gone) |
 | `blissflixx.py` `cleanup()` | `/tmp/torrent-stream` and all of `/tmp/blissflixx`, on every start |
-| `lib/player/processpipe.py` `stop()` | `bf.out` |
-| `lib/player/subsproc.py` `stop()` | the subtitle file |
+| `blissflixx/player/processpipe.py` `stop()` | `bf.out` |
+| `blissflixx/player/subsproc.py` `stop()` | the subtitle file |
 
 The effect was that no download ever survived being stopped. For someone on a
 slow connection or with poor seeds — which is exactly who is watching something
@@ -73,7 +73,7 @@ is not a faster disk, it is not finishing the film.
 
 0. **Already done:** make room by pruning least recently used buffer entries
    when space is needed, never the entry being played. See
-   `lib/player/buffer.py`. This supersedes the "never delete an incomplete
+   `blissflixx/player/buffer.py`. This supersedes the "never delete an incomplete
    play" proposal for the buffer — a dormant partial entry is exactly what gets
    pruned when a new film needs the space.
 

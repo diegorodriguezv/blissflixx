@@ -133,7 +133,7 @@ class ArchiveBusy(Exception):
     Nothing on screen distinguished the two, and the only evidence was a line in
     a log file nobody opens.
 
-    It is raised rather than returned so it can travel: lib.api.channels turns it
+    It is raised rather than returned so it can travel: blissflixx.api.channels turns it
     into an ApiError, and the interface has an error page for exactly this. The
     message is written for the person reading it rather than for the log, which
     is why it is built here instead of by the layer that catches it.

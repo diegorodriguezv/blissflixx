@@ -17,8 +17,8 @@ import re
 import urllib.parse
 from concurrent.futures import ThreadPoolExecutor
 
-from lib.api.torrent import TorrentPlayItem
-from lib.chanutils import (
+from blissflixx.api.torrent import TorrentPlayItem
+from blissflixx.chanutils import (
     get_attr,
     get_doc,
     get_text,
@@ -27,7 +27,7 @@ from lib.chanutils import (
     select_one,
     series_season_episode,
 )
-from lib.playitem import PlayItemList
+from blissflixx.playitem import PlayItemList
 
 _BASE = "https://divxtotal.foo"
 

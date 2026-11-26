@@ -7,8 +7,8 @@ installation in data/settings/system, with the built-in name as the fallback.
 
 import pytest
 
-from lib.api import system
-from lib.api.common import ApiError
+from blissflixx.api import system
+from blissflixx.api.common import ApiError
 
 
 class TestTheTitle:

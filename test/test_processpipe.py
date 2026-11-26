@@ -1,7 +1,7 @@
 """
 ProcessPipe message protocol.
 
-lib/player/processpipe chains subprocesses together: each one signals READY with
+blissflixx/player/processpipe chains subprocesses together: each one signals READY with
 the arguments the next one needs, and the pipe walks its processes in order. The
 protocol is the trickiest part of the player, and it cannot be tested on a
 development machine without VLC or a swarm, so these tests drive it with
@@ -14,7 +14,7 @@ The messaging is:
     pipe -> process:  start(args)
     pipe -> parent:   (MSG_PLAYER_PIPE_STOPPED, error)
 
-msg constants live in lib.player.processpipe.
+msg constants live in blissflixx.player.processpipe.
 """
 
 import inspect
@@ -28,11 +28,11 @@ import unittest.mock as m
 
 import pytest
 
-import lib.player.processpipe as pp
-from lib.player.backends import BACKENDS, backend_class
-from lib.player.dlsrvproc import DlsrvProcess
-from lib.player.ltproc import LibtorrentProcess
-from lib.player.processpipe import (
+import blissflixx.player.processpipe as pp
+from blissflixx.player.backends import BACKENDS, backend_class
+from blissflixx.player.dlsrvproc import DlsrvProcess
+from blissflixx.player.ltproc import LibtorrentProcess
+from blissflixx.player.processpipe import (
     MSG_PLAYER_PIPE_STOPPED,
     MSG_PROCESS_FINISHED,
     MSG_PROCESS_READY,
@@ -41,9 +41,9 @@ from lib.player.processpipe import (
     ProcessException,
     ProcessPipe,
 )
-from lib.player.subsproc import SubtitlesProcess
-from lib.player.vlcproc import VlcProcess
-from lib.player.ytdlproc import YoutubeDlProcess
+from blissflixx.player.subsproc import SubtitlesProcess
+from blissflixx.player.vlcproc import VlcProcess
+from blissflixx.player.ytdlproc import YoutubeDlProcess
 
 
 class FakeProcess(Process):
@@ -1137,7 +1137,7 @@ class TestDownloadsAreNeverDeleted:
         assert out.exists(), "the download was deleted by stopping"
 
     def test_subtitles_survive_a_stop(self, tmp_path):
-        from lib.player.subsproc import SubtitlesProcess
+        from blissflixx.player.subsproc import SubtitlesProcess
 
         subs = tmp_path / "episode.srt"
         subs.write_text("1\n00:00:01,000 --> 00:00:02,000\nhi\n")
@@ -1157,7 +1157,7 @@ class TestDownloadsAreNeverDeleted:
         the on-screen confirmation stopped appearing. The buffer has to be on
         the card.
         """
-        from lib.player.buffer import BUFFER_DIR
+        from blissflixx.player.buffer import BUFFER_DIR
 
         assert not BUFFER_DIR.startswith("/tmp"), BUFFER_DIR
         cmd = LibtorrentProcess("magnet:?xt=urn:btih:AAAA", -1).cmd
@@ -1170,10 +1170,10 @@ class TestDownloadsAreNeverDeleted:
         """
         import inspect
 
-        import blissflixx
+        import blissflixx.server as server
 
         # The docstring names the paths it stopped deleting, so check the code.
-        source = inspect.getsource(blissflixx.cleanup)
+        source = inspect.getsource(server.cleanup)
         parts = source.split('"""')
         body = parts[2] if len(parts) > 2 else source
         for gone in ("rmtree", "OUT_FILE", "/tmp/torrent-stream", "/tmp/blissflixx"):
@@ -1194,7 +1194,7 @@ class TestAStoppedProcessIsGivenTheChanceToTidyUp:
     def test_a_process_is_asked_to_stop_before_it_is_killed(self):
         stage = self._stage()
 
-        with m.patch("lib.player.processpipe.os.killpg") as killpg:
+        with m.patch("blissflixx.player.processpipe.os.killpg") as killpg:
             stage._terminate()
 
         # SIGTERM first. VLC releases its DRM lease on the way out, and the
@@ -1204,7 +1204,7 @@ class TestAStoppedProcessIsGivenTheChanceToTidyUp:
     def test_nothing_is_killed_when_it_stops_promptly(self):
         stage = self._stage()
 
-        with m.patch("lib.player.processpipe.os.killpg") as killpg:
+        with m.patch("blissflixx.player.processpipe.os.killpg") as killpg:
             stage._terminate()
 
         assert killpg.call_count == 1, killpg.call_args_list
@@ -1217,7 +1217,7 @@ class TestAStoppedProcessIsGivenTheChanceToTidyUp:
         stage = self._stage()
         stage.proc.wait = m.Mock(side_effect=subprocess.TimeoutExpired("x", 3))
 
-        with m.patch("lib.player.processpipe.os.killpg") as killpg:
+        with m.patch("blissflixx.player.processpipe.os.killpg") as killpg:
             stage._terminate()
 
         signals = [c.args[1] for c in killpg.call_args_list]
@@ -1247,7 +1247,7 @@ class TestAStoppedProcessIsGivenTheChanceToTidyUp:
             # whatever moment the process is seen to have gone.
             seen["killing"] = stage.killing
 
-        with m.patch("lib.player.processpipe.os.killpg"):
+        with m.patch("blissflixx.player.processpipe.os.killpg"):
             stage.killing = False
             stage._terminate = m.Mock(side_effect=wait)
             stage.stop()
@@ -1263,7 +1263,7 @@ class TestAStoppedProcessIsGivenTheChanceToTidyUp:
         stage.proc.wait = m.Mock(side_effect=subprocess.TimeoutExpired("x", 3))
 
         with m.patch(
-            "lib.player.processpipe.os.killpg", side_effect=ProcessLookupError
+            "blissflixx.player.processpipe.os.killpg", side_effect=ProcessLookupError
         ):
             stage._terminate()  # must not raise
 
@@ -1504,7 +1504,7 @@ class TestColourInStageOutput:
     """
 
     def test_colour_is_removed(self):
-        from lib.player.processpipe import _without_colour
+        from blissflixx.player.processpipe import _without_colour
 
         assert (
             _without_colour("\x1b[33mVerifying downloaded:\x1b[39m 27%")
@@ -1512,12 +1512,12 @@ class TestColourInStageOutput:
         )
 
     def test_cursor_and_bold_sequences_go_too(self):
-        from lib.player.processpipe import _without_colour
+        from blissflixx.player.processpipe import _without_colour
 
         assert _without_colour("\x1b[H\x1b[2J\x1b[32mopen\x1b[39m \x1b[1mvlc\x1b[22m") == "open vlc"
 
     def test_a_plain_line_is_untouched(self):
-        from lib.player.processpipe import _without_colour
+        from blissflixx.player.processpipe import _without_colour
 
         line = "server is listening on http://192.168.1.119:9696/"
         assert _without_colour(line) is line

@@ -6,8 +6,8 @@
 # Vendored trees are not ours to format.
 extend-exclude = '''
 /(
-    lib/yt-dlp
-  | lib/torrentparse
+    blissflixx/yt-dlp
+  | blissflixx/torrentparse
   | virtualenv
   | oldplugins
 )/
@@ -15,12 +15,12 @@ extend-exclude = '''
 
 [tool.isort]
 profile = "black"
-known_first_party = ["lib"]
+known_first_party = ["blissflixx"]
 # isort must not walk into the vendored yt-dlp checkout, the dead torrentparse
 # package, or third-party plugins installed at runtime.
 extend_skip_glob = [
-    "lib/yt-dlp/*",
-    "lib/torrentparse/*",
+    "blissflixx/yt-dlp/*",
+    "blissflixx/torrentparse/*",
     "virtualenv/*",
     "oldplugins/*",
     "plugins/*",
@@ -28,8 +28,9 @@ extend_skip_glob = [
 
 [tool.pytest.ini_options]
 testpaths = ["test"]
-# The project is not installed as a package; tests import `lib` from the repo
-# root. This also lets tests import installed channels without a sys.path hack.
+# The project is not installed as a package yet; tests import `blissflixx` from
+# the repo root. This also lets tests import installed channels without a
+# sys.path hack.
 pythonpath = [".", "chls"]
 # Fail fast if a test tries to reach the network. The old scripts in test/ were
 # exactly that: they hit live sites and printed whatever came back.

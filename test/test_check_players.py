@@ -41,7 +41,7 @@ class TestPlanningIsDerivedFromDefaults:
     """
 
     def test_every_registered_backend_is_covered(self):
-        from lib.player.backends import backend_names
+        from blissflixx.player.backends import backend_names
 
         for name in backend_names():
             checks = check_players.plan_checks(name)
@@ -66,7 +66,7 @@ class TestPlanningIsDerivedFromDefaults:
         The plan follows the settings, not just the defaults: a user who moved
         the binary should be checked for that instead.
         """
-        from lib.player.backends import resolve_config
+        from blissflixx.player.backends import resolve_config
 
         config = dict(resolve_config("vlc"), binary="/opt/vlc/bin/vlc")
         checks = check_players.plan_checks("vlc", config)
@@ -77,7 +77,7 @@ class TestPlanningIsDerivedFromDefaults:
         A settings file written for a newer version names things this does not
         check; planning must not fall over on them.
         """
-        from lib.player.backends import resolve_config
+        from blissflixx.player.backends import resolve_config
 
         config = dict(resolve_config("vlc"), something_new=1, another=["x"])
         assert check_players.plan_checks("vlc", config)
@@ -210,7 +210,7 @@ class TestRemedies:
         Advice and check live together, so a backend that can fail without
         telling the user what to do cannot be added unnoticed.
         """
-        from lib.player.backends import backend_names
+        from blissflixx.player.backends import backend_names
 
         for name in backend_names():
             assert name in check_players.REMEDY, name
@@ -227,7 +227,7 @@ class TestRemedies:
 
 class TestMainExitCode:
     def test_zero_when_the_active_backend_is_ready(self, capsys, monkeypatch):
-        from lib.player.backends import DEFAULT_BACKEND
+        from blissflixx.player.backends import DEFAULT_BACKEND
 
         results = [
             check_players.Result(
@@ -240,7 +240,7 @@ class TestMainExitCode:
         assert "is ready" in capsys.readouterr().out
 
     def test_one_when_the_active_backend_is_missing(self, capsys, monkeypatch):
-        from lib.player.backends import DEFAULT_BACKEND
+        from blissflixx.player.backends import DEFAULT_BACKEND
 
         results = [
             check_players.Result(

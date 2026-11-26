@@ -18,12 +18,12 @@ import time
 
 import pytest
 
-import lib.player.buffer as buffer
-import lib.player.ltproc as ltproc
-import lib.player.player as player_module
-import lib.player.processpipe as processpipe
-import lib.player.vlcproc as vlcproc
-import lib.player.ytdlproc as ytdlproc
+import blissflixx.player.buffer as buffer
+import blissflixx.player.ltproc as ltproc
+import blissflixx.player.player as player_module
+import blissflixx.player.processpipe as processpipe
+import blissflixx.player.vlcproc as vlcproc
+import blissflixx.player.ytdlproc as ytdlproc
 
 
 class _Pipe:

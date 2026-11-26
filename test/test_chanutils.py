@@ -1,5 +1,5 @@
 """
-Pure parsing helpers in lib.chanutils.
+Pure parsing helpers in blissflixx.chanutils.
 
 These are the functions that turn scraped text into the structures the rest of
 BlissFlixx consumes, so they are worth pinning down: a change to a regex here
@@ -8,14 +8,14 @@ silently empties a channel's feed rather than raising.
 
 import pytest
 
-from lib.chanutils import (
+from blissflixx.chanutils import (
     byte_size,
     movie_title_year,
     number_commas,
     replace_entity,
     series_season_episode,
 )
-from lib.chanutils.chanutils import (
+from blissflixx.chanutils.chanutils import (
     release_kind,
     title_query,
     convert_date,

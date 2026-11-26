@@ -110,7 +110,7 @@ class TestARebootDoesNotBlameTheServer:
         import pathlib
         import subprocess
 
-        from lib import locations
+        from blissflixx import locations
 
         source = (pathlib.Path(locations.HTML_PATH) / "js" / "Utils.js").read_text()
         assert "powerStore.getMsg()" in source, (
@@ -144,7 +144,7 @@ class TestARebootDoesNotBlameTheServer:
         console.log(JSON.stringify(shown));
         """
 
-        from lib import locations
+        from blissflixx import locations
 
         utils = (pathlib.Path(locations.HTML_PATH) / "js" / "Utils.js").read_text()
 

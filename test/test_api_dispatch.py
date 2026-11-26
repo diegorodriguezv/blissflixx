@@ -14,8 +14,8 @@ import unittest.mock as m
 
 import pytest
 
-import blissflixx
-from lib.api.common import ApiError
+import blissflixx.server as blissflixx
+from blissflixx.api.common import ApiError
 
 
 @pytest.fixture
@@ -56,7 +56,7 @@ class TestADirectoryWithNoModuleIsNotAChannel:
         either way, so the channel's absence never needed proving; what needed
         proving is that a deleted channel stops being reported as a fault.
         """
-        import lib.api.channels as api_channels
+        import blissflixx.api.channels as api_channels
 
         gone = tmp_path / "bfch_vanished"
         gone.mkdir()
@@ -102,7 +102,7 @@ class TestAChannelIsDescribedAsADesc:
     def _channel(self, tmp_path, monkeypatch, request):
         import sys
 
-        import lib.api.channels as api_channels
+        import blissflixx.api.channels as api_channels
 
         ch = tmp_path / "bfch_demo"
         ch.mkdir()
@@ -113,7 +113,7 @@ class TestAChannelIsDescribedAsADesc:
         )
         (ch / "icon.png").write_bytes(b"x")
 
-        # CHAN_PATH only reaches sys.path when lib.api.channels is first
+        # CHAN_PATH only reaches sys.path when blissflixx.api.channels is first
         # imported, so patching it afterwards is not enough to make a stub
         # importable. Both are needed.
         monkeypatch.setattr(sys, "path", [str(tmp_path)] + list(sys.path))
@@ -141,7 +141,7 @@ class TestAChannelIsDescribedAsADesc:
         media item's one, which PlayItem.to_dict() still emits as "subtitle" and
         which the interface renders under every video.
         """
-        from lib.playitem import PlayItem
+        from blissflixx.playitem import PlayItem
 
         item = PlayItem("A title", "img.jpg", "http://example.com/v.mp4", "2 min")
         assert item.to_dict()["subtitle"] == "2 min"
@@ -161,8 +161,8 @@ class TestModuleResolution:
 
     def test_registry_covers_the_package_contents(self):
         """
-        lib/api/__init__.py is deliberately empty, so api_modules is the only
-        list of callable modules. Anything else under lib/api that exposes
+        blissflixx/api/__init__.py is deliberately empty, so api_modules is the only
+        list of callable modules. Anything else under blissflixx/api that exposes
         functions to the frontend would be unreachable without being added here.
         """
         assert set(blissflixx.api_modules) == {
@@ -181,10 +181,10 @@ class TestModuleResolution:
         explicit dict, so assert the equivalent access still works for anything
         that introspects the package.
         """
-        import lib.api
+        import blissflixx.api as api_package
 
         for name in blissflixx.api_modules:
-            assert getattr(lib.api, name) is blissflixx.api_modules[name]
+            assert getattr(api_package, name) is blissflixx.api_modules[name]
 
 
 class TestFunctionResolution:
@@ -346,7 +346,7 @@ class TestTheVersionEndpoint:
         """
         import subprocess
 
-        from lib import locations
+        from blissflixx import locations
 
         sha = subprocess.run(
             ["git", "rev-parse", "--short", "HEAD"],
@@ -381,7 +381,7 @@ class TestTheVersionEndpoint:
         """
         import pathlib
 
-        from lib import locations
+        from blissflixx import locations
 
         source = (
             pathlib.Path(locations.HTML_PATH) / "pages" / "settings.html"
@@ -459,7 +459,7 @@ class TestWhatIsActuallyRunning:
         """
         import pathlib
 
-        from lib import locations
+        from blissflixx import locations
 
         source = (
             pathlib.Path(locations.HTML_PATH) / "pages" / "settings.html"

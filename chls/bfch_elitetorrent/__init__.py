@@ -21,8 +21,8 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import timezone
 from email.utils import parsedate_to_datetime
 
-from lib.api.torrent import TorrentPlayItem
-from lib.chanutils import (
+from blissflixx.api.torrent import TorrentPlayItem
+from blissflixx.chanutils import (
     get,
     get_attr,
     get_doc,
@@ -31,7 +31,7 @@ from lib.chanutils import (
     select_all,
     series_season_episode,
 )
-from lib.playitem import PlayItemList
+from blissflixx.playitem import PlayItemList
 
 _BASE = "https://www.elitetorrent.com"
 

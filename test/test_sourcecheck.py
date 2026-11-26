@@ -12,7 +12,7 @@ import time
 
 import pytest
 
-import lib.player.sourcecheck as sourcecheck
+import blissflixx.player.sourcecheck as sourcecheck
 
 
 class Response:

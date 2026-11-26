@@ -4,19 +4,19 @@ Shared test fixtures.
 Two things need neutralising before any BlissFlixx module is imported for
 testing:
 
-1. Settings. lib/settings writes to data/settings/ derived from lib/locations,
+1. Settings. blissflixx/settings writes to data/settings/ derived from blissflixx/locations,
    which resolves against the checkout. Tests must never read or write the real
    user's playlists and channel settings, so SETTINGS_PATH is redirected into a
    temporary directory. The module caches loaded values in _cache, so that cache
    is cleared per test too.
 
-2. Network. lib/chanutils has no timeouts by default at import, but the real risk
+2. Network. blissflixx/chanutils has no timeouts by default at import, but the real risk
    is a test quietly hitting a live site and returning data that changes
    tomorrow. The autouse fixture below fails any test that tries to open a
    socket. Tests that genuinely need the network must be marked
    `@pytest.mark.network`.
 
-Note lib/api/channels.py appends CHAN_PATH and PLUGIN_PATH to sys.path at
+Note blissflixx/api/channels.py appends CHAN_PATH and PLUGIN_PATH to sys.path at
 import time. That is the mechanism installed channels are loaded by, so it is
 left in place; pyproject.toml puts both the repo root and chls/ on the path so
 channels can also be imported directly by name.
@@ -27,7 +27,7 @@ import threading
 
 import pytest
 
-from lib import settings as settings_module
+from blissflixx import settings as settings_module
 
 # A 32-bit Pi has about 3 GB of address space and gives each thread an 8 MB
 # stack by default. The suite creates threads by the hundred -- every VlcProcess
@@ -45,7 +45,7 @@ class NetworkAccessDenied(RuntimeError):
 @pytest.fixture(autouse=True)
 def temp_settings(tmp_path, monkeypatch):
     """
-    Point lib.settings at a throwaway directory and clear its cache.
+    Point blissflixx.settings at a throwaway directory and clear its cache.
 
     Exposed as a fixture as well as being autouse, because a test that exercises
     subtitle language handling needs to seed settings and then invalidate the
@@ -61,7 +61,7 @@ def temp_settings(tmp_path, monkeypatch):
 @pytest.fixture
 def settings(temp_settings):
     """
-    lib.settings with an empty cache.
+    blissflixx.settings with an empty cache.
 
     save() writes through to the cache, so call settings._cache.clear() after
     saving to mimic what a restarted process would see.

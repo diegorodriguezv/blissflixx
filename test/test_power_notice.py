@@ -16,8 +16,8 @@ import unittest.mock as m
 
 import pytest
 
-import blissflixx
-from lib import locations
+import blissflixx.server as blissflixx
+from blissflixx import locations
 
 
 @pytest.fixture

@@ -1,9 +1,9 @@
 import pytest
 import requests
 
-from lib.api import playlink
-from lib.api.common import ApiError
-from lib.chanutils import chanutils
+from blissflixx.api import playlink
+from blissflixx.api.common import ApiError
+from blissflixx.chanutils import chanutils
 
 PLAYLIST = "https://2gblive.akamaized.net/hls/live/2033805/2GB/index.m3u8"
 

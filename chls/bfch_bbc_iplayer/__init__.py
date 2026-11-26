@@ -1,4 +1,4 @@
-from lib.chanutils import (
+from blissflixx.chanutils import (
     get_attr,
     get_doc,
     get_text,
@@ -6,7 +6,7 @@ from lib.chanutils import (
     select_all,
     select_one,
 )
-from lib.playitem import MoreEpisodesAction, PlayItem, PlayItemList
+from blissflixx.playitem import MoreEpisodesAction, PlayItem, PlayItemList
 
 _SEARCH_URL = "http://www.bbc.co.uk/iplayer/search"
 

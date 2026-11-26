@@ -1,5 +1,5 @@
 """
-lib.chanutils.youtube
+blissflixx.chanutils.youtube
 
 Searching YouTube by asking YouTube, through yt-dlp. Everything here stubs the
 subprocess: the parsing is what can go wrong, and the search itself is
@@ -12,7 +12,7 @@ import types
 
 import pytest
 
-from lib.chanutils import youtube
+from blissflixx.chanutils import youtube
 
 
 def result(**fields):

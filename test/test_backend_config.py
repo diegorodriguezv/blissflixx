@@ -11,7 +11,7 @@ top. Two things matter enough to test directly:
   a Pi 5 and a desktop, and those are values rather than branches in code.
 
 The autouse temp_settings fixture in conftest.py already redirects SETTINGS_PATH
-into a temporary directory and clears lib.settings' cache between tests, so
+into a temporary directory and clears blissflixx.settings' cache between tests, so
 writing settings here is isolated by construction.
 """
 
@@ -19,8 +19,8 @@ import json
 
 import pytest
 
-from lib.player.backend import PlayerBackend
-from lib.player.backends import (
+from blissflixx.player.backend import PlayerBackend
+from blissflixx.player.backends import (
     BACKENDS,
     DEFAULT_BACKEND,
     backend_class,
@@ -29,8 +29,8 @@ from lib.player.backends import (
     resolve_config,
     settings_name,
 )
-from lib.player.vlcproc import VlcProcess
-from lib.settings import save
+from blissflixx.player.vlcproc import VlcProcess
+from blissflixx.settings import save
 
 FILE_OUT = "/tmp/blissflixx/bf.out"
 HTTP_OUT = "http://127.0.0.1:9696/movie.mkv"
@@ -192,7 +192,7 @@ class TestRegistryInvariants:
         assert cmd
 
     def test_capabilities_are_a_subset_of_the_known_set(self):
-        from lib.player.backend import ALL_CAPABILITIES
+        from blissflixx.player.backend import ALL_CAPABILITIES
 
         for name in backend_names():
             assert get_backend(name).capabilities <= ALL_CAPABILITIES, name

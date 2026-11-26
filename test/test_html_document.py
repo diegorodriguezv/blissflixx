@@ -23,8 +23,8 @@ import re
 
 import pytest
 
-import blissflixx
-from lib import locations
+import blissflixx.server as blissflixx
+from blissflixx import locations
 
 
 @pytest.fixture(scope="module")

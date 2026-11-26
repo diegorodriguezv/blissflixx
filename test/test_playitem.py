@@ -2,15 +2,15 @@
 Play items and the actions attached to them.
 
 The TorrentFilesAction cases are a regression guard. That class used to be
-declared twice in lib/playitem; the second declaration shadowed the first and
+declared twice in blissflixx/playitem; the second declaration shadowed the first and
 reported type "showmore", so "View Files..." never reached the torrent/files
 endpoint and showed a torrent's files page nothing at all.
 """
 
 import pytest
 
-from lib.api.torrent import TorrentPlayItem
-from lib.playitem import (
+from blissflixx.api.torrent import TorrentPlayItem
+from blissflixx.playitem import (
     ActionList,
     AddSubtitlesAction,
     AddPlaylistAction,
@@ -111,7 +111,7 @@ class TestTorrentFilesActionRegression:
 
         src = (
             pathlib.Path(__file__).resolve().parents[1]
-            / "lib"
+            / "blissflixx"
             / "playitem"
             / "__init__.py"
         ).read_text()

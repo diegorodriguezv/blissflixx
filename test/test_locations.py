@@ -1,7 +1,7 @@
 """
 Location resolution.
 
-lib/locations exports paths that everything else depends on: the plugin
+blissflixx/locations exports paths that everything else depends on: the plugin
 loader adds CHAN_PATH to sys.path, the player interpolates BIN_PATH into shell
 commands, and settings writes under SETTINGS_PATH. A silent off-by-one here
 would send the server looking in the wrong directory, or worse, write user data
@@ -16,7 +16,7 @@ from pathlib import Path
 
 import pytest
 
-from lib import locations
+from blissflixx import locations
 
 
 class TestValuesMatchOriginalExpressions:
@@ -69,7 +69,7 @@ class TestValuesMatchOriginalExpressions:
     def test_everything_is_str(self):
         """
         str, not Path: these are interpolated into shell commands by
-        lib/player and handed to subprocess.
+        blissflixx/player and handed to subprocess.
         """
         for name in dir(locations):
             if name.endswith("_PATH"):

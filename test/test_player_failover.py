@@ -15,8 +15,8 @@ import time
 
 import pytest
 
-import lib.player.player as player_module
-import lib.playquality as playquality
+import blissflixx.player.player as player_module
+import blissflixx.playquality as playquality
 
 
 class SourcePipe:

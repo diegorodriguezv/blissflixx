@@ -1,5 +1,5 @@
 """
-lib/player/ltproc.py
+blissflixx/player/ltproc.py
 
 The libtorrent source hands the player an HTTP URL and reports the swarm's
 numbers the playbar reads
@@ -16,16 +16,16 @@ import time
 
 import pytest
 
-from lib.player import ltproc
-from lib.player import player as player_module
-from lib.player.ltproc import (
+from blissflixx.player import ltproc
+from blissflixx.player import player as player_module
+from blissflixx.player.ltproc import (
     BT_SERVE,
     BT_SERVE_RETRY,
     SYSTEM_PYTHON,
     LibtorrentProcess,
 )
-from lib.player.processpipe import ProcessException
-from lib.player.buffer import BUFFER_DIR
+from blissflixx.player.processpipe import ProcessException
+from blissflixx.player.buffer import BUFFER_DIR
 
 MAGNET = "magnet:?xt=urn:btih:" + "A" * 40
 SERVING = (

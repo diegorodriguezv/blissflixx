@@ -1,8 +1,8 @@
 import time
 
-from lib import playquality
-from lib.chanutils import get_json
-from lib.playitem import PlayItem, PlayItemList
+from blissflixx import playquality
+from blissflixx.chanutils import get_json
+from blissflixx.playitem import PlayItem, PlayItemList
 
 _API = {
     "channels": "https://iptv-org.github.io/api/channels.json",
@@ -446,7 +446,7 @@ def _extract(data):
     A feed used to be one row per stream, so Caracol TV was thirty-five
     identical rows with thirty-five different addresses and a dead one looked
     like a dead channel. The mirrors are kept, ordered, and carried with the
-    play instead; see lib/player/player.py for the failover.
+    play instead; see blissflixx/player/player.py for the failover.
     """
     groups = {}
     order = []

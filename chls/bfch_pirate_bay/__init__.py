@@ -1,7 +1,7 @@
 import urllib.parse
 
-from lib.api.torrent import TorrentPlayItem, icon_for_title
-from lib.chanutils import (
+from blissflixx.api.torrent import TorrentPlayItem, icon_for_title
+from blissflixx.chanutils import (
     byte_size,
     get_attr,
     get_doc,
@@ -14,7 +14,7 @@ from lib.chanutils import (
     select_one,
     series_season_episode,
 )
-from lib.playitem import PlayItemList
+from blissflixx.playitem import PlayItemList
 
 _SEARCH_URL = "https://thepiratebay0.org/search/%s/0/99/100,200"
 

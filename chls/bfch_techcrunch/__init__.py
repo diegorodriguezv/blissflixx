@@ -1,5 +1,5 @@
-from lib.chanutils import get_attr, get_doc, get_text, select_all, select_one
-from lib.playitem import PlayItem, PlayItemList
+from blissflixx.chanutils import get_attr, get_doc, get_text, select_all, select_one
+from blissflixx.playitem import PlayItem, PlayItemList
 
 # "TCTV News" used to be here and is not any more.
 #

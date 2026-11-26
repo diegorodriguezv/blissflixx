@@ -206,7 +206,7 @@ else
     # Pi OS ships 20. This is the pinned LTS release, unpacked into the checkout
     # instead of installed system-wide: swapping the system node would move the
     # runtime the distribution's own packages were installed with, which is a
-    # change to the machine rather than to this project. lib/player/nodejs.py is
+    # change to the machine rather than to this project. blissflixx/player/nodejs.py is
     # the one place that knows the path.
     #
     # Checked against the release's own SHASUMS256.txt. A download that arrives

@@ -21,9 +21,9 @@ import sys
 
 import pytest
 
-import blissflixx
-from lib.player import processpipe
-from lib.player.processpipe import ExternalProcess, ProcessException, _LineTail
+import blissflixx.server as blissflixx
+from blissflixx.player import processpipe
+from blissflixx.player.processpipe import ExternalProcess, ProcessException, _LineTail
 
 
 class TestEnsureDataDirs:
@@ -32,7 +32,7 @@ class TestEnsureDataDirs:
     """
 
     def test_creates_every_directory_the_server_writes_to(self, tmp_path, monkeypatch):
-        import lib.locations as locations
+        import blissflixx.locations as locations
 
         monkeypatch.setattr(locations, "DATA_PATH", str(tmp_path / "data"))
         monkeypatch.setattr(locations, "PLUGIN_PATH", str(tmp_path / "plugins"))
@@ -48,7 +48,7 @@ class TestEnsureDataDirs:
 
     def test_is_idempotent(self, tmp_path, monkeypatch):
         """Called on every start, so a second call must not raise."""
-        import lib.locations as locations
+        import blissflixx.locations as locations
 
         monkeypatch.setattr(locations, "DATA_PATH", str(tmp_path / "data"))
         monkeypatch.setattr(locations, "PLUGIN_PATH", str(tmp_path / "plugins"))
@@ -58,7 +58,7 @@ class TestEnsureDataDirs:
         blissflixx.ensure_data_dirs()
 
     def test_does_not_clobber_existing_files(self, tmp_path, monkeypatch):
-        import lib.locations as locations
+        import blissflixx.locations as locations
 
         monkeypatch.setattr(locations, "DATA_PATH", str(tmp_path / "data"))
         monkeypatch.setattr(locations, "PLUGIN_PATH", str(tmp_path / "plugins"))
@@ -80,7 +80,7 @@ class TestFirstTimeInstallCreatesDirsEvenWhenYtDlpIsPresent:
 
     def _redirect(self, tmp_path, monkeypatch):
         """Point the data directories at a scratch tree."""
-        import lib.locations as locations
+        import blissflixx.locations as locations
 
         data = tmp_path / "data"
         monkeypatch.setattr(locations, "DATA_PATH", str(data))
@@ -122,7 +122,7 @@ class TestFirstTimeInstallCreatesDirsEvenWhenYtDlpIsPresent:
         Nothing in the project has a path to a yt-dlp checkout, so nothing can
         quietly go back to running one from there.
         """
-        import lib.locations as locations
+        import blissflixx.locations as locations
 
         assert not hasattr(locations, "YTUBE_PATH")
 
@@ -131,8 +131,8 @@ class TestFirstTimeInstallCreatesDirsEvenWhenYtDlpIsPresent:
         The end-to-end symptom: a settings write on a checkout that has yt-dlp
         but no data directory.
         """
-        import lib.locations as locations
-        from lib import settings as settings_module
+        import blissflixx.locations as locations
+        from blissflixx import settings as settings_module
 
         data = tmp_path / "data"
         monkeypatch.setattr(locations, "DATA_PATH", str(data))

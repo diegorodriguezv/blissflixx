@@ -19,12 +19,12 @@ import unittest.mock as m
 
 import pytest
 
-from lib.locations import BIN_PATH
-from lib.player import ythelper
-from lib.player.dlsrvproc import DlsrvProcess
-from lib.player.localproc import LocalFileProcess
-from lib.player.subsproc import SubtitlesProcess
-from lib.player.ytdlproc import YoutubeDlProcess
+from blissflixx.locations import BIN_PATH
+from blissflixx.player import ythelper
+from blissflixx.player.dlsrvproc import DlsrvProcess
+from blissflixx.player.localproc import LocalFileProcess
+from blissflixx.player.subsproc import SubtitlesProcess
+from blissflixx.player.ytdlproc import YoutubeDlProcess
 
 # ythelper.YOUTUBE_URL requires an exactly 11-character video id, so a short
 # placeholder would silently fall through to "best" and hide the assertion.
@@ -136,7 +136,7 @@ class TestYoutubeDl:
         The file being present is the whole switch, so its absence has to be
         the old behaviour exactly.
         """
-        import lib.player.ytdlproc as ytdl_module
+        import blissflixx.player.ytdlproc as ytdl_module
 
         jar = tmp_path / "cookies.txt"
         jar.write_text("# Netscape HTTP Cookie File\n", encoding="utf-8")
@@ -146,7 +146,7 @@ class TestYoutubeDl:
         assert cmd[cmd.index("--cookies") + 1] == str(jar), cmd
 
     def test_no_cookies_file_means_no_cookies_flag(self, tmp_path, monkeypatch):
-        import lib.player.ytdlproc as ytdl_module
+        import blissflixx.player.ytdlproc as ytdl_module
 
         monkeypatch.setattr(
             ytdl_module, "COOKIES_PATH", str(tmp_path / "does-not-exist.txt")

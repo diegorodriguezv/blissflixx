@@ -30,13 +30,13 @@ import urllib.parse
 
 import pytest
 
-import lib.player.player as player_module
-from lib.api import playr
-from lib.player.dlsrvproc import DlsrvProcess
-from lib.player.localproc import LocalFileProcess
-from lib.player.ltproc import LibtorrentProcess
-from lib.player.subsproc import SubtitlesProcess
-from lib.player.vlcproc import VlcProcess
+import blissflixx.player.player as player_module
+from blissflixx.api import playr
+from blissflixx.player.dlsrvproc import DlsrvProcess
+from blissflixx.player.localproc import LocalFileProcess
+from blissflixx.player.ltproc import LibtorrentProcess
+from blissflixx.player.subsproc import SubtitlesProcess
+from blissflixx.player.vlcproc import VlcProcess
 
 
 def build_pipe(title="T", src=None, subs=None, http=False, dlsrv=True):
@@ -45,7 +45,7 @@ def build_pipe(title="T", src=None, subs=None, http=False, dlsrv=True):
     the ProcessPipe it queued.
     """
     pl = player_module._Player()
-    with m.patch("lib.player.player._start_thread", lambda *a, **k: m.Mock()):
+    with m.patch("blissflixx.player.player._start_thread", lambda *a, **k: m.Mock()):
         pl.play(
             title,
             src if src is not None else LocalFileProcess("/tmp/a.mkv"),
@@ -153,7 +153,7 @@ class TestPlayrRouting:
         local = m.Mock()
         torrent = m.Mock()
         ytdl = m.Mock()
-        with m.patch("lib.player.player._start_thread", lambda *a, **k: m.Mock()):
+        with m.patch("blissflixx.player.player._start_thread", lambda *a, **k: m.Mock()):
             with (
                 m.patch.object(player_module._Player, "playLocalFile", local),
                 m.patch.object(player_module._Player, "playTorrent", torrent),
@@ -200,7 +200,7 @@ class TestPlayrRouting:
         )
 
     def test_missing_url_is_rejected(self):
-        from lib.api.common import ApiError
+        from blissflixx.api.common import ApiError
 
         with pytest.raises(ApiError):
             playr.play()
@@ -213,7 +213,7 @@ class TestPlayrRouting:
         """
         settings.save("subtitles", {"lang": "spa"})
         settings._cache.clear()
-        with m.patch("lib.player.player._start_thread", lambda *a, **k: m.Mock()):
+        with m.patch("blissflixx.player.player._start_thread", lambda *a, **k: m.Mock()):
             with m.patch.object(player_module._Player, "playYtdl"):
                 playr.play(url="https://x/v.mp4", title="T", subs={"lang": "fra"})
         settings._cache.clear()
@@ -222,7 +222,7 @@ class TestPlayrRouting:
     def test_a_play_without_subtitles_leaves_the_global_alone(self, settings):
         settings.save("subtitles", {"lang": "spa"})
         settings._cache.clear()
-        with m.patch("lib.player.player._start_thread", lambda *a, **k: m.Mock()):
+        with m.patch("blissflixx.player.player._start_thread", lambda *a, **k: m.Mock()):
             with m.patch.object(player_module._Player, "playYtdl"):
                 playr.play(url="https://x/v.mp4", title="T")
         settings._cache.clear()
@@ -231,7 +231,7 @@ class TestPlayrRouting:
 
 class TestControlRouting:
     def test_missing_action_is_rejected(self):
-        from lib.api.common import ApiError
+        from blissflixx.api.common import ApiError
 
         with pytest.raises(ApiError):
             playr.control()
@@ -911,7 +911,7 @@ class TestPlaylistContext:
 
     @pytest.fixture
     def plists(self, tmp_path, monkeypatch):
-        from lib.api import playlists as playlists_module
+        from blissflixx.api import playlists as playlists_module
 
         path = tmp_path / "playlists"
         path.mkdir()
@@ -936,7 +936,7 @@ class TestPlaylistContext:
         local = m.Mock()
         torrent = m.Mock()
         ytdl = m.Mock()
-        with m.patch("lib.player.player._start_thread", lambda *a, **k: m.Mock()):
+        with m.patch("blissflixx.player.player._start_thread", lambda *a, **k: m.Mock()):
             with (
                 m.patch.object(player_module._Player, "playLocalFile", local),
                 m.patch.object(player_module._Player, "playTorrent", torrent),
@@ -1010,7 +1010,7 @@ class TestPlaylistContext:
         one place -- per item, so a list can mix a torrent and a video and each
         still gets its own stages.
         """
-        from lib.api.playr import _item_builder
+        from blissflixx.api.playr import _item_builder
 
         local = _item_builder({"title": "a", "url": "file:///media/a.mkv"})()
         assert stages(local) == ["localfile", "vlc"]

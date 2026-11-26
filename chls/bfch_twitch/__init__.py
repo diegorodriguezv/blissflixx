@@ -1,5 +1,5 @@
-from lib.chanutils import get_json, post_json
-from lib.playitem import LiveStreamPlayItem, PlayItemList
+from blissflixx.chanutils import get_json, post_json
+from blissflixx.playitem import LiveStreamPlayItem, PlayItemList
 
 _CLIENT_ID = "yicd1x2uyr" + "hazbdc4n7zba4yzrjlx0"
 _CLIENT_SECRET = "9dbytqxr6vpza42wexs1zjx" + "2cmjq56"

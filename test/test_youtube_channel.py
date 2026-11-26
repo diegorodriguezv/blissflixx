@@ -2,7 +2,7 @@
 The YouTube channel.
 
 Almost nothing here is logic: the channel is a subreddit's posts, and what can
-be played out of those is decided in lib.chanutils.reddit, which every Reddit
+be played out of those is decided in blissflixx.chanutils.reddit, which every Reddit
 channel shares. What is worth pinning is that this channel is wired to the
 subreddit it says it is, and that it does not promise a ranking the subreddit
 cannot supply.
@@ -20,7 +20,7 @@ class TestTheFeeds:
         There is no Hot, Best or Rising here or in any other Reddit channel:
         those are Reddit's own ranking functions and the archive computes
         none of them, so a feed wearing those names would be time order under
-        a label promising a ranking. See lib.chanutils.reddit.
+        a label promising a ranking. See blissflixx.chanutils.reddit.
 
         Top is kept even though it cannot mean much in this subreddit -- see
         the test below -- because it is a real ranking of whatever scores are
@@ -31,7 +31,7 @@ class TestTheFeeds:
         assert titles == ["New", "Top"]
 
     def test_the_two_feeds_are_the_two_the_helper_serves(self):
-        from lib.chanutils import reddit
+        from blissflixx.chanutils import reddit
 
         for feed in bfch_youtube.feedlist():
             assert reddit._feed_params(feed["url"]) is not None
@@ -47,7 +47,7 @@ class TestTheFeeds:
         helper says so for the retired sitewide domain feed, which is the shape
         this channel used to have.
         """
-        from lib.chanutils import reddit
+        from blissflixx.chanutils import reddit
 
         for feed in bfch_youtube.feedlist():
             params = reddit._feed_params(feed["url"])
@@ -59,7 +59,7 @@ class TestTheFeeds:
         The feed this channel was retired for. The archive cannot serve it, and
         a channel carrying it would show an empty category rather than say why.
         """
-        from lib.chanutils import reddit
+        from blissflixx.chanutils import reddit
 
         for feed in bfch_youtube.feedlist():
             assert reddit._feed_params(feed["url"]) is not None
@@ -96,7 +96,7 @@ class TestTheChannelAnswers:
     def test_search_asks_youtube_not_the_subreddit(self):
         """
         A subreddit only knows what somebody submitted, so its search is not a
-        YouTube search. This one asks YouTube, through lib.chanutils.youtube.
+        YouTube search. This one asks YouTube, through blissflixx.chanutils.youtube.
         """
         seen = {}
 

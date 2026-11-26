@@ -16,7 +16,7 @@ rather than raise.
 
 import os
 
-import lib.player.buffer as buffer
+import blissflixx.player.buffer as buffer
 
 
 def _write(path):

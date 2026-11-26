@@ -64,7 +64,7 @@ thing as one that works for someone who has just found it.
 
   A channel with a `top` feed is also an approximation: the archive cannot rank
   by score, so it reads as the highest scoring posts within a date window
-  instead. See the module docstring in `lib/chanutils/reddit`.
+  instead. See the module docstring in `blissflixx/chanutils/reddit`.
 
   One thing that was ours, and is fixed: flair filters were only being read in
   the quoted form. Written as `flair:Action` and not `flair:"Action"`, every
@@ -217,7 +217,7 @@ Two things about the replacement worth knowing:
   timeout, so such an item does not fail and does not start. It sits there, and
   the only way out is pressing stop.
 
-  The drop is in `lib.chanutils.reddit`, not in this channel. It was written in
+  The drop is in `blissflixx.chanutils.reddit`, not in this channel. It was written in
   the channel first, on the measurement that /r/youtubevideos carries these most
   often, and that was the wrong place: /r/Shortfilms has them at about the same
   rate, and a channel added tomorrow gets the filter by going through the same
@@ -229,7 +229,7 @@ Two things about the replacement worth knowing:
   timeout, so such an item does not fail and does not start. It sits there, and
   the only way out is pressing stop.
 
-  The drop is in `lib.chanutils.reddit`, not in this channel. It was written in
+  The drop is in `blissflixx.chanutils.reddit`, not in this channel. It was written in
   the channel first, on the measurement that /r/youtubevideos carries these most
   often, and that was the wrong place: /r/Shortfilms has them at about the same
   rate, and a channel added tomorrow gets the filter by going through the same

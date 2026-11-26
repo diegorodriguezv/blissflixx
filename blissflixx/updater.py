@@ -24,8 +24,8 @@ import subprocess
 import sys
 import time
 
-import lib.gitutils as gitutils
-import lib.locations as locations
+import blissflixx.gitutils as gitutils
+import blissflixx.locations as locations
 
 #: Where the outcome is written, so it survives the restart the button causes.
 #: The page reloads when it comes back, and without this a successful update
@@ -100,7 +100,7 @@ def ytdlp_smoke_test():
     """
     Does the freshly installed yt-dlp still resolve something?
 
-    The arguments are the ones lib/player/ytdlproc.py builds, because that is
+    The arguments are the ones blissflixx/player/ytdlproc.py builds, because that is
     the contract that matters: if a version stops accepting one of them, every
     video fails and nothing else would say so until someone pressed play.
     """

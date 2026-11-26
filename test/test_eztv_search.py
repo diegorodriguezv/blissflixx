@@ -12,7 +12,7 @@ import bfch_eztv as eztv
 import lxml.html
 import pytest
 
-from lib.api.common import ApiError
+from blissflixx.api.common import ApiError
 
 
 def card(tvmaze_id, name, rating="7.9", votes="367"):

@@ -1,14 +1,14 @@
 """
 Settings persistence.
 
-lib.settings caches loaded values in a module-level dict and reads/writes JSON
+blissflixx.settings caches loaded values in a module-level dict and reads/writes JSON
 files under data/settings. The conftest fixture redirects that to a temporary
 directory, so these tests never touch a real install.
 """
 
 import json
 
-from lib import settings as settings_module
+from blissflixx import settings as settings_module
 
 
 class TestLoad:
@@ -44,12 +44,12 @@ class TestLoad:
 
 class TestChannelSettingsUsage:
     """
-    The settings module is consumed through lib/api/channels rather than
+    The settings module is consumed through blissflixx/api/channels rather than
     directly, so check the shape it relies on.
     """
 
     def test_disabled_flag_round_trip(self, settings):
-        from lib.api.channels import InstalledChannels
+        from blissflixx.api.channels import InstalledChannels
 
         inst = InstalledChannels.__new__(InstalledChannels)
         inst.settings = settings.load("channels")
@@ -59,7 +59,7 @@ class TestChannelSettingsUsage:
         assert settings.load("channels")["bfch_test"]["disabled"] is True
 
     def test_unknown_channel_is_enabled_by_default(self, settings):
-        from lib.api.channels import InstalledChannels
+        from blissflixx.api.channels import InstalledChannels
 
         inst = InstalledChannels.__new__(InstalledChannels)
         inst.settings = {}

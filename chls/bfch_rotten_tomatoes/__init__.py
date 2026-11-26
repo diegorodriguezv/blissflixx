@@ -3,8 +3,8 @@ import urllib.parse
 
 import lxml.html
 
-from lib.chanutils import get, get_attr, get_text, select_all, select_one
-from lib.playitem import PlayItem, PlayItemList
+from blissflixx.chanutils import get, get_attr, get_text, select_all, select_one
+from blissflixx.playitem import PlayItem, PlayItemList
 
 #: Everything this channel plays is a trailer, and no subtitle service has
 #: trailers. Offering Add Subtitles on a trailer searched OpenSubtitles for

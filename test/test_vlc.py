@@ -20,8 +20,8 @@ import unittest.mock as m
 
 import pytest
 
-from lib.player import vlcproc
-from lib.player.backend import (
+from blissflixx.player import vlcproc
+from blissflixx.player.backend import (
     CAP_AUDIO_TRACK,
     CAP_PAUSE,
     CAP_SEEK,
@@ -29,8 +29,8 @@ from lib.player.backend import (
     CAP_SUBTITLES,
     CAP_VOLUME,
 )
-from lib.player.processpipe import ProcessException
-from lib.player.vlcproc import (
+from blissflixx.player.processpipe import ProcessException
+from blissflixx.player.vlcproc import (
     _DECODED_FRAMES,
     _REPLY_TIMEOUT,
     _VOLUME_START_PERCENT,
@@ -331,7 +331,7 @@ class TestVlcCommand:
         marq re-reads that file on every refresh, which is what makes the
         position live -- see _write_overlay.
         """
-        from lib.player.vlcproc import MARQ_FILE
+        from blissflixx.player.vlcproc import MARQ_FILE
 
         cmd = vlc({"outfile": FILE_OUT})
         assert "--marq-file=" + MARQ_FILE in cmd
@@ -427,10 +427,10 @@ class TestVlcPlatformVariants:
         ],
     )
     def test_audio_device_variants(self, settings, label, device):
-        from lib.settings import save
+        from blissflixx.settings import save
 
         save("player-vlc", {"audio_device": device})
-        from lib.player.backends import get_backend
+        from blissflixx.player.backends import get_backend
 
         cmd = get_backend("vlc").build_command({"outfile": FILE_OUT})
         assert "--alsa-audio-device=" + device in cmd, label
@@ -797,7 +797,7 @@ class TestVlcControl:
         VLC's scale, which this player used to call 100% -- is its 200% and is
         exactly the level that distorted the audio, so it must not be reachable.
         """
-        from lib.player.vlcproc import _VOLUME_MAX, _VOLUME_MAX_PERCENT
+        from blissflixx.player.vlcproc import _VOLUME_MAX, _VOLUME_MAX_PERCENT
 
         assert _VOLUME_MAX_PERCENT == 120
         assert _VOLUME_MAX == 307
@@ -872,7 +872,7 @@ class TestVlcControl:
         (512, which is VLC's 200% and distorted the audio). This is the
         regression: the start used to be 512 while the overlay called it 100%.
         """
-        from lib.player.vlcproc import _VOLUME_NOMINAL
+        from blissflixx.player.vlcproc import _VOLUME_NOMINAL
 
         assert _VOLUME_NOMINAL == 256
         assert _VOLUME_START_PERCENT == 100
@@ -1123,7 +1123,7 @@ class TestVlcControl:
         The UI carries one fixed set of controls, so everything it offers has to
         be something this backend really does.
         """
-        from lib.player.backend import ALL_CAPABILITIES
+        from blissflixx.player.backend import ALL_CAPABILITIES
 
         missing = ALL_CAPABILITIES - VlcProcess().capabilities
         assert missing == set(), missing
@@ -1591,7 +1591,7 @@ class TestVlcAgainstALineReader:
         constantly while playing. Lines carrying a thread id are not answers to
         anything and must not appear in the reply.
         """
-        monkeypatch.setattr("lib.player.vlcproc._REPLY_TIMEOUT", 0.4)
+        monkeypatch.setattr("blissflixx.player.vlcproc._REPLY_TIMEOUT", 0.4)
         proc = _running()
         proc._replies.put("[007070c8] main audio output error: nope")
         proc._replies.put("( state paused )")
@@ -1608,7 +1608,7 @@ class TestVlcAgainstALineReader:
         look identical here, so this reports "no reply" instead of dressing up
         whatever happened to be on stdout as a result.
         """
-        monkeypatch.setattr("lib.player.vlcproc._REPLY_TIMEOUT", 0.4)
+        monkeypatch.setattr("blissflixx.player.vlcproc._REPLY_TIMEOUT", 0.4)
         proc = _running()
         proc._replies.put("[abc1234] some unrelated log line")
         with caplog.at_level("INFO"):
@@ -1620,7 +1620,7 @@ class TestVlcAgainstALineReader:
         A quiet player is not a failure. The command was written; VLC simply had
         nothing to say, so this must not raise into the API or block the thread.
         """
-        monkeypatch.setattr("lib.player.vlcproc._REPLY_TIMEOUT", 0.4)
+        monkeypatch.setattr("blissflixx.player.vlcproc._REPLY_TIMEOUT", 0.4)
         proc = _running()
         with caplog.at_level("INFO"):
             assert proc._send_command("pause") is True
@@ -1631,7 +1631,7 @@ class TestVlcAgainstALineReader:
         The reply wait is bounded, so a player that never answers cannot hold up
         the request thread that sent the command.
         """
-        monkeypatch.setattr("lib.player.vlcproc._REPLY_TIMEOUT", 0.3)
+        monkeypatch.setattr("blissflixx.player.vlcproc._REPLY_TIMEOUT", 0.3)
         proc = _running()
         started = time.time()
         assert proc._send_command("pause") is True
@@ -1715,7 +1715,7 @@ class TestEmbeddedSubtitlesAreEnabledOnStart:
         what turns that into a real answer -- and it is a handful of asks, not
         one a second for a minute, which is what made the cli stop answering.
         """
-        monkeypatch.setattr("lib.player.vlcproc._SUBTITLE_WAIT_DELAYS", ())
+        monkeypatch.setattr("blissflixx.player.vlcproc._SUBTITLE_WAIT_DELAYS", ())
         proc, sent = self._proc_with_listing(["+----[ spu-es ]", "| -1 - Disable"])
         proc._wait_for_subtitles({})
         assert sent == []
@@ -1786,7 +1786,7 @@ class TestAddingASubtitleToARunningFilm:
         the first track that was not there before is the most probable one --
         not the last id in the listing, which is the least probable.
         """
-        from lib.player import vlcproc
+        from blissflixx.player import vlcproc
 
         proc = VlcProcess({"osd_overlay": "0"})
         listings = [[-1, 2], [-1, 2, 20, 21]]
@@ -1815,7 +1815,7 @@ class TestAddingASubtitleToARunningFilm:
         without turning "+" into a space again. Measured on the Pi: the player
         then looked for "Coyote+Vs.+Acme" and logged that it could not open it.
         """
-        from lib.player import vlcproc
+        from blissflixx.player import vlcproc
 
         seen = {}
 
@@ -1869,7 +1869,7 @@ class TestWhatATrackIsCalled:
         ],
     )
     def test_the_language_leads_and_the_variant_follows(self, name, language, expected):
-        from lib.player.vlcproc import _track_display
+        from blissflixx.player.vlcproc import _track_display
 
         assert _track_display(name, language) == expected
 
@@ -1887,7 +1887,7 @@ class TestWhatTheOverlaySays:
         what was switched to. The form asked for, and the state is the part
         that cannot be inferred from the language alone.
         """
-        from lib.player.vlcproc import _track_label
+        from blissflixx.player.vlcproc import _track_label
 
         assert _track_label("subtitle", 2, "English") == "[on] English"
         assert _track_label("subtitle", -1, None) == "[off] subtitle"
@@ -1904,7 +1904,7 @@ class TestWhatTheOverlaySays:
         string: "[off] " with nothing after it is the one label marq cannot be
         given.
         """
-        from lib.player.vlcproc import _track_label
+        from blissflixx.player.vlcproc import _track_label
 
         assert _track_label("subtitle", -1, "English") == "[off] English"
 
@@ -1940,7 +1940,7 @@ class TestWhatTheOverlaySays:
         would be claiming a track id that means nothing to the viewer and may
         not even be the track.
         """
-        from lib.player.vlcproc import _track_label
+        from blissflixx.player.vlcproc import _track_label
 
         assert _track_label("subtitle", 2, None) == "[on] subtitle"
         assert _track_label("subtitle", None, None) == "subtitle"
@@ -2359,7 +2359,7 @@ class TestHowLongAMessageStays:
         proc = VlcProcess()
         proc._write_overlay = lambda text: None
 
-        with m.patch("lib.player.vlcproc._start_thread") as start:
+        with m.patch("blissflixx.player.vlcproc._start_thread") as start:
             proc._show_overlay("Volume 60%", hold=5)
 
         assert start.call_args is not None, "nothing was scheduled to expire it"
@@ -2377,8 +2377,8 @@ class TestHowLongAMessageStays:
         proc._read_number = lambda verb: 1297.0 if verb == "get_length" else None
         proc.build_command({"outfile": "/tmp/a.mkv", "title": "Lanterns"})
 
-        with m.patch("lib.player.vlcproc._start_thread") as start:
-            with m.patch("lib.player.vlcproc.time.sleep"):
+        with m.patch("blissflixx.player.vlcproc._start_thread") as start:
+            with m.patch("blissflixx.player.vlcproc.time.sleep"):
                 proc._show_opening_title()
 
         # The name goes up first and the total is added to it, which is the
@@ -2455,7 +2455,7 @@ class TestTheOverlayStartsBlank:
         proc.proc = m.Mock(pid=os.getpid(), poll=lambda: None)
         proc.proc.wait = m.Mock(return_value=0)
 
-        with m.patch("lib.player.processpipe.os.killpg"):
+        with m.patch("blissflixx.player.processpipe.os.killpg"):
             proc.stop()
 
         assert open(MARQ_FILE, encoding="utf-8").read().strip() == ""
@@ -2481,7 +2481,7 @@ class TestTheOverlayStartsBlank:
         proc.proc = m.Mock(pid=os.getpid(), poll=lambda: None)
         proc.proc.wait = m.Mock(return_value=0)
 
-        with m.patch("lib.player.processpipe.os.killpg"):
+        with m.patch("blissflixx.player.processpipe.os.killpg"):
             proc.stop()
 
         assert open(MARQ_FILE, encoding="utf-8").read() == " "
@@ -2559,7 +2559,7 @@ class TestTheOpeningTitle:
         """
         A title with no duration is useful; nothing on screen is not.
         """
-        import lib.player.vlcproc as vlc
+        import blissflixx.player.vlcproc as vlc
 
         proc = VlcProcess({"osd_overlay": "1"})
         shown = []
@@ -2585,7 +2585,7 @@ class TestTheOpeningTitle:
         proc._read_number = lambda verb: 7742.0 if verb == "get_length" else None
         proc.build_command({"outfile": "/tmp/a.mkv", "title": "Lanterns S01E08"})
 
-        import lib.player.vlcproc as vlc
+        import blissflixx.player.vlcproc as vlc
 
         with m.patch.object(vlc, "_TITLE_QUESTION_GAPS", (0,)), m.patch.object(
             vlc.time, "sleep"
@@ -2609,7 +2609,7 @@ class TestTheOpeningTitle:
         be looked at; what matters is that the window is wide enough and the
         questions spread out enough not to stop this cli answering.
         """
-        import lib.player.vlcproc as vlc
+        import blissflixx.player.vlcproc as vlc
 
         proc = VlcProcess({"osd_overlay": "1"})
         shown = []
@@ -2633,7 +2633,7 @@ class TestTheOpeningTitle:
         Both halves of the trade. Long enough to reach a torrent's length, and
         few enough questions over it that the interface keeps answering.
         """
-        import lib.player.vlcproc as vlc
+        import blissflixx.player.vlcproc as vlc
 
         gaps = vlc._TITLE_QUESTION_GAPS
         assert (
@@ -2672,7 +2672,7 @@ class TestTheOpeningTitle:
             }
         )
 
-        import lib.player.vlcproc as vlc
+        import blissflixx.player.vlcproc as vlc
 
         with m.patch.object(vlc.time, "sleep"):
             proc._show_opening_title()
@@ -2688,7 +2688,7 @@ class TestTheOpeningTitle:
         The download path never sets it, and a stage that forgets to must not
         silently lose its duration.
         """
-        import lib.player.vlcproc as vlc
+        import blissflixx.player.vlcproc as vlc
 
         proc = VlcProcess({"osd_overlay": "1"})
         shown = []
@@ -2711,7 +2711,7 @@ class TestTheOpeningTitle:
         answer is thrown away is still a question, and every needless one is a
         chance for this cli interface to stop answering.
         """
-        import lib.player.vlcproc as vlc
+        import blissflixx.player.vlcproc as vlc
 
         proc = VlcProcess({"osd_overlay": "1"})
         shown = []
@@ -2973,7 +2973,7 @@ class TestWaitingForARealAnswer:
         assert lines == ["Device or resource busy."]
 
     def test_the_prompt_is_recognised(self):
-        from lib.player.vlcproc import _is_echo, _is_prompt
+        from blissflixx.player.vlcproc import _is_echo, _is_prompt
 
         assert _is_prompt(">") is True
         assert _is_prompt("> pause") is False
@@ -2998,7 +2998,7 @@ class TestTheSubtitleInsideTheTorrent:
     def _proc(
         self, monkeypatch, tmp_path, body=b"1\n00:00:01,000 --> 00:00:02,000\nhi\n"
     ):
-        from lib.player import vlcproc
+        from blissflixx.player import vlcproc
 
         monkeypatch.setattr(vlcproc, "TMP_DIR", str(tmp_path))
         monkeypatch.setattr(
@@ -3050,7 +3050,7 @@ class TestTheSubtitleInsideTheTorrent:
         assert proc.sent == ["strack 2"]
 
     def test_a_failure_says_so_and_adds_nothing(self, monkeypatch, tmp_path):
-        from lib.player import vlcproc
+        from blissflixx.player import vlcproc
 
         monkeypatch.setattr(vlcproc, "TMP_DIR", str(tmp_path))
         monkeypatch.setattr(
@@ -3077,7 +3077,7 @@ class TestTheSubtitleInsideTheTorrent:
         only way to add one to a film already playing. Loopback only, a port of
         its own, a password of its own.
         """
-        from lib.player import vlcproc
+        from blissflixx.player import vlcproc
 
         monkeypatch.setattr(vlcproc, "TMP_DIR", str(tmp_path))
         proc = VlcProcess({"osd_overlay": "0"})

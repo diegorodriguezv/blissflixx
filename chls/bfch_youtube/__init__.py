@@ -4,7 +4,7 @@ YouTube videos: feeds from /r/youtubevideos, and a search of all of YouTube.
 The feeds are what people posted to that subreddit, which is a real answer to
 "what is new there". Search is not: a subreddit only knows what somebody
 happened to submit, so asking it to find a video about something is asking the
-wrong party. Search asks YouTube itself, through lib.chanutils.youtube.
+wrong party. Search asks YouTube itself, through blissflixx.chanutils.youtube.
 
 The channel this replaces reached for two things. One was a sitewide listing of
 every post on Reddit linking to youtube.com; the other was YouTube's own Data
@@ -19,7 +19,7 @@ different thing from a feed that answers 200 and is not what it claims to be.
 The API key is gone rather than repointed. It was a credential belonging to
 whoever published it, committed to a public repository, and Google's terms do
 not allow that. Nothing here needs it: the posts carry their own titles,
-thumbnails and links, which is what lib.chanutils.reddit already reads.
+thumbnails and links, which is what blissflixx.chanutils.reddit already reads.
 
 What is left is two feeds: New and Top, which are the two sorts the archive can
 be asked for honestly. r/youtubevideos does not get upvoted -- measured back to
@@ -31,12 +31,12 @@ New is the feed to use here: the subreddit posts about thirty times a day.
 
 The filtering of what can be played is not here. Three posts in a hundred link
 a channel rather than a video, and yt-dlp never finishes walking one; that
-belongs to lib.chanutils.reddit, which every Reddit channel goes through, so
+belongs to blissflixx.chanutils.reddit, which every Reddit channel goes through, so
 that a channel added later gets it by existing rather than by remembering.
 """
 
-from lib.chanutils import youtube
-from lib.chanutils.reddit import get_feed
+from blissflixx.chanutils import youtube
+from blissflixx.chanutils.reddit import get_feed
 
 _FEEDLIST = [
     # Reddit offers five sorts and this archive answers by time and nothing
@@ -49,7 +49,7 @@ _FEEDLIST = [
     # archive computes one. Under those names a feed would be time order
     # wearing a label that promises a ranking, which is exactly what "Hot"
     # already was on every channel: the same first item as the feed beside it.
-    # See lib.chanutils.reddit._ranked_by_score for what Top does instead.
+    # See blissflixx.chanutils.reddit._ranked_by_score for what Top does instead.
     {"title": "New", "url": "http://www.reddit.com/r/youtubevideos/new.json"},
     {"title": "Top", "url": "http://www.reddit.com/r/youtubevideos/top.json"},
 ]
@@ -81,5 +81,5 @@ def feed(idx):
 
 
 def search(q):
-    """All of YouTube, not the subreddit: see lib.chanutils.youtube."""
+    """All of YouTube, not the subreddit: see blissflixx.chanutils.youtube."""
     return youtube.search(q)

@@ -1,7 +1,7 @@
-from lib.api.torrent import TorrentPlayItem
-from lib.chanutils import get_json, movie_title_year
-from lib.chanutils.torrent import subtitle
-from lib.playitem import PlayItemList
+from blissflixx.api.torrent import TorrentPlayItem
+from blissflixx.chanutils import get_json, movie_title_year
+from blissflixx.chanutils.torrent import subtitle
+from blissflixx.playitem import PlayItemList
 
 _SEARCH_URL = "https://yts.lt/api/v2/list_movies.json"
 
