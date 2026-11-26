@@ -60,6 +60,25 @@ echo ""
 echo "yt-dlp version installed:"
 python -m yt_dlp --version
 
+# The application itself, as an editable install. The checkout stays the source
+# of truth -- an update is still a git pull -- and virtualenv/bin gains the
+# `blissflixx` command that run.sh and start.sh start.
+#
+# --no-deps: requirements.txt was installed a moment ago. This step makes the
+# package importable and generates the command; it does not resolve the
+# dependencies a second time.
+echo ""
+echo "Installing the blissflixx package..."
+if ! pip3 install --no-deps -e .; then
+    echo ""
+    echo "The blissflixx package could not be installed."
+    echo "Run this again when the problem is fixed:"
+    echo ""
+    echo "    sudo -u $BF_USER ./configure_py.sh"
+    echo ""
+    exit 1
+fi
+
 # Channels that are separate projects.
 #
 # plugins/ is not in this repository, so a fresh checkout has none of them, and

@@ -191,8 +191,10 @@ message saying so, rather than failing later on whichever module happens to be
 missing from the system Python.
 
 Nothing is downloaded on first run any more. `configure_py.sh` installs
-everything Python needs -- including yt-dlp -- and clones the plugins listed in
-`plugins.txt`, so the first start is a start rather than an install.
+everything Python needs -- including yt-dlp -- installs the application itself
+as an editable package (that is what generates the `blissflixx` command in
+`virtualenv/bin`), and clones the plugins listed in `plugins.txt`, so the first
+start is a start rather than an install.
 
 Once you see the message "ENGINE Bus STARTED" the server will be up and running.
 Now open up a browser on your phone, tablet or PC and point it at:
@@ -211,7 +213,7 @@ asks for `CAP_NET_BIND_SERVICE` for itself, which is why `./start.sh` needs no
 To run on a different port, for instance behind a reverse proxy or to avoid
 needing that capability at all:
 
-    ./blissflixx.py --port 6969
+    ./virtualenv/bin/blissflixx --port 6969
 
 and then point the browser at `http://192.168.1.4:6969`.
 
@@ -646,7 +648,9 @@ and nothing can resolve a video:
 
     ./configure_py.sh
 
-That installs yt-dlp, and leaves the old `lib/yt-dlp` checkout alone -- which is
+That installs yt-dlp, installs the application itself as an editable package
+(which is what gives the checkout its `blissflixx` command), and leaves the old
+`lib/yt-dlp` checkout alone -- which is
 deliberate, since deleting it is not something to do on somebody's machine
 without asking. It is harmless: nothing reads it, `.gitignore` still ignores it,
 and it can go whenever:

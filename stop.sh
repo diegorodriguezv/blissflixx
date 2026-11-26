@@ -5,4 +5,4 @@
 # In that case you should use:
 # sudo systemctl stop blissflixx.service
 
-pkill --signal SIGTERM -f blissflixx.py
+pkill --signal SIGTERM -f "virtualenv/bin/blissflixx"
