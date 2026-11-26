@@ -504,8 +504,14 @@ class Api:
 
     @cherrypy.expose
     def pluginimage(self, chid, img):
-        path = os.path.join(locations.PLUGIN_PATH, chid, img)
-        return static.serve_file(path)
+        # From the channel's own directory, not from a guessed path under
+        # plugins/: an installed channel is a distribution and may live
+        # anywhere the virtualenv can import it from.
+        try:
+            channel = channels.get_installed().getChannel(chid)
+        except ApiError:
+            raise cherrypy.NotFound()
+        return static.serve_file(os.path.join(channel.cpath, img))
 
     @cherrypy.expose
     @cherrypy.tools.json_out()  # type: ignore

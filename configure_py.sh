@@ -106,6 +106,18 @@ if [ -f plugins.txt ]; then
     else
       echo "  WARNING: plugins/$name did not clone. That channel will be missing." 1>&2
     fi
+    # A plugin that declares itself as a package is installed like any other
+    # distribution; the loader finds it through its entry point instead of
+    # putting plugins/ on sys.path. A clone made before plugins carried
+    # packaging is left alone: the loader still reads it for one release, and a
+    # later update can add the file.
+    if [ -f "plugins/$name/pyproject.toml" ]; then
+      if pip3 install --no-deps -e "plugins/$name"; then
+        echo "  plugins/$name installed as a package"
+      else
+        echo "  WARNING: plugins/$name could not be installed." 1>&2
+      fi
+    fi
   done < plugins.txt
 fi
 

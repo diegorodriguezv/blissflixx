@@ -8,8 +8,9 @@
 # fresh checkout has none of them and is quietly a smaller installation than an
 # established one, with nothing to say which is supposed to be which.
 #
-# configure_py.sh clones whatever from this list is missing. The update button
-# does not add them: it moves what is already here and reports what is missing,
-# because a channel appearing on its own is not the same decision as one being
-# installed.
+# configure_py.sh clones whatever from this list is missing, and installs a
+# clone that declares its own pyproject.toml (a channel distributed as a
+# package). The update button does not add them: it moves what is already here
+# and reports what is missing, because a channel appearing on its own is not the
+# same decision as one being installed.
 bfch_xnxx https://github.com/diegorodriguezv/bfch_xnxx

@@ -1,6 +1,8 @@
 import cherrypy
 import glob
 import importlib
+import importlib.metadata
+import importlib.util
 import os
 import pkgutil
 import re
@@ -33,9 +35,10 @@ CHANNEL_PACKAGE = "blissflixx.channels"
 #: Every channel name starts with this.
 CHANNEL_PREFIX = "bfch_"
 
-# Plugins are separate projects, still installed into plugins/ and imported by
-# bare module name until stage 3 of the restructure gives them entry points.
-sys.path.append(PLUGIN_PATH)
+#: The entry-point group a channel distribution declares itself in. A plugin is
+#: a package of its own -- cloned into plugins/, installed into the virtualenv --
+#: and this is how the application finds it without knowing its directory.
+CHANNEL_ENTRY_POINT_GROUP = "blissflixx.channels"
 
 
 def channel_ids(package_paths):
@@ -60,6 +63,37 @@ def channel_ids(package_paths):
 def _builtin_channel_module(chid):
     """Import one of the channels that ships with the application."""
     return importlib.import_module(CHANNEL_PACKAGE + "." + chid)
+
+
+def _plugin_entry_points():
+    """The channels installed as distributions of their own."""
+    return importlib.metadata.entry_points().select(group=CHANNEL_ENTRY_POINT_GROUP)
+
+
+def _load_legacy_plugin(directory, chid):
+    """
+    Import an old-style plugin directory without putting it on sys.path.
+
+    Before entry points, plugins were cloned into plugins/ and imported by bare
+    name, which meant appending that directory to sys.path: a global,
+    process-wide side effect for one channel. Loading its file directly keeps an
+    installation that has not re-run the installer working for one release
+    without that. The module goes into sys.modules under its own name, so a
+    second load in the same process reuses it the way an import would.
+    """
+    spec = importlib.util.spec_from_file_location(
+        chid,
+        path.join(directory, "__init__.py"),
+        submodule_search_locations=[directory],
+    )
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[chid] = module
+    try:
+        spec.loader.exec_module(module)
+    except BaseException:
+        sys.modules.pop(chid, None)
+        raise
+    return module
 
 
 #: A channel's own website, taken out of its description.
@@ -461,15 +495,33 @@ class InstalledChannels:
                 # a changed API shape raises KeyError, and so on.
                 print(f"Failed to load channel {chid}")
                 traceback.print_exc()
-        cpaths = glob.glob(path.join(PLUGIN_PATH, CHANID_GLOB))
-        for p in cpaths:
-            if not path.isfile(path.join(p, "__init__.py")):
-                continue
-            chid = path.basename(p)
+        plugins = {}
+        for entry_point in _plugin_entry_points():
             try:
-                channels.append(Channel(chid, importlib.import_module(chid), True))
+                plugins[entry_point.name] = entry_point.load()
             except Exception:
-                print(f"Failed to load plugin {p}")
+                print(f"Failed to load plugin {entry_point.name}")
+                traceback.print_exc()
+        # An installation that has not re-run the installer still has the
+        # old-style clone. Load it from its file rather than from sys.path, and
+        # only when no entry point already claimed it.
+        for directory in sorted(glob.glob(path.join(PLUGIN_PATH, CHANID_GLOB))):
+            chid = path.basename(directory)
+            if chid in plugins or not path.isfile(path.join(directory, "__init__.py")):
+                continue
+            try:
+                plugins[chid] = _load_legacy_plugin(directory, chid)
+            except Exception:
+                print(f"Failed to load plugin {directory}")
+                traceback.print_exc()
+        for chid, module in plugins.items():
+            if any(chan.chid == chid for chan in channels):
+                # A plugin may not take a built-in channel's id.
+                continue
+            try:
+                channels.append(Channel(chid, module, True))
+            except Exception:
+                print(f"Failed to load plugin {chid}")
                 traceback.print_exc()
         # Ignore channels with no image
         channels = [chan for chan in channels if chan.imageExists()]
