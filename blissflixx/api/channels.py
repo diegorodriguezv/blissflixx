@@ -1,6 +1,8 @@
 import cherrypy
 import glob
+import importlib
 import os
+import pkgutil
 import re
 import shlex
 import shutil
@@ -17,16 +19,47 @@ from threading import Lock, Thread
 #: interface can put on screen.
 from ..chanutils.reddit import ArchiveBusy
 from ..chanutils.languages import LANGUAGES
-from ..locations import CHAN_PATH, PLUGIN_PATH, ROOT_PATH
+from ..locations import PLUGIN_PATH, ROOT_PATH
 from ..settings import load, save
 from .common import ApiError
 
 CHANID_GLOB = "bfch_*"
 
-# Installed channels are imported by bare module name, so their directories
-# have to be importable.
-sys.path.append(CHAN_PATH)
+#: The package the channels shipped with the application live in. Their ids are
+#: the last component of the package name, which is also what the settings file
+#: and every URL carry -- unchanged from when they were plain directories.
+CHANNEL_PACKAGE = "blissflixx.channels"
+
+#: Every channel name starts with this.
+CHANNEL_PREFIX = "bfch_"
+
+# Plugins are separate projects, still installed into plugins/ and imported by
+# bare module name until stage 3 of the restructure gives them entry points.
 sys.path.append(PLUGIN_PATH)
+
+
+def channel_ids(package_paths):
+    """
+    The channel packages that exist under the given import paths.
+
+    A directory with no ``__init__.py`` is not a package and is skipped. That
+    matters after a channel is removed: git deletes the tracked files but leaves
+    the directory when something untracked is still in it, and ``__pycache__``
+    is exactly that. Python would import it as an implicit namespace package --
+    an empty module that raises AttributeError on the first attribute read -- so
+    every restart logged a traceback for a channel that had been deliberately
+    deleted.
+    """
+    return sorted(
+        name
+        for _, name, is_pkg in pkgutil.iter_modules(package_paths)
+        if is_pkg and name.startswith(CHANNEL_PREFIX)
+    )
+
+
+def _builtin_channel_module(chid):
+    """Import one of the channels that ships with the application."""
+    return importlib.import_module(CHANNEL_PACKAGE + "." + chid)
 
 
 #: A channel's own website, taken out of its description.
@@ -112,9 +145,13 @@ def blocked_report(titles, words):
 
 
 class Channel:
-    def __init__(self, cpath, plugin):
-        chid = path.basename(cpath)
-        module = __import__(chid, globals(), locals(), [])
+    def __init__(self, chid, module, plugin):
+        self.chid = chid
+        self.module = module
+        #: Where the channel lives: its images sit beside its code. Taken from
+        #: the module, so a built-in channel, an installed plugin and a legacy
+        #: plugin under plugins/ all work without a directory being passed in.
+        self.cpath = path.dirname(path.abspath(module.__file__))
         name = module.name()
         desc = module.description()
         image = chid + "/" + module.image()
@@ -155,9 +192,6 @@ class Channel:
             # yt-dlp to play bbc.co.uk.
             "link": self._website(desc),
         }
-        self.chid = chid
-        self.module = module
-        self.cpath = cpath
         #: Extra settings the channel declares, if any: a dict, or a callable
         #: returning one. Evaluated at import, so it must be pure -- a channel
         #: that fetched its catalogue here would hold up every page that lists
@@ -417,35 +451,23 @@ class InstalledChannels:
 
     def _refresh(self):
         channels = []
-        cpaths = glob.glob(path.join(CHAN_PATH, CHANID_GLOB))
-        for p in cpaths:
-            # A directory with no __init__.py is not a channel.
-            #
-            # It happens after a channel is removed: git deletes the tracked
-            # files but leaves the directory when something untracked is still
-            # in it, and __pycache__ is exactly that. Python then imports the
-            # directory as an implicit namespace package -- an empty module that
-            # raises AttributeError on the first attribute read -- so every
-            # restart logged a traceback for a channel that had been deliberately
-            # deleted. Harmless, because the loader catches it, but it is noise
-            # on every boot and it reads as a fault rather than as the absence
-            # of something.
-            if not path.isfile(path.join(p, "__init__.py")):
-                continue
+        package = importlib.import_module(CHANNEL_PACKAGE)
+        for chid in channel_ids(package.__path__):
             try:
-                channels.append(Channel(p, False))
+                channels.append(Channel(chid, _builtin_channel_module(chid), False))
             except Exception:
                 # A broken channel must not take the whole server down, and it
                 # need not raise ImportError: a bad selector raises ValueError,
                 # a changed API shape raises KeyError, and so on.
-                print(f"Failed to load channel {p}")
+                print(f"Failed to load channel {chid}")
                 traceback.print_exc()
         cpaths = glob.glob(path.join(PLUGIN_PATH, CHANID_GLOB))
         for p in cpaths:
             if not path.isfile(path.join(p, "__init__.py")):
                 continue
+            chid = path.basename(p)
             try:
-                channels.append(Channel(p, True))
+                channels.append(Channel(chid, importlib.import_module(chid), True))
             except Exception:
                 print(f"Failed to load plugin {p}")
                 traceback.print_exc()

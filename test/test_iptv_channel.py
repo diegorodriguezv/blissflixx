@@ -19,7 +19,7 @@ wording rules, and test_playquality.py owns the file.
 import pathlib
 import time
 
-import bfch_iptv_org as iptv
+import blissflixx.channels.bfch_iptv_org as iptv
 
 
 def stream(

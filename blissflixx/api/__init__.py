@@ -6,7 +6,8 @@
 # hard circular imports, both of which broke the natural import order:
 #
 #   import blissflixx.player  -> the torrent stage -> blissflixx.api -> playr -> blissflixx.player
-#   import bfch_eztv   -> blissflixx.api.torrent -> channels -> InstalledChannels()
+#   import blissflixx.channels.bfch_eztv -> blissflixx.api.torrent -> channels
+#                       -> InstalledChannels()
 #                         -> re-imports bfch_eztv while it is still executing
 #
 # The server entrypoint imports the submodules it needs explicitly, and the

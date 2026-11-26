@@ -1,10 +1,10 @@
 import base64
 import codecs
 
-import bfch_divxtotal
-import bfch_elitetorrent
-import bfch_limetorrents
-import bfch_therarbg
+import blissflixx.channels.bfch_divxtotal as bfch_divxtotal
+import blissflixx.channels.bfch_elitetorrent as bfch_elitetorrent
+import blissflixx.channels.bfch_limetorrents as bfch_limetorrents
+import blissflixx.channels.bfch_therarbg as bfch_therarbg
 import lxml.html
 
 #: One listing with a film, an episode, a music row, and a row that has no

@@ -8,7 +8,7 @@ subreddit it says it is, and that it does not promise a ranking the subreddit
 cannot supply.
 """
 
-import bfch_youtube
+import blissflixx.channels.bfch_youtube as bfch_youtube
 import pytest
 
 
@@ -129,7 +129,7 @@ class TestTheChannelDescribesItself:
         There is also a "Youtube Movies" channel. Two entries differing only by
         one word are indistinguishable in a list of icons.
         """
-        from bfch_r_fullmoviesonyoutube import name as movies_name
+        from blissflixx.channels.bfch_r_fullmoviesonyoutube import name as movies_name
 
         assert bfch_youtube.name() != movies_name()
 

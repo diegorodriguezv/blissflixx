@@ -41,5 +41,5 @@ NODE_PATH = str(_ROOT / "data" / "node")
 #: will not talk to a Raspberry Pi without one; absent is the normal case and
 #: changes nothing. See blissflixx/player/ytdlproc.py.
 COOKIES_PATH = str(_ROOT / "data" / "cookies.txt")
-CHAN_PATH = str(_ROOT / "chls")
+CHAN_PATH = str(_ROOT / "blissflixx" / "channels")
 PLUGIN_PATH = str(_ROOT / "plugins")

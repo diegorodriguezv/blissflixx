@@ -115,7 +115,7 @@ class TestFlairFeedsAreFiltered:
         assert "title" not in params
 
     def test_every_flair_feed_of_a_channel_reaches_a_different_query(self):
-        from chls import bfch_r_fullmoviesonyoutube as movies
+        from blissflixx.channels import bfch_r_fullmoviesonyoutube as movies
 
         queries = set()
         for feed in movies.feedlist():
@@ -133,7 +133,7 @@ class TestFlairFeedsAreFiltered:
         The other side of it: the channel that quotes its flairs was never
         affected, which is why this went unnoticed for so long.
         """
-        from chls import bfch_r_documentaries as docs
+        from blissflixx.channels import bfch_r_documentaries as docs
 
         queries = set()
         for feed in docs.feedlist():
@@ -1061,7 +1061,9 @@ class TestTheSortsThatAreNotShipped:
         """
         import pathlib
 
-        root = pathlib.Path(__file__).resolve().parent.parent / "chls"
+        root = (
+            pathlib.Path(__file__).resolve().parent.parent / "blissflixx" / "channels"
+        )
         listings = set()
         for feedlist in root.glob("bfch_*"):
             url_file = feedlist / "__init__.py"

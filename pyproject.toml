@@ -26,8 +26,8 @@ blissflixx = "blissflixx.server:main"
 # Only the application is ours to install, plus the one-release `lib` alias:
 # the server runs as an entry point in virtualenv/bin, so the checkout root is
 # not on sys.path and an installed channel's `import lib...` needs the alias to
-# be part of the distribution. `chls`/`plugins` are separate projects loaded by
-# name at runtime, not distributions of this one.
+# be part of the distribution. `plugins` are separate projects loaded by name
+# at runtime, not distributions of this one.
 include = ["blissflixx*", "lib"]
 
 [tool.black]
@@ -57,9 +57,8 @@ extend_skip_glob = [
 [tool.pytest.ini_options]
 testpaths = ["test"]
 # The project is not installed as a package yet; tests import `blissflixx` from
-# the repo root. This also lets tests import installed channels without a
-# sys.path hack.
-pythonpath = [".", "chls"]
+# the repo root.
+pythonpath = ["."]
 # Fail fast if a test tries to reach the network. The old scripts in test/ were
 # exactly that: they hit live sites and printed whatever came back.
 #

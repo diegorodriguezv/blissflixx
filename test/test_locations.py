@@ -1,11 +1,11 @@
 """
 Location resolution.
 
-blissflixx/locations exports paths that everything else depends on: the plugin
-loader adds CHAN_PATH to sys.path, the player interpolates BIN_PATH into shell
-commands, and settings writes under SETTINGS_PATH. A silent off-by-one here
-would send the server looking in the wrong directory, or worse, write user data
-somewhere unexpected.
+blissflixx/locations exports paths that everything else depends on: the channel
+loader imports the built-in channels from CHAN_PATH and scans PLUGIN_PATH, the
+player interpolates BIN_PATH into shell commands, and settings writes under
+SETTINGS_PATH. A silent off-by-one here would send the server looking in the
+wrong directory, or worse, write user data somewhere unexpected.
 
 These tests pin the values against the expressions the module used to evaluate
 rather than against hardcoded paths, so they stay correct if the checkout moves.
@@ -45,7 +45,7 @@ class TestValuesMatchOriginalExpressions:
             "BIN_PATH": osp.join(root, "bin"),
             "PLIST_PATH": osp.join(data, "playlists"),
             "SETTINGS_PATH": osp.join(data, "settings"),
-            "CHAN_PATH": osp.join(root, "chls"),
+            "CHAN_PATH": osp.join(root, "blissflixx", "channels"),
             "PLUGIN_PATH": osp.join(root, "plugins"),
         }
 
@@ -107,8 +107,8 @@ class TestTheCookiesFileStaysOutOfTheCheckout:
 class TestRelationships:
     """
     The structure matters independently of where the checkout lives: settings
-    live under data, playlists alongside them, and everything except yt-dlp and
-    lib itself hangs off the root.
+    live under data, playlists alongside them, the built-in channels live inside
+    the package, and everything else hangs off the root.
     """
 
     def test_root_is_the_checkout(self):
@@ -120,8 +120,11 @@ class TestRelationships:
     def test_lib_is_inside_root(self):
         assert osp.dirname(locations.LIB_PATH) == locations.ROOT_PATH
 
-    def test_channels_and_plugins_are_siblings_under_root(self):
-        for name in ("CHAN_PATH", "PLUGIN_PATH", "HTML_PATH", "BIN_PATH", "DATA_PATH"):
+    def test_the_built_in_channels_live_in_the_package(self):
+        assert osp.dirname(locations.CHAN_PATH) == locations.LIB_PATH
+
+    def test_plugins_and_the_rest_are_siblings_under_root(self):
+        for name in ("PLUGIN_PATH", "HTML_PATH", "BIN_PATH", "DATA_PATH"):
             assert osp.dirname(getattr(locations, name)) == locations.ROOT_PATH, name
 
     def test_settings_and_playlists_live_under_data(self):

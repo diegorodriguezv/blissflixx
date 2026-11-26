@@ -8,7 +8,7 @@ title, while Trending is built from EZTV's own recent seeds. The fixtures are
 recorded shapes; no test reaches the network.
 """
 
-import bfch_eztv as eztv
+import blissflixx.channels.bfch_eztv as eztv
 import lxml.html
 import pytest
 

@@ -6,7 +6,7 @@ a television can use, and the row says which that is. The API is not called;
 the payload is built to the shape the channel reads.
 """
 
-import bfch_yts_torrents as yts
+import blissflixx.channels.bfch_yts_torrents as yts
 
 
 def torrent(quality, size, seeds=1, url=None):

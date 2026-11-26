@@ -16,10 +16,9 @@ testing:
    socket. Tests that genuinely need the network must be marked
    `@pytest.mark.network`.
 
-Note blissflixx/api/channels.py appends CHAN_PATH and PLUGIN_PATH to sys.path at
-import time. That is the mechanism installed channels are loaded by, so it is
-left in place; pyproject.toml puts both the repo root and chls/ on the path so
-channels can also be imported directly by name.
+Channels that ship with the application are packages under
+blissflixx.channels, so tests import them by package name. Plugins are
+separate projects under plugins/ and stay importable by name for the loader.
 """
 
 import socket

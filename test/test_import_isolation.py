@@ -11,8 +11,9 @@ at import time and re-imported every installed channel. That produced two hard
 circular imports:
 
     import blissflixx.player -> the torrent stage -> blissflixx.api -> playr -> blissflixx.player
-    import bfch_eztv  -> blissflixx.api.torrent -> channels -> InstalledChannels()
-                         -> re-imports bfch_eztv while it is still executing
+    import blissflixx.channels.bfch_eztv -> blissflixx.api.torrent -> channels
+                         -> InstalledChannels() -> re-imports it while it is
+                         still executing
 
 Both only failed depending on what happened to be imported first, which is the
 worst kind of breakage to notice by hand.
@@ -32,13 +33,12 @@ def run_snippet(code):
     """
     Execute python in a fresh interpreter rooted at the repo.
 
-    PYTHONPATH carries the repo root and chls/ so installed channels can be
-    imported by bare name, matching how blissflixx/api/channels.py loads them at
-    runtime.
+    PYTHONPATH carries the repo root, which is enough: channels that ship with
+    the application are packages under blissflixx.channels.
     """
     env = dict(os.environ)
     env["PYTHONPATH"] = os.pathsep.join(
-        [str(REPO_ROOT), str(REPO_ROOT / "chls"), env.get("PYTHONPATH", "")]
+        [str(REPO_ROOT), env.get("PYTHONPATH", "")]
     ).rstrip(os.pathsep)
     return subprocess.run(
         [sys.executable, "-c", code],
@@ -55,11 +55,11 @@ class TestStandaloneImports:
     Each of these must work as the very first import in a process.
     """
 
-    def test_player_imports_without_lib_api_first(self):
+    def test_player_imports_without_api_first(self):
         proc = run_snippet("import blissflixx.player")
         assert proc.returncode == 0, proc.stderr
 
-    def test_api_imports_without_lib_player_first(self):
+    def test_api_imports_without_player_first(self):
         proc = run_snippet("import blissflixx.api.torrent")
         assert proc.returncode == 0, proc.stderr
 
@@ -92,11 +92,11 @@ class TestStandaloneImports:
     )
     def test_channel_imports_standalone(self, module):
         """
-        Channels are loaded by bare module name at runtime, so each one must be
-        importable on its own. The three that reach into blissflixx.api.torrent are
-        the ones the eager hub used to break.
+        Each channel is a package under blissflixx.channels, so each one must be
+        importable on its own. The three that reach into blissflixx.api.torrent
+        are the ones the eager hub used to break.
         """
-        proc = run_snippet(f"import {module}")
+        proc = run_snippet(f"import blissflixx.channels.{module}")
         assert proc.returncode == 0, proc.stderr
 
 
@@ -138,7 +138,7 @@ class TestImportIsolation:
         """
         proc = run_snippet(
             "import blissflixx.api.channels as c; print(c._installed); "
-            "print('bfch_eztv' in __import__('sys').modules)"
+            "print('blissflixx.channels.bfch_eztv' in __import__('sys').modules)"
         )
         assert proc.returncode == 0, proc.stderr
         lines = proc.stdout.strip().splitlines()

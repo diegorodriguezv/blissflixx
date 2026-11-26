@@ -7,7 +7,7 @@ must not wait on Twitch or depend on a token. The streams inside a feed still
 come from Twitch.
 """
 
-import bfch_twitch
+import blissflixx.channels.bfch_twitch as bfch_twitch
 
 
 class TestTheList:

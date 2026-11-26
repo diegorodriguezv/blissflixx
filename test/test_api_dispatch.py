@@ -47,14 +47,11 @@ class TestADirectoryWithNoModuleIsNotAChannel:
     there was nothing to fault.
     """
 
-    def test_a_directory_without_init_is_skipped_quietly(self, tmp_path, monkeypatch):
+    def test_a_directory_without_init_is_not_a_channel(self, tmp_path):
         """
-        One test for the whole thing, because it is one thing: a directory with
-        no __init__.py yields no channel, and no traceback either.
-
-        The traceback is the part that was visible. The loader caught the failure
-        either way, so the channel's absence never needed proving; what needed
-        proving is that a deleted channel stops being reported as a fault.
+        The discovery step, which is where the traceback came from: a directory
+        with no __init__.py is not a package, so it is not named and never
+        imported.
         """
         import blissflixx.api.channels as api_channels
 
@@ -63,25 +60,16 @@ class TestADirectoryWithNoModuleIsNotAChannel:
         (gone / "__pycache__").mkdir()
         (gone / "icon.png").write_bytes(b"x")
 
-        monkeypatch.setattr(api_channels, "CHAN_PATH", str(tmp_path))
-        # Plugins are a second channel directory. On an installed box it has
-        # real channels in it; this test is about the empty one above.
-        monkeypatch.setattr(
-            api_channels, "PLUGIN_PATH", str(tmp_path / "plugins")
-        )
-        monkeypatch.setattr(api_channels, "load", lambda name: {})
+        assert api_channels.channel_ids([str(tmp_path)]) == []
 
-        reported = []
-        monkeypatch.setattr(
-            api_channels,
-            "traceback",
-            type("t", (), {"print_exc": staticmethod(lambda: reported.append(1))}),
-        )
+    def test_a_real_package_is_found(self, tmp_path):
+        import blissflixx.api.channels as api_channels
 
-        installed = api_channels.InstalledChannels()
+        here = tmp_path / "bfch_demo"
+        here.mkdir()
+        (here / "__init__.py").write_text("")
 
-        assert installed.getAll() == [], "a directory with no module was loaded"
-        assert reported == [], "a deleted channel still logs a traceback"
+        assert api_channels.channel_ids([str(tmp_path)]) == ["bfch_demo"]
 
 
 class TestAChannelIsDescribedAsADesc:
@@ -99,40 +87,36 @@ class TestAChannelIsDescribedAsADesc:
     notices being undone.
     """
 
-    def _channel(self, tmp_path, monkeypatch, request):
-        import sys
+    def _channel(self, tmp_path, monkeypatch):
+        import types
 
         import blissflixx.api.channels as api_channels
 
         ch = tmp_path / "bfch_demo"
         ch.mkdir()
-        (ch / "__init__.py").write_text(
-            "def name(): return 'Demo'\n"
-            "def description(): return 'A channel about demo'\n"
-            "def image(): return 'icon.png'\n"
-        )
         (ch / "icon.png").write_bytes(b"x")
 
-        # CHAN_PATH only reaches sys.path when blissflixx.api.channels is first
-        # imported, so patching it afterwards is not enough to make a stub
-        # importable. Both are needed.
-        monkeypatch.setattr(sys, "path", [str(tmp_path)] + list(sys.path))
-        monkeypatch.setattr(api_channels, "CHAN_PATH", str(tmp_path))
+        module = types.ModuleType("blissflixx.channels.bfch_demo")
+        module.__file__ = str(ch / "__init__.py")
+        module.name = lambda: "Demo"
+        module.description = lambda: "A channel about demo"
+        module.image = lambda: "icon.png"
+
+        monkeypatch.setattr(api_channels, "channel_ids", lambda paths: ["bfch_demo"])
+        monkeypatch.setattr(
+            api_channels, "_builtin_channel_module", lambda chid: module
+        )
+        monkeypatch.setattr(api_channels, "PLUGIN_PATH", str(tmp_path / "plugins"))
         monkeypatch.setattr(api_channels, "load", lambda name: {})
-        # The stub is imported during the test, so it has to be dropped
-        # afterwards rather than before. Left in sys.modules it would satisfy a
-        # later import of the same name, and that test would silently get this
-        # stub instead of the channel it meant to load.
-        request.addfinalizer(lambda: sys.modules.pop("bfch_demo", None))
         return api_channels.InstalledChannels()
 
-    def test_the_field_is_named_desc(self, tmp_path, monkeypatch, request):
-        installed = self._channel(tmp_path, monkeypatch, request)
+    def test_the_field_is_named_desc(self, tmp_path, monkeypatch):
+        installed = self._channel(tmp_path, monkeypatch)
         info = installed.getAll()[0].getInfo()
         assert info["desc"] == "A channel about demo", info
 
-    def test_it_no_longer_answers_to_subtitle(self, tmp_path, monkeypatch, request):
-        installed = self._channel(tmp_path, monkeypatch, request)
+    def test_it_no_longer_answers_to_subtitle(self, tmp_path, monkeypatch):
+        installed = self._channel(tmp_path, monkeypatch)
         assert "subtitle" not in installed.getAll()[0].getInfo()
 
     def test_an_item_subtitle_is_still_called_subtitle(self, tmp_path, monkeypatch):

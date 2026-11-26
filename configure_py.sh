@@ -117,8 +117,8 @@ if [ "$1" == "--dev" ]; then
     pip3 install -r requirements-dev.txt
     echo ""
     echo "Run the test suite with:  virtualenv/bin/pytest"
-    echo "Check formatting with:    virtualenv/bin/black --check blissflixx chls"
-    echo "                         virtualenv/bin/isort --check-only blissflixx chls"
+    echo "Check formatting with:    virtualenv/bin/black --check blissflixx"
+    echo "                         virtualenv/bin/isort --check-only blissflixx"
 fi
 
 echo ""

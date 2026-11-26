@@ -11,7 +11,7 @@ cast per film. Everything plays as a trailer, so the channel offers no
 subtitles: the films' subtitles do not match the trailers' cuts.
 """
 
-import bfch_rotten_tomatoes as rt
+import blissflixx.channels.bfch_rotten_tomatoes as rt
 
 BROWSE = """
 <html><body>
