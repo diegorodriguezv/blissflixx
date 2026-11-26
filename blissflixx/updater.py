@@ -8,6 +8,11 @@ reasons, so they are done separately and reported separately:
   * yt-dlp, which is a package and follows the sites it extracts from;
   * BlissFlixx itself.
 
+The application is an editable install, so pulling the code is not enough:
+the command that starts it and the metadata that says it is installed both live
+in the virtualenv. After a successful pull this reinstalls the package, and a
+failed install is reported rather than restarted past.
+
 The one thing deliberately not moved is requirements.txt. Its contents are
 pinned, and a pinned dependency is only pinned if something does not quietly
 update it -- so when a pull brings a changed one, this says so and leaves it.
@@ -189,7 +194,7 @@ def update_ytdlp():
 
 
 def update_blissflixx():
-    """Pull this checkout, and say whether that brought a new requirements.txt."""
+    """Pull this checkout, and keep the installed package in step with it."""
     before = gitutils.head_sha(locations.ROOT_PATH)
     result = gitutils.pull(locations.ROOT_PATH, name="blissflixx")
     part = Part(
@@ -198,12 +203,44 @@ def update_blissflixx():
         changed=result.changed,
         detail=result.detail,
     )
-    if result.ok and result.changed:
-        if gitutils.requirements_changed(locations.ROOT_PATH, before, result.detail):
-            part.note = (
-                "requirements.txt changed. Run ./configure_py.sh to install "
-                "what the new version needs."
-            )
+    if not result.ok:
+        return part
+
+    # The application is installed editable, so this is what makes new code
+    # reachable: without it the console script and the package metadata stay at
+    # the shape they had when configure_py.sh last ran. It is cheap when
+    # nothing moved, and running it every time repairs an install that failed
+    # on an earlier press.
+    ok, out = _run(
+        [
+            sys.executable,
+            "-m",
+            "pip",
+            "install",
+            "--no-deps",
+            "-e",
+            locations.ROOT_PATH,
+        ],
+        600,
+    )
+    if not ok:
+        # Do not restart onto code the installation could not take. The old
+        # process keeps running, and the message says what to fix.
+        return Part(
+            result.name,
+            ok=False,
+            changed=False,
+            detail="the code was pulled, but the package could not be installed: %s"
+            % (_last_line(out) or "pip said nothing"),
+        )
+
+    if result.changed and gitutils.requirements_changed(
+        locations.ROOT_PATH, before, result.detail
+    ):
+        part.note = (
+            "requirements.txt changed. Run ./configure_py.sh to install "
+            "what the new version needs."
+        )
     return part
 
 

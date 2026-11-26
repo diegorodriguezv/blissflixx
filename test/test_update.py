@@ -432,6 +432,96 @@ class TestYtdlpIsCheckedAfterItMoves:
         assert "configure_py.sh" in part.detail
 
 
+class TestTheInstalledPackageFollowsTheCode:
+    """
+    The application is an editable install, so a pull alone leaves the command
+    and the package metadata where configure_py.sh last put them. The update
+    button has to move the install too, or the first update after the
+    restructure is the only one that works.
+    """
+
+    def test_a_successful_pull_reinstalls_the_package(
+        self, _nothing_is_really_run, monkeypatch
+    ):
+        stub_git(monkeypatch, [])
+
+        part = updater.update_blissflixx()
+
+        assert part.ok, part.detail
+        ran = _nothing_is_really_run
+        installs = [cmd for cmd in ran if "pip" in cmd and "install" in cmd]
+        assert installs, ran
+        install = installs[0]
+        assert install[0] == sys.executable
+        assert "--no-deps" in install
+        assert "-e" in install
+        assert install[-1] == updater.locations.ROOT_PATH
+
+    def test_a_pull_that_moved_nothing_still_checks_the_install(
+        self, _nothing_is_really_run, monkeypatch
+    ):
+        """
+        It is cheap when there is nothing new, and it repairs an install that
+        failed on an earlier press without needing a new commit to pull.
+        """
+        stub_git(monkeypatch, [])
+        monkeypatch.setattr(
+            updater.gitutils,
+            "pull",
+            lambda path, name=None: gitutils.GitResult(name, True, False, "aaaaaaa"),
+        )
+
+        part = updater.update_blissflixx()
+
+        assert part.ok and part.changed is False
+        assert any(
+            "pip" in cmd for cmd in _nothing_is_really_run
+        ), _nothing_is_really_run
+
+    def test_a_failed_install_does_not_restart(self, monkeypatch):
+        stub_git(monkeypatch, [gitutils.GitResult("bfch_xnxx", True, False)])
+        monkeypatch.setattr(
+            updater,
+            "update_ytdlp",
+            lambda: updater.Part("yt-dlp", True, False, "2026.08.19"),
+        )
+
+        def run(cmd, timeout):
+            if "pip" in cmd:
+                return False, "No matching distribution found for setuptools"
+            return True, ""
+
+        monkeypatch.setattr(updater, "_run", run)
+
+        parts, changed = updater.run()
+
+        assert changed is False, "it restarted onto an install that failed"
+        part = [p for p in parts if p.name == "blissflixx"][0]
+        assert part.ok is False
+        assert "could not be installed" in part.detail
+        assert "No matching distribution" in part.detail
+
+    def test_a_failed_pull_is_not_followed_by_an_install(
+        self, _nothing_is_really_run, monkeypatch
+    ):
+        """There is no new code to install, and pip must not be asked."""
+        stub_git(monkeypatch, [])
+        monkeypatch.setattr(
+            updater.gitutils,
+            "pull",
+            lambda path, name=None: gitutils.GitResult(
+                name, False, False, "local changes"
+            ),
+        )
+
+        part = updater.update_blissflixx()
+
+        assert part.ok is False
+        assert not [
+            cmd for cmd in _nothing_is_really_run if "pip" in cmd
+        ], _nothing_is_really_run
+
+
 class TestTheOtherDependenciesDoNotMove:
     """
     requirements.txt is pinned, and a pinned dependency is only pinned if nothing
