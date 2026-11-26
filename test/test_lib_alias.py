@@ -89,3 +89,16 @@ class TestTheAliasDoesNotHideMistakes:
         assert proc.returncode != 0
         assert "ModuleNotFoundError" in proc.stderr
         assert "lib.player.nothing_here" in proc.stderr
+
+    def test_the_installed_distribution_ships_the_alias(self):
+        """
+        The server runs as an entry point in virtualenv/bin, so the checkout
+        root is not on sys.path. A plugin's `import lib...` therefore needs the
+        alias to be part of the installed distribution, or every installed
+        channel fails to load on the first update after the rename.
+        """
+        import tomllib
+
+        config = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text())
+        packages = config["tool"]["setuptools"]["packages"]["find"]["include"]
+        assert "lib" in packages, packages
