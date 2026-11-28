@@ -165,14 +165,14 @@ unless it was asked for.
 
 ## After installing
 
-`configure.sh` finishes by running `bin/check_players.py`, which checks that
+`configure.sh` finishes by running `blissflixx-doctor`, which checks that
 the player binary is on the box and prints the configured device names for
 reference. It does not open the ALSA or KMS devices; whether a card is there
 depends on the board and on what is plugged into it.
 Run it again at any time:
 
 ```
-./virtualenv/bin/python ./bin/check_players.py
+./virtualenv/bin/blissflixx-doctor
 ```
 
 # configure_py.sh

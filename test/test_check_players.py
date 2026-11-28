@@ -1,5 +1,5 @@
 """
-bin/check_players.py
+The player readiness check (`blissflixx-doctor`).
 
 Installing a player is not the same as being able to run it: the KMS and ALSA
 device names in the defaults are specific to one model. This checks what is
@@ -12,26 +12,9 @@ these tests protect.
 Everything that shells out is stubbed; nothing here runs a player.
 """
 
-import importlib.util
-import pathlib
-import sys
-
 import pytest
 
-REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
-SCRIPT = REPO_ROOT / "bin" / "check_players.py"
-
-
-def load_module():
-    """Import bin/check_players.py, which is not a package."""
-    spec = importlib.util.spec_from_file_location("check_players", SCRIPT)
-    module = importlib.util.module_from_spec(spec)
-    sys.modules["check_players"] = module
-    spec.loader.exec_module(module)
-    return module
-
-
-check_players = load_module()
+from blissflixx import doctor as check_players
 
 
 class TestPlanningIsDerivedFromDefaults:
@@ -98,8 +81,11 @@ class TestExecutingChecks:
         assert "not on PATH" in result.detail
 
     def test_absolute_path_is_checked_directly(self):
+        import pathlib
+
+        root = pathlib.Path(check_players.__file__).resolve().parents[1]
         check = check_players.Check(
-            "t", "binary", "executable", str(REPO_ROOT / "configure.sh")
+            "t", "binary", "executable", str(root / "configure.sh")
         )
         assert check_players.run_check(check).ok is True
 
@@ -114,6 +100,7 @@ class TestExecutingChecks:
         result = check_players.run_check(check)
         assert result.ok is False
         assert "unknown check kind" in result.detail
+
 
 class TestReadinessAggregation:
     def _results(self, backend, oks):

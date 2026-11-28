@@ -353,7 +353,7 @@ else
     echo ""
     echo "============================================================"
     echo ""
-    sudo -u "$BF_USER" ./virtualenv/bin/python ./bin/check_players.py || true
+    sudo -u "$BF_USER" ./virtualenv/bin/blissflixx-doctor || true
     echo ""
     echo "============================================================"
     echo ""
