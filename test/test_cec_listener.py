@@ -142,3 +142,29 @@ class TestOptIn:
     def test_main_exits_cleanly_when_off(self, cl, tmp_path):
         """Off means exit 0 at once, so the boot unit can stay installed."""
         assert cl.main(["--settings", str(tmp_path / "cec.json")]) == 0
+
+
+class TestTheOldUnitPath:
+    def test_the_shim_starts_the_listener(self, tmp_path):
+        """
+        The unit configure.sh installed names bin/cec_listener.py, and an
+        installation that has not re-run the installer keeps that unit. The
+        shim has to keep it working, under whatever python the unit names.
+        """
+        import pathlib
+        import subprocess
+        import sys
+
+        script = pathlib.Path(__file__).resolve().parents[1] / "bin" / "cec_listener.py"
+        settings = tmp_path / "cec.json"
+        settings.write_text('{"enabled": false}')
+
+        proc = subprocess.run(
+            [sys.executable, str(script), "--settings", str(settings)],
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+
+        assert proc.returncode == 0, proc.stderr
+        assert "off" in proc.stdout

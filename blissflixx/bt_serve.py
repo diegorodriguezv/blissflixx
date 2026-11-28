@@ -1,10 +1,14 @@
 #!/usr/bin/env python3
 """Serve one file out of a torrent over HTTP, fetching only what is read.
 
-blissflixx/player/ltproc.py runs this with the system python, because libtorrent comes
-from the python3-libtorrent package rather than from the application's
-virtualenv. It is the torrent source for the pipeline: one line when it can
-serve, a status line every couple of seconds, and the file itself over HTTP.
+blissflixx/player/ltproc.py starts this with the system python, on purpose:
+`libtorrent` has an aarch64 wheel for the virtualenv but none for armv7l, so
+the supported 32-bit install cannot get it from pip and uses the
+python3-libtorrent system package. This file is therefore started by path, not
+as a module, and imports only the standard library and libtorrent -- it never
+needs the application package. It is the torrent source for the pipeline: one
+line when it can serve, a status line every couple of seconds, and the file
+itself over HTTP.
 
 Why an HTTP layer of our own: a torrent file is mostly holes, and a reader that
 reads into a hole gets zeroes rather than an error. Reads block until the pieces

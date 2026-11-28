@@ -16,9 +16,9 @@
 # port and serves the same file from the same buffer; the player's next read
 # may recover, and if it does not, the error is what it would have been.
 
-here=$(dirname "$0")
+here=$(cd "$(dirname "$0")" && pwd)
 python=${BT_PYTHON:-/usr/bin/python3}
-serve=${BT_SERVE:-$here/bt_serve.py}
+serve=${BT_SERVE:-$here/blissflixx/bt_serve.py}
 
 run() {
     "$python" "$serve" "$@"

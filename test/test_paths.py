@@ -3,7 +3,7 @@ Path resolution.
 
 blissflixx/paths exports the locations everything else depends on: the channel
 loader imports the built-in channels from CHAN_PATH and scans PLUGIN_PATH, the
-player interpolates BIN_PATH into shell commands, and settings writes under
+player interpolates VENDOR_PATH into subprocess arguments, and settings writes under
 SETTINGS_PATH. A wrong answer here sends the server looking in the wrong
 directory, or writes user data somewhere unexpected.
 
@@ -155,7 +155,6 @@ class TestValues:
         for name in (
             "PLUGIN_PATH",
             "HTML_PATH",
-            "BIN_PATH",
             "DATA_PATH",
             "VENDOR_PATH",
         ):
@@ -176,13 +175,15 @@ class TestValues:
             "PACKAGE_PATH",
             "CHAN_PATH",
             "HTML_PATH",
-            "BIN_PATH",
             "VENDOR_PATH",
         ):
             assert osp.isdir(getattr(paths, name)), name
 
     def test_the_vendored_download_server_is_present(self):
         assert osp.isfile(osp.join(paths.VENDOR_PATH, "dlsrv"))
+
+    def test_the_torrent_server_is_in_the_package(self):
+        assert osp.isfile(osp.join(paths.PACKAGE_PATH, "bt_serve.py"))
 
 
 class TestRuntimeStateStaysOutOfTheCheckout:

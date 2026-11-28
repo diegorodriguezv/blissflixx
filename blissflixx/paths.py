@@ -82,7 +82,6 @@ ROOT_PATH = str(_ROOT)
 PACKAGE_PATH = str(_PACKAGE)
 HTML_PATH = str(_ROOT / "html")
 DATA_PATH = str(_DATA)
-BIN_PATH = str(_ROOT / "bin")
 PLIST_PATH = str(_DATA / "playlists")
 SETTINGS_PATH = str(_DATA / "settings")
 #: The checkout's own JavaScript runtime, unpacked here by configure.sh.

@@ -1,5 +1,5 @@
 """
-bin/bt_serve.py
+blissflixx/bt_serve.py
 
 The HTTP and piece arithmetic that decides what a play costs. Everything that
 needs libtorrent is exercised on the box; what is testable here is the part that
@@ -18,7 +18,7 @@ import sys
 import pytest
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
-SCRIPT = REPO_ROOT / "bin" / "bt_serve.py"
+SCRIPT = REPO_ROOT / "blissflixx" / "bt_serve.py"
 
 
 def load_module():
@@ -212,7 +212,7 @@ class TestNoTimeouts:
         Nothing reads piece_progress, and its volume is where the armhf build
         has crashed. read_piece and save_resume are storage alerts.
         """
-        source = (REPO_ROOT / "bin" / "bt_serve.py").read_text()
+        source = SCRIPT.read_text()
         assert "piece_progress_notification" not in source
 
 

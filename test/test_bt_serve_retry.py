@@ -1,5 +1,5 @@
 """
-bin/bt_serve_retry.sh
+bt_serve_retry.sh
 
 One retry for a native crash, and only for that.
 
@@ -13,7 +13,7 @@ import os
 import pathlib
 import subprocess
 
-WRAPPER = pathlib.Path(__file__).resolve().parents[1] / "bin" / "bt_serve_retry.sh"
+WRAPPER = pathlib.Path(__file__).resolve().parents[1] / "bt_serve_retry.sh"
 
 
 def fake_serve(tmp_path, body):

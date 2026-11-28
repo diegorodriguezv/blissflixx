@@ -1,9 +1,9 @@
 """The torrent source, backed by libtorrent.
 
 This is the stage that turns a magnet into something a player can open. It
-starts bin/bt_serve.py -- a separate process, under the system python, because
-python3-libtorrent is a system package and the application runs in a virtualenv
--- which prints one line when it can serve, a status line every couple of
+starts blissflixx/bt_serve.py -- a separate process, under the system python,
+because libtorrent has no armv7l wheel for the virtualenv -- which prints one
+line when it can serve, a status line every couple of
 seconds, and serves the file over HTTP.
 
 What it is for, measured on a Pi 3 cold against a 1.9GB torrent: metadata in
@@ -27,23 +27,24 @@ import cherrypy
 
 from ..api.torrent import torrent2magnet
 from . import buffer as buffer_space
-from ..paths import BIN_PATH
+from ..paths import PACKAGE_PATH, ROOT_PATH
 from .buffer import BUFFER_DIR
 from .processpipe import ExternalProcess, ProcessException
 
 #: Where bt_serve.py listens.
 _PORT = "9697"
 
-#: The system interpreter, not the virtualenv: libtorrent comes from the
-#: python3-libtorrent package. configure.sh installs it; a box without it says
-#: so in one line, with the command that fixes it.
+#: The system interpreter, not the virtualenv: libtorrent has no armv7l wheel,
+#: so the supported 32-bit install uses the python3-libtorrent package.
+#: configure.sh installs it; a box without it says so in one line, with the
+#: command that fixes it.
 SYSTEM_PYTHON = "/usr/bin/python3"
 
-BT_SERVE = os.path.join(BIN_PATH, "bt_serve.py")
+BT_SERVE = os.path.join(PACKAGE_PATH, "bt_serve.py")
 
 #: bt_serve.py behind one retry for a native crash. See the script: it is the
 #: only failure with nothing to act on, and it lands before the play starts.
-BT_SERVE_RETRY = os.path.join(BIN_PATH, "bt_serve_retry.sh")
+BT_SERVE_RETRY = os.path.join(ROOT_PATH, "bt_serve_retry.sh")
 
 _SERVING_RE = re.compile(
     r"bf-bt: serving (http://\S+) index=(-?\d+) name=(.*?) length=(\d+) "
