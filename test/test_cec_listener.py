@@ -1,27 +1,21 @@
 """
 The CEC remote listener, tested without a TV, a Pi or /dev/cec0.
 
-The module is imported directly, as test_bt_serve does, so it is checked as the
-file that runs on the box.
+The module is imported directly, so it is checked as the code that runs on the
+box.
 """
 
-import importlib.util
 import json
-import pathlib
 import struct
 
 import pytest
 
-REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
-SCRIPT = REPO_ROOT / "bin" / "cec_listener.py"
+from blissflixx import cec as cl_module
 
 
 @pytest.fixture(scope="module")
 def cl():
-    spec = importlib.util.spec_from_file_location("cec_listener", SCRIPT)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
+    return cl_module
 
 
 DEVICES = """\
@@ -44,12 +38,12 @@ class TestKeyMapping:
     @pytest.mark.parametrize(
         "code, action",
         [
-            (200, "pause"),     # play
-            (201, "pause"),     # pause
-            (352, "pause"),     # select
-            (105, "minus30"),   # left
-            (106, "plus30"),    # right
-            (103, "plus600"),   # up
+            (200, "pause"),  # play
+            (201, "pause"),  # pause
+            (352, "pause"),  # select
+            (105, "minus30"),  # left
+            (106, "plus30"),  # right
+            (103, "plus600"),  # up
             (108, "minus600"),  # down
         ],
     )
@@ -76,8 +70,16 @@ class TestKeyMapping:
     def test_every_mapped_action_exists_in_the_player(self, cl):
         """Each action name must be one the player's control() understands."""
         known = {
-            "pause", "resume", "stop", "plus30", "minus30",
-            "plus600", "minus600", "volup", "voldown", "mute",
+            "pause",
+            "resume",
+            "stop",
+            "plus30",
+            "minus30",
+            "plus600",
+            "minus600",
+            "volup",
+            "voldown",
+            "mute",
         }
         assert set(cl.ACTIONS.values()) <= known
 

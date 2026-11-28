@@ -428,7 +428,7 @@ Type=simple
 Restart=on-failure
 User=${BF_USER}
 WorkingDirectory=$(pwd)
-ExecStart=/usr/bin/python3 $(pwd)/bin/cec_listener.py
+ExecStart=$(pwd)/virtualenv/bin/blissflixx-cec
 
 [Install]
 WantedBy=default.target

@@ -22,6 +22,7 @@ dependencies = []
 [project.scripts]
 blissflixx = "blissflixx.server:main"
 blissflixx-doctor = "blissflixx.doctor:main"
+blissflixx-cec = "blissflixx.cec:main"
 
 [tool.setuptools.packages.find]
 # Only the application is ours to install, plus the one-release `lib` alias:

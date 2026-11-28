@@ -416,7 +416,7 @@ Off by default. Enable it with `data/settings/cec.json`:
 {"enabled": true}
 ```
 
-`bin/cec_listener.py` (installed as `blissflixx-cec.service`) then claims the Pi
+`blissflixx-cec` (installed as `blissflixx-cec.service`) then claims the Pi
 as a playback device and forwards the TV remote's play/pause, arrows, select and
 back keys to the player; the back key stops the film. Volume, numbers and menus
 stay with the TV. HDMI-CEC is one port on a board with two, so a Pi 4/5 may need

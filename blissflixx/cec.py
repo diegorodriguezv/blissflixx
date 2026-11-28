@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 Play the film from the TV remote, over HDMI-CEC.
 
@@ -27,9 +26,10 @@ import time
 import urllib.parse
 import urllib.request
 
+from .paths import SETTINGS_PATH
+
 TAG = "bf-cec: "
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-SETTINGS = os.path.join(ROOT, "data", "settings", "cec.json")
+SETTINGS = os.path.join(SETTINGS_PATH, "cec.json")
 CEC_DEVICE = "/dev/cec0"
 OSD_NAME = "BlissFlixx"
 INPUT_NAME = "vc4-hdmi"
@@ -39,14 +39,14 @@ SERVER = "http://127.0.0.1:%d/api/playr"
 #: Play and pause both toggle: the player's pause verb is a toggle, and the
 #: interface sends it for both buttons.
 ACTIONS = {
-    200: "pause",    # KEY_PLAYCD, CEC play
-    201: "pause",    # KEY_PAUSECD, CEC pause
-    352: "pause",    # KEY_OK, CEC select
+    200: "pause",  # KEY_PLAYCD, CEC play
+    201: "pause",  # KEY_PAUSECD, CEC pause
+    352: "pause",  # KEY_OK, CEC select
     105: "minus30",  # KEY_LEFT
-    106: "plus30",   # KEY_RIGHT
+    106: "plus30",  # KEY_RIGHT
     103: "plus600",  # KEY_UP
-    108: "minus600", # KEY_DOWN
-    174: "stop",     # KEY_EXIT, CEC back
+    108: "minus600",  # KEY_DOWN
+    174: "stop",  # KEY_EXIT, CEC back
 }
 
 #: struct input_event as the kernel lays it out here: two longs, a timeval,
