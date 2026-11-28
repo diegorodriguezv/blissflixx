@@ -32,7 +32,7 @@ live in `/tmp/blissflixx`; downloads live on the card.
 
 ```
 /tmp/blissflixx/
-  <name>.srt            downloaded subtitles, from bin/getsubs.py
+  <name>.srt            downloaded subtitles, from blissflixx/getsubs.py
   vlc.sock              VLC, unused: this VLC has no rc module
   bf.out                yt-dlp output, while downloading
 ```

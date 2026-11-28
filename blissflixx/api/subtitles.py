@@ -12,7 +12,7 @@ from ..chanutils.chanutils import (
     without_year,
 )
 from ..chanutils.languages import LANGUAGES  # noqa: F401  (re-export)
-from ..player.subsproc import GETSUBS_PATH
+from ..player.subsproc import GETSUBS
 from ..settings import load, save
 from .common import ApiError
 
@@ -257,7 +257,7 @@ def search(
         # getsubs has no season-only mode; hint season in the query.
         search_title = "%s Season %d" % (title, season)
 
-    cmd = [GETSUBS_PATH, lang or "eng", "--list"]
+    cmd = GETSUBS + [lang or "eng", "--list"]
     if search_title:
         cmd += ["-t", search_title]
     if imdb:

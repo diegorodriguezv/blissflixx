@@ -1,10 +1,11 @@
 import json
-import os
+import sys
 
-from ..paths import BIN_PATH
 from .processpipe import ExternalProcess, ProcessException
 
-GETSUBS_PATH = os.path.join(BIN_PATH, "getsubs.py")
+#: The subtitle helper, run as a module of this installation: the child is the
+#: same interpreter as the server by construction, with the same packages.
+GETSUBS = [sys.executable, "-m", "blissflixx.getsubs"]
 
 
 class SubtitlesProcess(ExternalProcess):
@@ -38,7 +39,7 @@ class SubtitlesProcess(ExternalProcess):
         # instance, int found", out of the reporting, which killed the stage's
         # thread. The film never started and the interface sat at LOADING STREAM
         # for as long as somebody was willing to wait.
-        cmd = [GETSUBS_PATH, str(self.subs["lang"])]
+        cmd = GETSUBS + [str(self.subs["lang"])]
         if "series" in self.subs:
             cmd = cmd + ["-t", str(self.subs["series"])]
             cmd = cmd + ["-s", str(self.subs["season"])]
@@ -98,7 +99,7 @@ class ChosenSubtitlesProcess(ExternalProcess):
             "lang": self.subs.get("lang") or "eng",
             "files": self.subs.get("chosen") or [],
         }
-        return [GETSUBS_PATH, wanted["lang"], "--choosens", json.dumps(wanted)]
+        return GETSUBS + [wanted["lang"], "--choosens", json.dumps(wanted)]
 
     def _ready(self):
         while True:

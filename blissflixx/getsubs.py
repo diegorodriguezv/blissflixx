@@ -1,4 +1,15 @@
-#!/usr/bin/env python3
+"""
+OpenSubtitles, spoken to directly.
+
+Run as ``python -m blissflixx.getsubs``. The command is built in
+``blissflixx/player/subsproc.py`` (and used by the subtitle search), so the
+child is the same interpreter as the server by construction -- the old path to
+``bin/getsubs.py`` was executed through its shebang and was one PATH away from
+being a different Python.
+
+``--list`` prints the candidates as JSON; ``--choosens`` downloads one of them.
+Without either it searches and prints ``{"filename": ...}``.
+"""
 
 import io
 import json

@@ -1159,12 +1159,12 @@ class VlcProcess(PlayerBackend):
             return False
         import json as _json
 
-        from .subsproc import GETSUBS_PATH
+        from .subsproc import GETSUBS
 
         wanted = _json.dumps({"lang": lang or "eng", "files": chosen})
         try:
             out = subprocess.check_output(
-                [GETSUBS_PATH, lang or "eng", "--choosens", wanted],
+                GETSUBS + [lang or "eng", "--choosens", wanted],
                 stderr=subprocess.STDOUT,
                 timeout=90,
             )

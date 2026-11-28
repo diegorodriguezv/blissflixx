@@ -14,8 +14,8 @@ it (a backup volume, a larger card); the default is ``<root>/data``, which is
 where existing installations already keep it.
 
 The values are str rather than Path on purpose. Most of them are interpolated
-into shell commands by the player (OMX_CMD, the torrent argv, getsubs.py,
-yt-dlp) or passed to subprocess, so keeping them as plain strings avoids
+into shell commands by the player (OMX_CMD, the torrent argv, yt-dlp) or
+passed to subprocess, so keeping them as plain strings avoids
 scattering str() calls across the riskiest code in the project. Use pathlib
 internally, as below, but keep the exported types.
 """

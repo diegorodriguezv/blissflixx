@@ -323,8 +323,8 @@ class TestSubtitles:
     def test_movie_form(self):
         proc = SubtitlesProcess({"lang": "eng", "title": "The Matrix", "year": 1999})
         cmd = proc._get_cmd({})
-        assert cmd[0].endswith("getsubs.py")
-        assert cmd[1] == "eng"
+        assert cmd[:3] == [sys.executable, "-m", "blissflixx.getsubs"]
+        assert cmd[3] == "eng"
         assert "-t" in cmd and "The Matrix" in cmd
         assert "-y" in cmd and "1999" in cmd
 
