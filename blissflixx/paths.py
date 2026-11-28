@@ -102,3 +102,6 @@ NODE_PATH = str(_DATA / "node")
 COOKIES_PATH = str(_DATA / "cookies.txt")
 CHAN_PATH = str(_PACKAGE / "channels")
 PLUGIN_PATH = str(_ROOT / "plugins")
+#: Committed third-party executables that nothing here builds. See
+#: vendor/README.md for what each one is and where it came from.
+VENDOR_PATH = str(_ROOT / "vendor")

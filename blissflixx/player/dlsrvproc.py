@@ -1,9 +1,9 @@
 import os
 
-from ..paths import BIN_PATH
+from ..paths import VENDOR_PATH
 from .processpipe import ExternalProcess, ProcessException
 
-DLSRV_PATH = os.path.join(BIN_PATH, "dlsrv")
+DLSRV_PATH = os.path.join(VENDOR_PATH, "dlsrv")
 _DLSRV_PORT = "9696"
 
 

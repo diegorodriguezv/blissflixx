@@ -152,7 +152,13 @@ class TestValues:
         assert osp.dirname(paths.CHAN_PATH) == paths.PACKAGE_PATH
 
     def test_plugins_and_the_rest_are_siblings_under_root(self):
-        for name in ("PLUGIN_PATH", "HTML_PATH", "BIN_PATH", "DATA_PATH"):
+        for name in (
+            "PLUGIN_PATH",
+            "HTML_PATH",
+            "BIN_PATH",
+            "DATA_PATH",
+            "VENDOR_PATH",
+        ):
             assert osp.dirname(getattr(paths, name)) == paths.ROOT_PATH, name
 
     def test_settings_and_runtime_state_live_under_data(self):
@@ -165,8 +171,18 @@ class TestValues:
         assert not hasattr(paths, "YTUBE_PATH")
 
     def test_expected_directories_exist_in_a_checkout(self):
-        for name in ("ROOT_PATH", "PACKAGE_PATH", "CHAN_PATH", "HTML_PATH", "BIN_PATH"):
+        for name in (
+            "ROOT_PATH",
+            "PACKAGE_PATH",
+            "CHAN_PATH",
+            "HTML_PATH",
+            "BIN_PATH",
+            "VENDOR_PATH",
+        ):
             assert osp.isdir(getattr(paths, name)), name
+
+    def test_the_vendored_download_server_is_present(self):
+        assert osp.isfile(osp.join(paths.VENDOR_PATH, "dlsrv"))
 
 
 class TestRuntimeStateStaysOutOfTheCheckout:
