@@ -30,12 +30,12 @@ import sys
 import time
 
 import blissflixx.gitutils as gitutils
-import blissflixx.locations as locations
+import blissflixx.paths as paths
 
 #: Where the outcome is written, so it survives the restart the button causes.
 #: The page reloads when it comes back, and without this a successful update
 #: and an update that changed nothing look identical after that reload.
-LAST_UPDATE_PATH = os.path.join(locations.DATA_PATH, "last-update.json")
+LAST_UPDATE_PATH = os.path.join(paths.DATA_PATH, "last-update.json")
 
 #: Something for the smoke test to resolve.
 #:
@@ -195,8 +195,8 @@ def update_ytdlp():
 
 def update_blissflixx():
     """Pull this checkout, and keep the installed package in step with it."""
-    before = gitutils.head_sha(locations.ROOT_PATH)
-    result = gitutils.pull(locations.ROOT_PATH, name="blissflixx")
+    before = gitutils.head_sha(paths.ROOT_PATH)
+    result = gitutils.pull(paths.ROOT_PATH, name="blissflixx")
     part = Part(
         result.name,
         ok=result.ok,
@@ -219,7 +219,7 @@ def update_blissflixx():
             "install",
             "--no-deps",
             "-e",
-            locations.ROOT_PATH,
+            paths.ROOT_PATH,
         ],
         600,
     )
@@ -235,7 +235,7 @@ def update_blissflixx():
         )
 
     if result.changed and gitutils.requirements_changed(
-        locations.ROOT_PATH, before, result.detail
+        paths.ROOT_PATH, before, result.detail
     ):
         part.note = (
             "requirements.txt changed. Run ./configure_py.sh to install "
@@ -262,7 +262,7 @@ def run():
             changed=r.changed,
             detail=r.detail,
         )
-        for r in gitutils.pull_subdirs(locations.PLUGIN_PATH)
+        for r in gitutils.pull_subdirs(paths.PLUGIN_PATH)
     )
 
     parts.append(update_ytdlp())

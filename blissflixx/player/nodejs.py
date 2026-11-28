@@ -14,7 +14,7 @@ and names it explicitly, installs and uninstalls with `rm -rf data/node`.
 
 import os
 
-from ..locations import NODE_PATH
+from ..paths import NODE_PATH
 
 #: The binary, when the checkout has its own runtime.
 _BUNDLED = os.path.join(NODE_PATH, "bin", "node")

@@ -17,7 +17,7 @@ import unittest.mock as m
 import pytest
 
 import blissflixx.server as blissflixx
-from blissflixx import locations
+from blissflixx import paths
 
 
 @pytest.fixture
@@ -299,7 +299,7 @@ class TestTheWordsAreTheOnesThePressedTabShows:
 
     def test_the_server_sends_what_the_pressed_tab_says(self):
         source = (
-            pathlib.Path(locations.HTML_PATH) / "js" / "PowerStore.js"
+            pathlib.Path(paths.HTML_PATH) / "js" / "PowerStore.js"
         ).read_text()
 
         for action, message in blissflixx.POWER_MESSAGES.items():
@@ -319,7 +319,7 @@ class TestTheWordsAreTheOnesThePressedTabShows:
         in hand.
         """
         source = (
-            pathlib.Path(locations.HTML_PATH) / "js" / "PowerStore.js"
+            pathlib.Path(paths.HTML_PATH) / "js" / "PowerStore.js"
         ).read_text()
 
         assert "self.msg = action === 'shutdown'" in source, source
@@ -361,7 +361,7 @@ class TestATabThatOnlyWatched:
         Utils.showError('/offline/offline');
         console.log(JSON.stringify(shown));
         """
-        utils = (pathlib.Path(locations.HTML_PATH) / "js" / "Utils.js").read_text()
+        utils = (pathlib.Path(paths.HTML_PATH) / "js" / "Utils.js").read_text()
 
         with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False) as fh:
             fh.write(
@@ -424,7 +424,7 @@ class TestATabThatOnlyWatched:
         started once already. The checks above run the function; this only says
         the thing they rely on is there to be run.
         """
-        source = (pathlib.Path(locations.HTML_PATH) / "js" / "Utils.js").read_text()
+        source = (pathlib.Path(paths.HTML_PATH) / "js" / "Utils.js").read_text()
         code = re.sub(r"//.*", "", source)
 
         assert (
@@ -437,7 +437,7 @@ class TestTheBarRendersIt:
 
     def test_the_bar_already_shows_the_servers_own_text(self):
         source = (
-            pathlib.Path(locations.HTML_PATH) / "tags" / "playerr.html"
+            pathlib.Path(paths.HTML_PATH) / "tags" / "playerr.html"
         ).read_text()
         # opts.msg is this tab's own (a restart it asked for); the other two come
         # from the server's status -- Msg for a failure, and Notice for something
@@ -451,6 +451,6 @@ class TestTheBarRendersIt:
         and then have to be dismissed again, once a second, forever.
         """
         source = (
-            pathlib.Path(locations.HTML_PATH) / "tags" / "playerr.html"
+            pathlib.Path(paths.HTML_PATH) / "tags" / "playerr.html"
         ).read_text()
         assert "!opts.status.Restart" in source, source

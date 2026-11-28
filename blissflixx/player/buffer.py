@@ -20,7 +20,7 @@ HEADROOM, at the moment the film's size is known, and never look again.
 import os
 import shutil
 
-from ..locations import DATA_PATH
+from ..paths import DATA_PATH
 
 #: Left for the system after the film has finished downloading.
 HEADROOM = 100 * 1024 * 1024

@@ -1,7 +1,7 @@
 import json
 from os import path
 
-from ..locations import SETTINGS_PATH
+from ..paths import SETTINGS_PATH
 
 _cache = {}
 

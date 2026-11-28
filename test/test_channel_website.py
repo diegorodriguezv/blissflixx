@@ -11,7 +11,7 @@ import re
 
 import pytest
 
-from blissflixx import locations
+from blissflixx import paths
 from blissflixx.api.channels import Channel, InstalledChannels
 
 
@@ -22,11 +22,11 @@ def _describe(text):
 
 
 def _tag(name):
-    return locations.HTML_PATH + "/tags/" + name
+    return paths.HTML_PATH + "/tags/" + name
 
 
 def _page(name):
-    return locations.HTML_PATH + "/pages/" + name
+    return paths.HTML_PATH + "/pages/" + name
 
 
 def _read(path):

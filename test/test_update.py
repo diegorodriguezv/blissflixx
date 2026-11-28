@@ -455,7 +455,7 @@ class TestTheInstalledPackageFollowsTheCode:
         assert install[0] == sys.executable
         assert "--no-deps" in install
         assert "-e" in install
-        assert install[-1] == updater.locations.ROOT_PATH
+        assert install[-1] == updater.paths.ROOT_PATH
 
     def test_a_pull_that_moved_nothing_still_checks_the_install(
         self, _nothing_is_really_run, monkeypatch

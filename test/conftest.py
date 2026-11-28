@@ -4,7 +4,7 @@ Shared test fixtures.
 Two things need neutralising before any BlissFlixx module is imported for
 testing:
 
-1. Settings. blissflixx/settings writes to data/settings/ derived from blissflixx/locations,
+1. Settings. blissflixx/settings writes to data/settings/ derived from blissflixx/paths,
    which resolves against the checkout. Tests must never read or write the real
    user's playlists and channel settings, so SETTINGS_PATH is redirected into a
    temporary directory. The module caches loaded values in _cache, so that cache

@@ -22,7 +22,7 @@ import os
 import threading
 import time
 
-from .locations import DATA_PATH
+from .paths import DATA_PATH
 
 #: How long an outcome is kept. A stream that worked last month says nothing
 #: about the URL there now, and the file is meant to stay small.

@@ -1,7 +1,7 @@
 import json
 import os
 
-from ..locations import BIN_PATH
+from ..paths import BIN_PATH
 from .processpipe import ExternalProcess, ProcessException
 
 GETSUBS_PATH = os.path.join(BIN_PATH, "getsubs.py")

@@ -24,7 +24,7 @@ import re
 import pytest
 
 import blissflixx.server as blissflixx
-from blissflixx import locations
+from blissflixx import paths
 
 
 @pytest.fixture(scope="module")
@@ -47,7 +47,7 @@ class TestTheDocumentCarriesTheBuild:
 
         sha = subprocess.run(
             ["git", "rev-parse", "--short", "HEAD"],
-            cwd=locations.ROOT_PATH,
+            cwd=paths.ROOT_PATH,
             capture_output=True,
             text=True,
             timeout=30,
@@ -70,7 +70,7 @@ class TestTheDocumentCarriesTheBuild:
         assert "window.BF_BUILD = '%s';" % build in served
 
     def test_and_the_page_uses_it_on_the_requests_it_makes(self):
-        source = locations.HTML_PATH + "/app.html"
+        source = paths.HTML_PATH + "/app.html"
         with open(source) as handle:
             app = handle.read()
         assert "window.BF_BUILD" in app, (

@@ -6,7 +6,7 @@ from queue import Full, Queue
 import cherrypy
 
 from .. import playquality
-from ..locations import DATA_PATH
+from ..paths import DATA_PATH
 from . import ythelper
 from .backends import DEFAULT_BACKEND, get_backend
 from .dlsrvproc import DlsrvProcess

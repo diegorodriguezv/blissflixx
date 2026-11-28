@@ -21,7 +21,7 @@ from threading import Lock, Thread
 #: interface can put on screen.
 from ..chanutils.reddit import ArchiveBusy
 from ..chanutils.languages import LANGUAGES
-from ..locations import PLUGIN_PATH, ROOT_PATH
+from ..paths import PLUGIN_PATH, ROOT_PATH
 from ..settings import load, save
 from .common import ApiError
 

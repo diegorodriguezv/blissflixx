@@ -32,12 +32,12 @@ class TestEnsureDataDirs:
     """
 
     def test_creates_every_directory_the_server_writes_to(self, tmp_path, monkeypatch):
-        import blissflixx.locations as locations
+        import blissflixx.paths as paths
 
-        monkeypatch.setattr(locations, "DATA_PATH", str(tmp_path / "data"))
-        monkeypatch.setattr(locations, "PLUGIN_PATH", str(tmp_path / "plugins"))
-        monkeypatch.setattr(locations, "SETTINGS_PATH", str(tmp_path / "data/settings"))
-        monkeypatch.setattr(locations, "PLIST_PATH", str(tmp_path / "data/playlists"))
+        monkeypatch.setattr(paths, "DATA_PATH", str(tmp_path / "data"))
+        monkeypatch.setattr(paths, "PLUGIN_PATH", str(tmp_path / "plugins"))
+        monkeypatch.setattr(paths, "SETTINGS_PATH", str(tmp_path / "data/settings"))
+        monkeypatch.setattr(paths, "PLIST_PATH", str(tmp_path / "data/playlists"))
 
         blissflixx.ensure_data_dirs()
 
@@ -48,22 +48,22 @@ class TestEnsureDataDirs:
 
     def test_is_idempotent(self, tmp_path, monkeypatch):
         """Called on every start, so a second call must not raise."""
-        import blissflixx.locations as locations
+        import blissflixx.paths as paths
 
-        monkeypatch.setattr(locations, "DATA_PATH", str(tmp_path / "data"))
-        monkeypatch.setattr(locations, "PLUGIN_PATH", str(tmp_path / "plugins"))
-        monkeypatch.setattr(locations, "SETTINGS_PATH", str(tmp_path / "data/settings"))
-        monkeypatch.setattr(locations, "PLIST_PATH", str(tmp_path / "data/playlists"))
+        monkeypatch.setattr(paths, "DATA_PATH", str(tmp_path / "data"))
+        monkeypatch.setattr(paths, "PLUGIN_PATH", str(tmp_path / "plugins"))
+        monkeypatch.setattr(paths, "SETTINGS_PATH", str(tmp_path / "data/settings"))
+        monkeypatch.setattr(paths, "PLIST_PATH", str(tmp_path / "data/playlists"))
         blissflixx.ensure_data_dirs()
         blissflixx.ensure_data_dirs()
 
     def test_does_not_clobber_existing_files(self, tmp_path, monkeypatch):
-        import blissflixx.locations as locations
+        import blissflixx.paths as paths
 
-        monkeypatch.setattr(locations, "DATA_PATH", str(tmp_path / "data"))
-        monkeypatch.setattr(locations, "PLUGIN_PATH", str(tmp_path / "plugins"))
-        monkeypatch.setattr(locations, "SETTINGS_PATH", str(tmp_path / "data/settings"))
-        monkeypatch.setattr(locations, "PLIST_PATH", str(tmp_path / "data/playlists"))
+        monkeypatch.setattr(paths, "DATA_PATH", str(tmp_path / "data"))
+        monkeypatch.setattr(paths, "PLUGIN_PATH", str(tmp_path / "plugins"))
+        monkeypatch.setattr(paths, "SETTINGS_PATH", str(tmp_path / "data/settings"))
+        monkeypatch.setattr(paths, "PLIST_PATH", str(tmp_path / "data/playlists"))
         blissflixx.ensure_data_dirs()
         existing = tmp_path / "data" / "settings" / "player"
         existing.write_text('{"backend": "mpv"}')
@@ -80,13 +80,13 @@ class TestFirstTimeInstallCreatesDirsEvenWhenYtDlpIsPresent:
 
     def _redirect(self, tmp_path, monkeypatch):
         """Point the data directories at a scratch tree."""
-        import blissflixx.locations as locations
+        import blissflixx.paths as paths
 
         data = tmp_path / "data"
-        monkeypatch.setattr(locations, "DATA_PATH", str(data))
-        monkeypatch.setattr(locations, "PLUGIN_PATH", str(tmp_path / "plugins"))
-        monkeypatch.setattr(locations, "SETTINGS_PATH", str(data / "settings"))
-        monkeypatch.setattr(locations, "PLIST_PATH", str(data / "playlists"))
+        monkeypatch.setattr(paths, "DATA_PATH", str(data))
+        monkeypatch.setattr(paths, "PLUGIN_PATH", str(tmp_path / "plugins"))
+        monkeypatch.setattr(paths, "SETTINGS_PATH", str(data / "settings"))
+        monkeypatch.setattr(paths, "PLIST_PATH", str(data / "playlists"))
         return data
 
     def test_startup_creates_the_data_directories(self, tmp_path, monkeypatch):
@@ -122,23 +122,23 @@ class TestFirstTimeInstallCreatesDirsEvenWhenYtDlpIsPresent:
         Nothing in the project has a path to a yt-dlp checkout, so nothing can
         quietly go back to running one from there.
         """
-        import blissflixx.locations as locations
+        import blissflixx.paths as paths
 
-        assert not hasattr(locations, "YTUBE_PATH")
+        assert not hasattr(paths, "YTUBE_PATH")
 
     def test_settings_save_then_works(self, tmp_path, monkeypatch):
         """
         The end-to-end symptom: a settings write on a checkout that has yt-dlp
         but no data directory.
         """
-        import blissflixx.locations as locations
+        import blissflixx.paths as paths
         from blissflixx import settings as settings_module
 
         data = tmp_path / "data"
-        monkeypatch.setattr(locations, "DATA_PATH", str(data))
-        monkeypatch.setattr(locations, "PLUGIN_PATH", str(tmp_path / "plugins"))
-        monkeypatch.setattr(locations, "SETTINGS_PATH", str(data / "settings"))
-        monkeypatch.setattr(locations, "PLIST_PATH", str(data / "playlists"))
+        monkeypatch.setattr(paths, "DATA_PATH", str(data))
+        monkeypatch.setattr(paths, "PLUGIN_PATH", str(tmp_path / "plugins"))
+        monkeypatch.setattr(paths, "SETTINGS_PATH", str(data / "settings"))
+        monkeypatch.setattr(paths, "PLIST_PATH", str(data / "playlists"))
         monkeypatch.setattr(settings_module, "SETTINGS_PATH", str(data / "settings"))
         settings_module._cache.clear()
 

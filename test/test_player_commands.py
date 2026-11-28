@@ -19,7 +19,7 @@ import unittest.mock as m
 
 import pytest
 
-from blissflixx.locations import BIN_PATH
+from blissflixx.paths import BIN_PATH
 from blissflixx.player import ythelper
 from blissflixx.player.dlsrvproc import DlsrvProcess
 from blissflixx.player.localproc import LocalFileProcess

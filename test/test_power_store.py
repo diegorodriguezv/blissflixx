@@ -110,9 +110,9 @@ class TestARebootDoesNotBlameTheServer:
         import pathlib
         import subprocess
 
-        from blissflixx import locations
+        from blissflixx import paths
 
-        source = (pathlib.Path(locations.HTML_PATH) / "js" / "Utils.js").read_text()
+        source = (pathlib.Path(paths.HTML_PATH) / "js" / "Utils.js").read_text()
         assert "powerStore.getMsg()" in source, (
             "Utils.showError still hijacks the screen during a deliberate "
             "reboot or shutdown"
@@ -144,9 +144,9 @@ class TestARebootDoesNotBlameTheServer:
         console.log(JSON.stringify(shown));
         """
 
-        from blissflixx import locations
+        from blissflixx import paths
 
-        utils = (pathlib.Path(locations.HTML_PATH) / "js" / "Utils.js").read_text()
+        utils = (pathlib.Path(paths.HTML_PATH) / "js" / "Utils.js").read_text()
 
         def run(power_msg):
             with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False) as fh:

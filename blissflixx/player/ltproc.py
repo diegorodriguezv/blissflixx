@@ -27,6 +27,7 @@ import cherrypy
 
 from ..api.torrent import torrent2magnet
 from . import buffer as buffer_space
+from ..paths import BIN_PATH
 from .buffer import BUFFER_DIR
 from .processpipe import ExternalProcess, ProcessException
 
@@ -38,15 +39,11 @@ _PORT = "9697"
 #: so in one line, with the command that fixes it.
 SYSTEM_PYTHON = "/usr/bin/python3"
 
-BT_SERVE = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
-    "bin",
-    "bt_serve.py",
-)
+BT_SERVE = os.path.join(BIN_PATH, "bt_serve.py")
 
 #: bt_serve.py behind one retry for a native crash. See the script: it is the
 #: only failure with nothing to act on, and it lands before the play starts.
-BT_SERVE_RETRY = os.path.join(os.path.dirname(BT_SERVE), "bt_serve_retry.sh")
+BT_SERVE_RETRY = os.path.join(BIN_PATH, "bt_serve_retry.sh")
 
 _SERVING_RE = re.compile(
     r"bf-bt: serving (http://\S+) index=(-?\d+) name=(.*?) length=(\d+) "

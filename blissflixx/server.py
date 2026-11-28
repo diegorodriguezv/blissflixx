@@ -10,6 +10,8 @@ import sys
 import time
 import traceback
 
+import blissflixx.paths as paths
+
 #: The virtualenv this checkout keeps its dependencies in, which configure_py.sh
 #: creates and which this program refuses to run without.
 VENV_NAME = "virtualenv"
@@ -33,9 +35,7 @@ def require_virtualenv():
     instead of an ImportError. It costs nothing that matters: this function
     needs only the standard library.
     """
-    expected = os.path.join(
-        os.path.dirname(os.path.dirname(os.path.abspath(__file__))), VENV_NAME
-    )
+    expected = os.path.join(paths.ROOT_PATH, VENV_NAME)
     if os.path.realpath(sys.prefix) == os.path.realpath(expected):
         return
 
@@ -58,7 +58,6 @@ from cherrypy._cplogging import LogManager
 from cherrypy.lib import static
 from cherrypy.process.plugins import Daemonizer
 
-import blissflixx.locations as locations
 import blissflixx.updater as updater
 
 # blissflixx.api's __init__ is deliberately empty, so its submodules are
@@ -138,7 +137,7 @@ def _git_sha():
     try:
         sha = subprocess.run(
             ["git", "rev-parse", "--short", "HEAD"],
-            cwd=locations.ROOT_PATH,
+            cwd=paths.ROOT_PATH,
             capture_output=True,
             text=True,
             timeout=10,
@@ -234,7 +233,7 @@ POWER_MESSAGES = {"reboot": "Rebooting...", "shutdown": "Shutting down..."}
 #: to wherever configure.sh was run, so "from the checkout" is not a detail that
 #: can be left out -- and the -only flag, without which it reinstalls every
 #: system dependency first and takes most of an hour on a Pi 3.
-POWER_SETUP_COMMAND = "cd %s && sudo ./configure.sh -boot -only" % locations.ROOT_PATH
+POWER_SETUP_COMMAND = "cd %s && sudo ./configure.sh -boot -only" % paths.ROOT_PATH
 
 
 def check_not_root():
@@ -257,11 +256,11 @@ def ensure_data_dirs():
     produce exactly that state.
     """
     for path in (
-        locations.PLUGIN_PATH,
-        locations.DATA_PATH,
-        os.path.join(locations.DATA_PATH, "playlists"),
-        locations.SETTINGS_PATH,
-        os.path.join(locations.DATA_PATH, "downloads"),
+        paths.PLUGIN_PATH,
+        paths.DATA_PATH,
+        os.path.join(paths.DATA_PATH, "playlists"),
+        paths.SETTINGS_PATH,
+        os.path.join(paths.DATA_PATH, "downloads"),
     ):
         os.makedirs(path, exist_ok=True)
 
@@ -361,7 +360,7 @@ class Api:
                 "it by hand, this is what to run on this machine:"
             )
             lines.append("")
-            lines.append("    cd %s && ./configure_py.sh" % locations.ROOT_PATH)
+            lines.append("    cd %s && ./configure_py.sh" % paths.ROOT_PATH)
         return "\n".join(lines)
 
     def _version(self):
@@ -499,7 +498,7 @@ class Api:
 
     @cherrypy.expose
     def chanimage(self, chid, img):
-        path = os.path.join(locations.CHAN_PATH, chid, img)
+        path = os.path.join(paths.CHAN_PATH, chid, img)
         return static.serve_file(path)
 
     @cherrypy.expose
@@ -664,7 +663,7 @@ class HtmlDocument:
         try:
             sha = subprocess.run(
                 ["git", "rev-parse", "--short", "HEAD"],
-                cwd=locations.ROOT_PATH,
+                cwd=paths.ROOT_PATH,
                 capture_output=True,
                 text=True,
                 timeout=10,
@@ -678,7 +677,7 @@ class HtmlDocument:
     @cherrypy.expose
     def index(self, *args, **kwargs):
         build = self._server_build()
-        path = os.path.join(locations.HTML_PATH, "index.html")
+        path = os.path.join(paths.HTML_PATH, "index.html")
         try:
             with open(path, "r", encoding="utf-8") as handle:
                 page = handle.read()
@@ -738,7 +737,7 @@ class HtmlDocument:
         try:
             sha = subprocess.run(
                 ["git", "rev-parse", "--short", "HEAD"],
-                cwd=locations.ROOT_PATH,
+                cwd=paths.ROOT_PATH,
                 capture_output=True,
                 text=True,
                 timeout=10,
@@ -765,7 +764,7 @@ def mount_trees():
         config={
             "/": {
                 "tools.staticdir.on": True,
-                "tools.staticdir.dir": locations.HTML_PATH,
+                "tools.staticdir.dir": paths.HTML_PATH,
                 # No index file here: the document is built by Html.index()
                 # below so the build can be stamped into it. staticdir's own
                 # index would serve the file off disk, unstamped, and "/" and

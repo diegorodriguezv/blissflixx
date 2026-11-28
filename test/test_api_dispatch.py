@@ -330,11 +330,11 @@ class TestTheVersionEndpoint:
         """
         import subprocess
 
-        from blissflixx import locations
+        from blissflixx import paths
 
         sha = subprocess.run(
             ["git", "rev-parse", "--short", "HEAD"],
-            cwd=locations.ROOT_PATH,
+            cwd=paths.ROOT_PATH,
             capture_output=True,
             text=True,
             timeout=30,
@@ -365,10 +365,10 @@ class TestTheVersionEndpoint:
         """
         import pathlib
 
-        from blissflixx import locations
+        from blissflixx import paths
 
         source = (
-            pathlib.Path(locations.HTML_PATH) / "pages" / "settings.html"
+            pathlib.Path(paths.HTML_PATH) / "pages" / "settings.html"
         ).read_text()
         assert "'versions'" in source, "the settings page never asks what build this is"
 
@@ -443,10 +443,10 @@ class TestWhatIsActuallyRunning:
         """
         import pathlib
 
-        from blissflixx import locations
+        from blissflixx import paths
 
         source = (
-            pathlib.Path(locations.HTML_PATH) / "pages" / "settings.html"
+            pathlib.Path(paths.HTML_PATH) / "pages" / "settings.html"
         ).read_text()
         assert "show={ stale }" in source, "nothing is shown when the two disagree"
 
@@ -625,7 +625,7 @@ class TestThePowerButtons:
 
         assert message.startswith("cd "), message
         assert message.endswith("sudo ./configure.sh -boot -only"), message
-        assert str(blissflixx.locations.ROOT_PATH) in message, message
+        assert str(blissflixx.paths.ROOT_PATH) in message, message
         # One line, so it pastes as one line.
         assert "\n" not in message, message
 

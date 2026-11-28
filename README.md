@@ -236,6 +236,21 @@ seconds:
 The value is read when the server starts, so set it before the process starts
 or in the service's environment; changing it while the server runs does nothing.
 
+### Where data is kept
+
+Settings, playlists, downloads and the JavaScript runtime live under `data/` in
+the checkout. That is runtime state rather than code, and `BLISSFLIXX_DATA`
+moves it as a group:
+
+    BLISSFLIXX_DATA=/mnt/usb/blissflixx-data ./start.sh
+
+The checkout keeps `html/` and the application code. If those live somewhere
+other than the directory the code is installed in, `BLISSFLIXX_ROOT` names it:
+
+    BLISSFLIXX_ROOT=/srv/blissflixx ./start.sh
+
+Both are read when the server starts, like `BF_TIMEOUT`.
+
 ## Driving it from a terminal
 
 Everything the web interface does is an HTTP call to `/api/<module>`, so the

@@ -14,14 +14,14 @@ import re
 
 import pytest
 
-from blissflixx import locations
+from blissflixx import paths
 
 TOPNAV = "tags/topnav.html"
 ERROR = "pages/error.html"
 
 
 def markup(name):
-    with open(pathlib.Path(locations.HTML_PATH) / name) as handle:
+    with open(pathlib.Path(paths.HTML_PATH) / name) as handle:
         return handle.read()
 
 
@@ -194,7 +194,7 @@ class TestThereIsNoChannelsPage:
         """
         import os
 
-        page = os.path.join(locations.HTML_PATH, "pages", "channels.html")
+        page = os.path.join(paths.HTML_PATH, "pages", "channels.html")
         assert os.path.exists(page), (
             "pages/channels.html is what '#channels' and the empty hash both "
             "load. Removing it makes every open tab on that route fail with an "

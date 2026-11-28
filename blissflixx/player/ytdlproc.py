@@ -3,7 +3,7 @@ import os
 import re
 import sys
 
-from ..locations import COOKIES_PATH
+from ..paths import COOKIES_PATH
 from . import nodejs, ythelper
 from .processpipe import OUT_FILE, ExternalProcess, ProcessException
 

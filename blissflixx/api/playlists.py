@@ -8,7 +8,7 @@ import urllib.parse
 
 import requests
 
-from ..locations import PLIST_PATH
+from ..paths import PLIST_PATH
 from ..playitem import PlayItemList, PlaylistItem
 from .common import ApiError
 
